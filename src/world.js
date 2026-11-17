@@ -230,6 +230,7 @@ export class World {
       } else { d = Math.sqrt(d2); _n.set(dx / d, dy / d, dz / d); }
       const pen = b.radius - d; _n.applyQuaternion(o.q);
       b.pos.addScaledVector(_n, pen);
+      b.contact = { point: b.pos.clone().addScaledVector(_n, -b.radius), normal: _n.clone() };
       const vn = b.vel.dot(_n);
       if (vn < 0) { b.vel.addScaledVector(_n, -(1 + e) * vn); if (!hit || -vn > hit.speed) hit = { speed: -vn, normal: _n.clone(), point: b.pos.clone().addScaledVector(_n, -b.radius) }; }
     }
@@ -267,6 +268,7 @@ export class World {
     }
     for (let i = 0; i < ds.length; i++) for (let j = i + 1; j < ds.length; j++) this.collidePair(ds[i], ds[j]);
     // ship
+    ship.contact = null;
     const h1 = this.collideStatic(ship, 0.35); if (h1 && h1.speed > 0.5) onShipHit(h1, 1);
     for (const d of ds) { const h = this.collidePair(ship, d, 0.45); if (h) { d.spin.add(new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(Math.min(3, h.speed * 0.25))); if (h.speed > 0.5) onShipHit(h, d.mass); } }
   }

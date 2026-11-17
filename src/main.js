@@ -81,7 +81,8 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 // ---- effects ----------------------------------------------------------------------------
-const C = { hot: new THREE.Color(1, 0.55, 0.22), warm: new THREE.Color(1, 0.8, 0.5), white: new THREE.Color(0.8, 0.85, 1), cool: new THREE.Color(0.75, 0.9, 1), spark: new THREE.Color(1, 0.7, 0.35) };
+const Q = coarse ? 0.5 : 1;   // quality tier: half the particle rate on phones
+const C = { blue: new THREE.Color(0.55, 0.75, 1), core: new THREE.Color(1, 0.95, 0.85), chip: new THREE.Color(0.8, 0.72, 0.6), hot: new THREE.Color(1, 0.55, 0.22), warm: new THREE.Color(1, 0.8, 0.5), white: new THREE.Color(0.8, 0.85, 1), cool: new THREE.Color(0.75, 0.9, 1), spark: new THREE.Color(1, 0.7, 0.35) };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 let emitAcc = 0;
 
@@ -90,13 +91,15 @@ function engineFx(dt) {
   const len = f.main * (f.boost ? 3.4 : 2.0) * (0.9 + 0.1 * Math.random());
   for (const g of glows) { g.scale.set(0.5 + f.main * 0.6, 0.5 + f.main * 0.6, Math.max(0.01, len)); g.visible = f.main > 0.02; }
   light.intensity = f.main * (f.boost ? 40 : 18);
-  emitAcc += dt * 110 * f.main;
+  emitAcc += dt * 110 * Q * f.main;
   while (emitAcc > 1) {
     emitAcc--;
     for (const x of [-0.55, 0.55]) {
       _a.set(x + (Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.25, 2.3).applyQuaternion(ship.quat).add(ship.pos);
       _b.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, 11 + Math.random() * 6 * (f.boost ? 2 : 1)).applyQuaternion(ship.quat).add(ship.vel);
-      parts.emit(_a, _b, 0.5 + Math.random() * 0.4, 0.9, Math.random() < 0.35 ? C.warm : C.hot);
+      const r = Math.random();
+      parts.emit(_a, _b, 0.5 + Math.random() * 0.4, 0.9, f.boost && r < 0.3 ? C.blue : r < 0.35 ? C.warm : C.hot);
+      if (r < 0.25) { _b.multiplyScalar(0.55); parts.emit(_a, _b, 0.18, 0.7, C.core); }
     }
   }
 }
@@ -113,30 +116,58 @@ function rcsFx(dt) {
   solveRcs(_accel, _alpha, rcsLvl);
   const nub = shipMesh.userData.nubs;
   for (let i = 0; i < NOZZLES.length; i++) {
-    const k = rcsLvl[i] > rcsSm[i] ? 30 : 9;                 // fast attack, short tail
+    const k = rcsLvl[i] > rcsSm[i] ? 30 : 14;                 // fast attack, short tail
     rcsSm[i] = THREE.MathUtils.damp(rcsSm[i], rcsLvl[i], k, dt);
-    const v = rcsSm[i]; nub[i].visible = v > 0.04;
-    if (v < 0.04) continue;
-    nub[i].scale.set(0.6 + v * 0.6, 0.6 + v * 0.6, 0.35 + v * 1.1);
+    const v = rcsSm[i]; nub[i].visible = v > 0.06;
+    if (v < 0.06) continue;
+    nub[i].scale.set(0.7 + v * 0.3, 0.7 + v * 0.3, 0.4 + v * 0.8);
     const n = NOZZLES[i];
     // short bright core (this frame only) plus a trail of pooled puffs
     _a.copy(n.pos).addScaledVector(n.dir, 0.12).applyQuaternion(ship.quat).add(ship.pos);
-    _b.copy(n.dir).multiplyScalar(5 + v * 5).applyQuaternion(ship.quat).add(ship.vel);
-    parts.emit(_a, _b, 0.07, 0.55 + v * 0.5, C.cool);
-    rcsAcc[i] += dt * 40 * v;
+    _b.copy(n.dir).multiplyScalar(4 + v * 3).applyQuaternion(ship.quat).add(ship.vel);
+    parts.emit(_a, _b, 0.05, 0.3 + v * 0.25, C.cool);
+    rcsAcc[i] += dt * 14 * Q * v;
     while (rcsAcc[i] > 1) {
       rcsAcc[i]--;
-      _b.copy(n.dir).multiplyScalar(7 + Math.random() * 5 * v).add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(1.6)).applyQuaternion(ship.quat).add(ship.vel);
-      parts.emit(_a, _b, 0.28 + Math.random() * 0.2, 0.34, C.white);
+      _b.copy(n.dir).multiplyScalar(4 + Math.random() * 3 * v).add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(1)).applyQuaternion(ship.quat).add(ship.vel);
+      parts.emit(_a, _b, 0.18 + Math.random() * 0.12, 0.2, C.white);
     }
   }
 }
 
 function sparks(hit, n) {
+  n = Math.ceil(n * Q);
+  // slow dull chips of hull alongside the bright sparks
+  for (let i = 0; i < n * 0.4; i++) {
+    _b.copy(hit.normal).multiplyScalar(2 + Math.random() * 4).add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(5));
+    parts.emit(hit.point, _b, 0.9 + Math.random() * 0.8, 0.22, C.chip);
+  }
   for (let i = 0; i < n; i++) {
     _b.copy(hit.normal).multiplyScalar(4 + Math.random() * 10).add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(10));
     parts.emit(hit.point, _b, 0.4 + Math.random() * 0.5, 0.35, C.spark);
   }
+}
+
+// hull scrape: while pressed against a surface and sliding, throw a stream of sparks along the slide
+const _t1 = new THREE.Vector3();
+function scrapeFx(dt) {
+  const c = ship.contact; if (!c) return;
+  _t1.copy(ship.vel); _t1.addScaledVector(c.normal, -_t1.dot(c.normal));
+  const slide = _t1.length(); if (slide < 3) return;
+  scrapeAcc += dt * Math.min(90, slide * 5) * Q;
+  while (scrapeAcc > 1) {
+    scrapeAcc--;
+    _b.copy(_t1).multiplyScalar(-0.25 - Math.random() * 0.3).addScaledVector(c.normal, 2 + Math.random() * 4).add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(3));
+    parts.emit(c.point, _b, 0.25 + Math.random() * 0.35, 0.22, Math.random() < 0.3 ? C.warm : C.spark);
+  }
+  if (slide > 8) rig.kick(0.01);
+}
+let scrapeAcc = 0;
+
+function navFx(t) {
+  const navs = shipMesh.userData.navs;
+  navs[0].material.opacity = navs[1].material.opacity = 0.55 + 0.1 * Math.sin(t * 2);
+  navs[2].material.opacity = (t % 1.6) < 0.09 ? 1 : 0.05;    // short white strobe every 1.6s
 }
 
 let respawnT = 0;
@@ -178,6 +209,8 @@ function frame(now) {
   shipMesh.position.copy(ship.pos); shipMesh.quaternion.copy(ship.quat);
   rcsFx(dt);
   engineFx(dt);
+  scrapeFx(dt);
+  navFx(time);
   parts.update(dt, innerHeight, renderer.getPixelRatio());
   world.updateDust(ship.pos, ship.vel);
   rig.update(dt, ship);
