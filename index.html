@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#07090d">
+<title>Low Orbit</title>
+<style>
+:root{--void:#07090d;--bone:#e8e0cc;--rust:#5a4a3f;--hazard:#ff5a1f;--dim:rgba(232,224,204,.42)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--void);color:var(--bone);overflow:hidden;overscroll-behavior:none;
+  font-family:"Bahnschrift","DIN Alternate","Arial Narrow","Roboto Condensed",sans-serif;user-select:none;-webkit-user-select:none}
+canvas#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hud{position:fixed;inset:0;pointer-events:none;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.14em;font-size:10px;text-transform:uppercase;color:var(--dim)}
+#speed{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));line-height:.85}
+#speed b{display:block;font-size:clamp(54px,9vw,104px);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+#speed .mono{display:block;margin:0 0 6px 4px}
+#assist{position:absolute;left:max(16px,env(safe-area-inset-left));top:max(16px,env(safe-area-inset-top));display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;padding:8px 0}
+#assist i{width:10px;height:10px;border:1.5px solid var(--dim);transform:rotate(45deg);transition:.15s}
+#assist.on i{background:var(--hazard);border-color:var(--hazard);box-shadow:0 0 10px var(--hazard)}
+#assist.on span{color:var(--bone)}
+#hull{position:absolute;right:max(16px,env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column-reverse;gap:4px}
+#hull i{display:block;width:6px;height:16px;background:var(--bone);opacity:.85;transition:opacity .2s,background .2s}
+#hull i.off{opacity:.14}
+#hull.low i:not(.off){background:var(--hazard)}
+#reticle,#pro{position:absolute;left:0;top:0;will-change:transform}
+#reticle{width:30px;height:30px;margin:-15px 0 0 -15px;border:1.5px solid var(--bone);border-radius:50%;opacity:.55;clip-path:polygon(0 0,38% 0,38% 100%,62% 100%,62% 0,100% 0,100% 100%,0 100%)}
+#reticle::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px;background:var(--bone);border-radius:50%}
+#pro{width:22px;height:22px;margin:-11px 0 0 -11px;border:1.5px solid var(--hazard);border-radius:50%}
+#pro::before,#pro::after{content:"";position:absolute;background:var(--hazard)}
+#pro::before{left:50%;top:-7px;width:1.5px;height:5px;margin-left:-.75px}
+#pro::after{left:-7px;top:50%;height:1.5px;width:5px;margin-top:-.75px;box-shadow:24px 0 0 var(--hazard)}
+#flash{position:fixed;inset:0;background:var(--hazard);opacity:0;pointer-events:none;mix-blend-mode:screen}
+#touch{position:fixed;inset:0;display:none;touch-action:none}
+body.touch #touch{display:block}
+.zone{position:absolute;top:0;bottom:0;touch-action:none}
+#zl{left:0;width:46%}#zr{right:0;width:54%}
+.knob-base,.knob{position:absolute;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .15s}
+.knob-base{width:112px;height:112px;margin:-56px;border:1.5px solid var(--dim)}
+.knob{width:46px;height:46px;margin:-23px;background:var(--hazard);opacity:0}
+.on>.knob-base{opacity:1}.on>.knob{opacity:.9}
+.btns{position:absolute;right:max(14px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(2,64px);gap:12px}
+.btn{width:64px;height:64px;border:1.5px solid var(--dim);border-radius:50%;display:grid;place-items:center;touch-action:none;background:rgba(7,9,13,.35)}
+.btn svg{width:26px;height:26px;stroke:var(--bone);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.btn.down{background:var(--hazard);border-color:var(--hazard)}
+.btn.down svg{stroke:var(--void)}
+#veil{position:fixed;inset:0;background:var(--void);transition:opacity 1.2s ease .2s;pointer-events:none}
+#veil.go{opacity:0}
+#hint{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%);transition:opacity .6s;opacity:.8}
+body.touch #hint{display:none}
+@media (max-width:700px){#hull i{height:12px}}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud">
+  <div id="reticle"></div><div id="pro"></div>
+  <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
+  <div id="hull"></div>
+  <div id="speed"><span class="mono">m/s</span><b id="spd">000</b></div>
+</div>
+<div id="touch">
+  <div class="zone" id="zl"><div class="knob-base"></div><div class="knob"></div></div>
+  <div class="zone" id="zr"></div>
+  <div class="btns" id="btns"></div>
+</div>
+<div id="hint" class="mono">click to aim</div>
+<div id="flash"></div>
+<div id="veil"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
