@@ -11,7 +11,7 @@
 html,body{margin:0;height:100%;background:var(--void);color:var(--bone);overflow:hidden;overscroll-behavior:none;touch-action:none;
   -webkit-touch-callout:none;font-family:"Bahnschrift","DIN Alternate","Arial Narrow","Roboto Condensed",sans-serif;user-select:none;-webkit-user-select:none}
 canvas#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
-#hud{position:fixed;inset:0;pointer-events:none;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+#hud{position:fixed;inset:0;z-index:2;pointer-events:none;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.14em;font-size:10px;text-transform:uppercase;color:var(--dim)}
 #speed{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));line-height:.85}
 #speed b{display:block;font-size:clamp(54px,9vw,104px);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
@@ -49,6 +49,23 @@ body.touch #touch{display:block}
 #veil.go{opacity:0}
 #hint{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%);transition:opacity .6s;opacity:.8}
 body.touch #hint{display:none}
+#helpbtn{position:absolute;right:max(16px,env(safe-area-inset-right));top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:.15s}
+#helpbtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#helpbtn.on{background:var(--hazard);border-color:var(--hazard)}#helpbtn.on svg{stroke:var(--void)}
+#help{position:fixed;inset:0;display:grid;place-items:center;background:rgba(7,9,13,.72);opacity:0;pointer-events:none;transition:opacity .2s;z-index:5}
+#help.show{opacity:1;pointer-events:auto}
+#help .card{display:flex;flex-wrap:wrap;justify-content:center;gap:28px 48px;padding:24px;max-width:min(94vw,820px);max-height:92vh;overflow:auto}
+#help section{min-width:130px}
+#help h3{margin:0 0 12px;font:500 10px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--hazard)}
+#help .row{display:flex;align-items:center;gap:14px;margin:0 0 10px;font-size:18px;letter-spacing:.04em;text-transform:uppercase}
+#help kbd{min-width:34px;height:34px;padding:0 8px;display:inline-grid;place-items:center;border:1.5px solid var(--bone);border-bottom-width:3px;border-radius:5px;font:600 13px ui-monospace,Menlo,Consolas,monospace;color:var(--bone)}
+#help kbd.w{min-width:64px}
+#help .wasd{display:grid;grid-template-columns:repeat(3,34px);gap:6px}
+#help .wasd kbd:nth-child(1){grid-column:2}#help .wasd kbd:nth-child(2){grid-row:2;grid-column:1}#help .wasd kbd:nth-child(3){grid-row:2;grid-column:2}#help .wasd kbd:nth-child(4){grid-row:2;grid-column:3}
+#help .ic{width:44px;height:44px;display:grid;place-items:center;border:1.5px solid var(--dim);border-radius:50%}
+#help .ic svg{width:24px;height:24px;stroke:var(--bone);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@media (max-height:420px){#help .card{gap:12px 28px;padding:8px}#help .row{margin-bottom:6px;font-size:15px}#help .ic{width:38px;height:38px}}
+@media (prefers-reduced-motion:reduce){#help,#helpbtn{transition:none}}
 @media (max-width:700px){#hull i{height:12px}}
 </style>
 </head>
@@ -57,6 +74,7 @@ body.touch #hint{display:none}
 <div id="hud">
   <div id="reticle"></div><div id="pro"></div>
   <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
+  <button id="helpbtn" aria-label="Controls"></button>
   <div id="hull"></div>
   <div id="speed"><span class="mono">m/s</span><b id="spd">000</b></div>
 </div>
@@ -66,6 +84,7 @@ body.touch #hint{display:none}
   <div class="btns" id="btns"></div>
 </div>
 <div id="hint" class="mono">click to aim</div>
+<div id="help"></div>
 <div id="flash"></div>
 <div id="veil"></div>
 <script type="module" src="/src/main.js"></script>

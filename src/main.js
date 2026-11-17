@@ -9,6 +9,7 @@ import { World, SUN_DIR } from './world.js';
 import { Input } from './input.js';
 import { CamRig } from './camera.js';
 import { Hud } from './hud.js';
+import { Help } from './help.js';
 import { Particles } from './particles.js';
 
 const canvas = document.getElementById('view');
@@ -45,6 +46,7 @@ const input = new Input(canvas);
 input.onToggleAssist = () => { ship.assist = !ship.assist; };
 const rig = new CamRig(camera, reduced);
 const hud = new Hud();
+new Help(input);
 
 // post: gentle bloom for engines, sun and windows (skipped on phones)
 let composer = null;

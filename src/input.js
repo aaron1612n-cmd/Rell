@@ -1,9 +1,9 @@
 // Unified input: keyboard + mouse (pointer lock / drag) + touch (floating stick, look zone, buttons).
-const ICONS = {
+export const ICONS = {
   up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   down: '<path d="M12 5v14M5 12l7 7 7-7"/>',
   boost: '<path d="M6 17l6-6 6 6M6 11l6-6 6 6"/>',
-  brake: '<circle cx="12" cy="12" r="7"/><path d="M8.5 12h7"/>',
+  brake: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5M9 6.5V9H6.5M15 6.5V9h2.5M9 17.5V15H6.5M15 17.5V15h2.5"/><circle cx="12" cy="12" r="1.6"/>',
   assist: '<path d="M12 4l8 8-8 8-8-8z"/>',
 };
 
