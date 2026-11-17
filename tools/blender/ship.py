@@ -65,8 +65,7 @@ for sx in (-1, 1):
     k.cyl((x, 0, .95), .38, .36, 1.5, 'z', 14, BONE_D, bevel=.025)
     k.cyl((x, 0, .45), .385, .385, .14, 'z', 14, RUST, bevel=.01)           # collar
     k.cyl((x, 0, 1.58), .39, .39, .22, 'z', 14, SLATE, bevel=.01)
-    k.cyl((x, 0, 2.0), .27, .44, .5, 'z', 14, SLATE_D, bevel=.02)           # bell
-    k.cyl((x, 0, 2.12), .34, .34, .06, 'z', 14, BLACK, caps=True)            # inner dark
+    # engine bells, gimbals and plumbing are built at runtime (src/engine.js) so the metal can heat up with thrust
     k.box((x, .32, .8), (.12, .08, .9), RUST, bevel=.015)                   # pod crest
     # pod hazard sleeve: alternating cylinder rings
     for i in range(5):

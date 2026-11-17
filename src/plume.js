@@ -38,12 +38,16 @@ void main(){
   float body = (1.-smoothstep(R*.15, R, r));
   float fadeV = pow(1.-v, 1.4) * smoothstep(0.,.06,v);
   float core = (1.-smoothstep(0., R*.55, r)) * pow(1.-v, 2.2);
-  // shock diamonds: bright beads on the axis on boost
-  float dia = pow(abs(sin(v*18.+uTime*.6)), 3.) * (1.-smoothstep(0.,.45,abs(u))) * smoothstep(.0,.15,v) * pow(1.-v,1.5) * uBoost;
-  float d = body*fadeV*(.9+.7*n)*1.05 + dia*.6;
+  // shock diamonds on boost: a train of bright lozenges on the axis, fading downstream
+  float dz = v / .55, seg = fract(dz * 5.), di = floor(dz * 5.);
+  float dw = .26 * (1. - abs(seg * 2. - 1.)) * (1. - di * .14);
+  float dia = (1. - smoothstep(dw * .55, dw, abs(u))) * step(dz, 1.) * (1. - dz * .6) * uBoost;
+  dia *= .75 + .25 * sin(uTime * 40. + di * 2.);
+  float d = body*fadeV*(.9+.7*n)*1.05 + dia*1.6;
   float heat = clamp(core*1.6 + dia*.8 + (1.-v)*.25, 0., 1.);
   vec3 col = mix(uCool, uMid, smoothstep(.0,.35,heat));
   col = mix(col, uHot, smoothstep(.35,.9,heat));
+  col = mix(col, vec3(1.6,1.75,2.1), clamp(dia, 0., 1.));
   float a = (d + core*.55) * uPower;
   a *= 1. - vFace*vFace*.85;                            // hand over to the halo when looking down the jet
   gl_FragColor = vec4(col*a, a);
