@@ -5,6 +5,7 @@ const _p = new THREE.Vector3(), _f = new THREE.Vector3();
 export class Hud {
   constructor() {
     this.spd = document.getElementById('spd');
+    this.fill = document.getElementById('spdfill'); this.lastFill = -1; this.hot = false;
     this.assist = document.getElementById('assist');
     this.hull = document.getElementById('hull');
     this.reticle = document.getElementById('reticle');
@@ -23,6 +24,9 @@ export class Hud {
   update(dt, ship, camera, w, h) {
     const sp = Math.round(ship.vel.length());
     if (sp !== this.lastSpd) { this.spd.textContent = String(sp).padStart(3, '0'); this.lastSpd = sp; }
+    // speed track: 0..100 m/s, tick at the assist cap; turns hazard past it
+    const f = Math.min(100, Math.round(ship.vel.length()));
+    if (f !== this.lastFill) { this.fill.style.width = f + '%'; this.lastFill = f; const hot = f > 58; if (hot !== this.hot) { this.fill.classList.toggle('hot', hot); this.hot = hot; } }
     const n = Math.ceil(ship.hull * 10 - 1e-6);
     if (n !== this.lastHull) { this.segs.forEach((s, i) => s.classList.toggle('off', i >= n)); this.hull.classList.toggle('low', n <= 3); this.lastHull = n; }
     this.setAssist(ship.assist);
