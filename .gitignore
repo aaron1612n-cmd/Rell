@@ -5,3 +5,4 @@ dist
 shots
 dist-worker.mjs
 __pycache__
+*.whl
