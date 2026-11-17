@@ -53,7 +53,7 @@ scene.add(world.sky);
 
 const ship = new Ship();
 ship.pos.set(30, 14, 142); ship.quat.setFromEuler(new THREE.Euler(-0.06, 0.28, 0));
-const shipMesh = buildShip(shipModel); scene.add(shipMesh);
+const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh);
 const parts = new Particles(900); scene.add(parts.points);
 
 const input = new Input(canvas);
@@ -84,22 +84,25 @@ addEventListener('resize', resize); resize();
 const Q = coarse ? 0.5 : 1;   // quality tier: half the particle rate on phones
 const C = { blue: new THREE.Color(0.55, 0.75, 1), core: new THREE.Color(1, 0.95, 0.85), chip: new THREE.Color(0.8, 0.72, 0.6), hot: new THREE.Color(1, 0.55, 0.22), warm: new THREE.Color(1, 0.8, 0.5), white: new THREE.Color(0.8, 0.85, 1), cool: new THREE.Color(0.75, 0.9, 1), spark: new THREE.Color(1, 0.7, 0.35) };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
-let emitAcc = 0;
+let emitAcc = 0, fxT = 0, boostSm = 0;
 
 function engineFx(dt) {
   const { glows, light } = shipMesh.userData, f = ship.fx;
-  const len = f.main * (f.boost ? 3.4 : 2.0) * (0.9 + 0.1 * Math.random());
-  for (const g of glows) { g.scale.set(0.5 + f.main * 0.6, 0.5 + f.main * 0.6, Math.max(0.01, len)); g.visible = f.main > 0.02; }
-  light.intensity = f.main * (f.boost ? 40 : 18);
-  emitAcc += dt * 110 * Q * f.main;
+  fxT += dt;
+  const flick = 0.92 + 0.08 * Math.sin(fxT * 47) * Math.sin(fxT * 13.7 + 1) + 0.04 * (Math.random() - 0.5);
+  const b = f.boost ? 1 : 0; boostSm = THREE.MathUtils.damp(boostSm, b, 8, dt);
+  const len = f.main * (3.4 + 3.2 * boostSm) * flick, wid = 0.62 + 0.14 * f.main + 0.1 * boostSm;
+  for (const g of glows) { g.tick(fxT); g.set(f.main * 0.85, Math.max(0.05, len), wid, boostSm, 1 + 0.15 * boostSm); }
+  light.intensity = f.main * (f.boost ? 40 : 18) * flick;
+  emitAcc += dt * 55 * Q * f.main;
   while (emitAcc > 1) {
     emitAcc--;
     for (const x of [-0.55, 0.55]) {
       _a.set(x + (Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.25, 2.3).applyQuaternion(ship.quat).add(ship.pos);
       _b.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, 11 + Math.random() * 6 * (f.boost ? 2 : 1)).applyQuaternion(ship.quat).add(ship.vel);
       const r = Math.random();
-      parts.emit(_a, _b, 0.5 + Math.random() * 0.4, 0.9, f.boost && r < 0.3 ? C.blue : r < 0.35 ? C.warm : C.hot);
-      if (r < 0.25) { _b.multiplyScalar(0.55); parts.emit(_a, _b, 0.18, 0.7, C.core); }
+      parts.emit(_a, _b, 0.35 + Math.random() * 0.35, 0.3, f.boost && r < 0.3 ? C.blue : r < 0.35 ? C.warm : C.hot);
+      if (r < 0.25) { _b.multiplyScalar(0.55); parts.emit(_a, _b, 0.12, 0.25, C.core); }
     }
   }
 }
@@ -118,9 +121,8 @@ function rcsFx(dt) {
   for (let i = 0; i < NOZZLES.length; i++) {
     const k = rcsLvl[i] > rcsSm[i] ? 30 : 14;                 // fast attack, short tail
     rcsSm[i] = THREE.MathUtils.damp(rcsSm[i], rcsLvl[i], k, dt);
-    const v = rcsSm[i]; nub[i].visible = v > 0.06;
+    const v = rcsSm[i]; nub[i].tick(fxT); nub[i].set(v > 0.06 ? v * 0.8 : 0, 0.22 + v * 0.38, 0.05 + v * 0.03, 0, 0.8);
     if (v < 0.06) continue;
-    nub[i].scale.set(0.7 + v * 0.3, 0.7 + v * 0.3, 0.4 + v * 0.8);
     const n = NOZZLES[i];
     // short bright core (this frame only) plus a trail of pooled puffs
     _a.copy(n.pos).addScaledVector(n.dir, 0.12).applyQuaternion(ship.quat).add(ship.pos);
