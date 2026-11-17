@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mats } from './assets.js';
+import { buildSky, buildPlanet, placePlanet } from './sky.js';
 import stationData from './assets/station.json';
 import debrisData from './assets/debris.json';
 
@@ -40,8 +41,8 @@ function box(w, h, d, tile = 9) {
 }
 
 export class World {
-  constructor(scene, assets) {
-    this.scene = scene;
+  constructor(scene, assets, { coarse = false } = {}) {
+    this.scene = scene; this.coarse = coarse;
     this.obbs = [];        // static oriented boxes
     this.statics = [];     // moving static-ish spheres (rotating ring)
     this.debris = [];
@@ -117,39 +118,10 @@ export class World {
   }
 
   buildSky() {
-    // stars
-    const n = 2600, p = new Float32Array(n * 3), c = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      const u = rnd() * 2 - 1, t = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-      p.set([s * Math.cos(t) * 8000, u * 8000, s * Math.sin(t) * 8000], i * 3);
-      const b = 0.35 + rnd() * 0.65, w = rnd(); c.set([b * (0.85 + w * 0.15), b * 0.92, b * (1 - w * 0.2)], i * 3);
-    }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('color', new THREE.BufferAttribute(c, 3));
-    this.stars = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.8, sizeAttenuation: false, vertexColors: true, depthWrite: false, fog: false }));
-    this.stars.frustumCulled = false;
-    this.sky = new THREE.Group(); this.sky.add(this.stars);
-    // sun disc
-    const sun = new THREE.Mesh(new THREE.SphereGeometry(110, 16, 16), new THREE.MeshBasicMaterial({ color: 0xfff1d2, fog: false }));
-    sun.position.copy(SUN_DIR).multiplyScalar(7000); this.sky.add(sun);
-    // planet below: slate with soft terminator and a thin amber rim
-    const planet = new THREE.Mesh(new THREE.SphereGeometry(5200, 64, 48), new THREE.ShaderMaterial({
-      uniforms: { uSun: { value: SUN_DIR.clone() }, uTime: { value: 0 } },
-      vertexShader: `varying vec3 vN; varying vec3 vW; varying vec3 vO; void main(){ vN=normalize(mat3(modelMatrix)*normal); vO=normal; vec4 w=modelMatrix*vec4(position,1.); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
-      fragmentShader: `varying vec3 vN; varying vec3 vW; varying vec3 vO; uniform vec3 uSun; uniform float uTime;
-        float h(vec3 p){ return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453); }
-        float n(vec3 p){ vec3 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);
-          return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
-        void main(){
-          vec3 p=vO*3.2; float f=n(p)*.55+n(p*2.3)*.3+n(p*5.1)*.15;
-          vec3 land=mix(vec3(.05,.09,.11),vec3(.14,.17,.17),smoothstep(.45,.62,f));
-          float cl=smoothstep(.55,.8,n(p*1.7+vec3(uTime*.02,0,0))*.7+n(p*4.)*.3);
-          vec3 col=mix(land,vec3(.42,.48,.5),cl*.6);
-          float l=clamp(dot(normalize(vN),uSun)*.9+.15,0.,1.);
-          vec3 v=normalize(cameraPosition-vW); float fr=pow(1.-clamp(dot(normalize(vN),v),0.,1.),3.);
-          vec3 rim=vec3(1.,.55,.28)*fr*(.25+l*1.2);
-          gl_FragColor=vec4(col*l*.7+rim*.4,1.); }`,
-    }));
-    planet.position.set(300, -5500, -800); this.planet = planet; this.scene.add(planet);
+    const { sky, stars } = buildSky(SUN_DIR, { coarse: this.coarse });
+    this.sky = sky; this.stars = stars;
+    this.planet = buildPlanet(SUN_DIR, { radius: 5200, coarse: this.coarse });
+    placePlanet(this.planet, new THREE.Vector3(300, -5500, -800)); this.scene.add(this.planet);
     // reading-distance dust that wraps around the ship for parallax
     const N = 420; this.dust = { n: N, p: new Float32Array(N * 3), pts: null, lines: null, lp: new Float32Array(N * 6) };
     for (let i = 0; i < N * 3; i++) this.dust.p[i] = (rnd() - 0.5) * 160;
@@ -275,7 +247,7 @@ export class World {
 
   updateVisual(time, camPos) {
     this.syncDebris();
-    this.planet.material.uniforms.uTime.value = time;
+    this.planet.userData.surf.material.uniforms.uTime.value = time;
     this.sky.position.copy(camPos);
     this.lampMats.forEach((m, i) => {
       const s = Math.sin(time * (1.7 + i * 2.3) + i * 4), s2 = Math.sin(time * (6.1 + i * 3.1) + i);

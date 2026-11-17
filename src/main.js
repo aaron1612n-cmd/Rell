@@ -1,17 +1,14 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Ship } from './ship.js';
 import { buildShip } from './shipMesh.js';
-import { loadModel, urls } from './assets.js';
+import { loadModel, urls, mats } from './assets.js';
 import { World, SUN_DIR } from './world.js';
 import { Input } from './input.js';
 import { CamRig } from './camera.js';
 import { Hud } from './hud.js';
 import { Help } from './help.js';
 import { Particles } from './particles.js';
+import { setupLights, Look } from './look.js';
 import { NOZZLES, solveRcs } from './rcs.js';
 
 const canvas = document.getElementById('view');
@@ -21,34 +18,15 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2));
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.9;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x07090d);
 const camera = new THREE.PerspectiveCamera(66, 1, 0.1, 20000);
 
-// light: low raking sun + cold bounce from the planet
-const sun = new THREE.DirectionalLight(0xffe2b8, 3.4);
-const SH = coarse ? 1024 : 2048;
-sun.castShadow = true; sun.shadow.mapSize.set(SH, SH);
-Object.assign(sun.shadow.camera, { left: -64, right: 64, top: 64, bottom: -64, near: 1, far: 600 });
-sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.25;
-scene.add(sun, sun.target);
-scene.add(new THREE.HemisphereLight(0x7f9db0, 0x2a2420, 0.7));
-// small baked environment for metal highlights: warm sun, slate planet glow below, black above
-{
-  const env = new THREE.Scene(), g = new THREE.SphereGeometry(50, 24, 16);
-  const col = new Float32Array(g.attributes.position.count * 3), c = new THREE.Color();
-  for (let i = 0; i < g.attributes.position.count; i++) { const y = g.attributes.position.getY(i) / 50; c.set(0x0b1218).lerp(new THREE.Color(0x4b6574), Math.max(0, -y) ** 1.3); col.set([c.r, c.g, c.b], i * 3); }
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  env.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(6, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(14, 11, 8) }));
-  sunDisc.position.copy(SUN_DIR).multiplyScalar(40); env.add(sunDisc);
-  const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(env, 0.02).texture; scene.environmentIntensity = 0.55; pm.dispose();
-}
+// light rig, reflection environment and tone mapping live in look.js
+const { sun } = setupLights(scene, renderer, SUN_DIR, coarse);
 
-const [shipModel, stationModel, debrisModel] = await Promise.all([loadModel(urls.ship), loadModel(urls.station), loadModel(urls.debris)]);
-const world = new World(scene, { station: stationModel, debris: debrisModel });
+const [shipModel, stationModel, debrisModel] = await Promise.all([loadModel(urls.ship, mats.shipHull), loadModel(urls.station), loadModel(urls.debris)]);
+const world = new World(scene, { station: stationModel, debris: debrisModel }, { coarse });
 scene.add(world.sky);
 
 const ship = new Ship();
@@ -62,21 +40,16 @@ const rig = new CamRig(camera, reduced);
 const hud = new Hud();
 new Help(input);
 
-// post: gentle bloom for engines, sun and windows (skipped on phones)
-let composer = null;
-if (!coarse) {
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(512, 512), 0.5, 0.6, 0.85));
-  composer.addPass(new OutputPass());
-}
+// post: bloom, lens ghosts, grade, vignette, grain (lighter chain on phones)
+const look = new Look(renderer, scene, camera, coarse);
 
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h;
   // keep the ship readable on tall phone screens
   camera.fov = rig.baseFov = w / h < 0.8 ? 80 : 66; camera.updateProjectionMatrix();
-  if (composer) { composer.setSize(w, h); composer.setPixelRatio(renderer.getPixelRatio()); }
+  look.setSize(w, h, renderer.getPixelRatio());
+  world.stars.material.uniforms.uPR.value = renderer.getPixelRatio();
 }
 addEventListener('resize', resize); resize();
 
@@ -191,6 +164,7 @@ function respawn() {
 
 // ---- loop -------------------------------------------------------------------------------
 const STEP = 1 / 120;
+const _sunW = new THREE.Vector3();
 let acc = 0, last = performance.now(), time = 0, started = false;
 requestAnimationFrame(() => document.getElementById('veil').classList.add('go'));
 
@@ -220,9 +194,9 @@ function frame(now) {
 
   sun.position.copy(ship.pos).addScaledVector(SUN_DIR, 250); sun.target.position.copy(ship.pos);
   hud.update(dt, ship, camera, innerWidth, innerHeight);
-  if (composer) composer.render(); else renderer.render(scene, camera);
+  look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-window.__game = { ship, world, input, rig, camera, scene, THREE };
+window.__game = { ship, world, input, rig, camera, scene, THREE, look, renderer };
