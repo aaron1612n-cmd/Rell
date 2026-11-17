@@ -43,11 +43,15 @@ export class Ship {
     const thrust = { x: cmd.strafe * CFG.strafe, y: cmd.vert * CFG.vert, z: -cmd.fwd * az };
     lv.x += thrust.x * dt; lv.y += thrust.y * dt; lv.z += thrust.z * dt;
 
-    if (this.assist) {
-      const d = (cmd.brake ? CFG.brakeDecel : CFG.assistDecel) * dt;
-      if (cmd.brake || Math.abs(cmd.strafe) < 0.05) lv.x = approach(lv.x, 0, d);
-      if (cmd.brake || Math.abs(cmd.vert) < 0.05) lv.y = approach(lv.y, 0, d);
-      if (cmd.brake || Math.abs(cmd.fwd) < 0.05) lv.z = approach(lv.z, 0, d);
+    // Brake always works, even with flight assist off: it is a hard stop on every axis.
+    if (cmd.brake) {
+      const d = CFG.brakeDecel * dt, k = Math.exp(-4 * dt);
+      lv.x = approach(lv.x * k, 0, d); lv.y = approach(lv.y * k, 0, d); lv.z = approach(lv.z * k, 0, d);
+    } else if (this.assist) {
+      const d = CFG.assistDecel * dt;
+      if (Math.abs(cmd.strafe) < 0.05) lv.x = approach(lv.x, 0, d);
+      if (Math.abs(cmd.vert) < 0.05) lv.y = approach(lv.y, 0, d);
+      if (Math.abs(cmd.fwd) < 0.05) lv.z = approach(lv.z, 0, d);
     }
     this.vel.copy(lv).applyQuaternion(this.quat);
 
@@ -69,8 +73,8 @@ export class Ship {
     w.y += -cmd.dx * CFG.lookGain - cmd.yawKey * CFG.keyTurn * dt;
     w.x += -cmd.dy * CFG.lookGain + cmd.pitchKey * CFG.keyTurn * dt;
     w.z += -cmd.roll * CFG.rollAccel * dt;
-    if (this.assist) {
-      const k = Math.exp(-CFG.angDamp * dt);
+    if (this.assist || cmd.brake) {
+      const k = Math.exp(-CFG.angDamp * (cmd.brake ? 2 : 1) * dt);
       if (!yawIn) w.y *= k;
       if (!pitchIn) w.x *= k;
       if (!rollIn) w.z *= k;
