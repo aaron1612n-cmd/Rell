@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Ship } from './ship.js';
 import { buildShip } from './shipMesh.js';
+import { loadModel, urls } from './assets.js';
 import { World, SUN_DIR } from './world.js';
 import { Input } from './input.js';
 import { CamRig } from './camera.js';
@@ -20,7 +21,7 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2));
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.9;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x07090d);
@@ -30,17 +31,29 @@ const camera = new THREE.PerspectiveCamera(66, 1, 0.1, 20000);
 const sun = new THREE.DirectionalLight(0xffe2b8, 3.4);
 const SH = coarse ? 1024 : 2048;
 sun.castShadow = true; sun.shadow.mapSize.set(SH, SH);
-Object.assign(sun.shadow.camera, { left: -130, right: 130, top: 130, bottom: -130, near: 1, far: 600 });
-sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.4;
+Object.assign(sun.shadow.camera, { left: -64, right: 64, top: 64, bottom: -64, near: 1, far: 600 });
+sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.25;
 scene.add(sun, sun.target);
-scene.add(new THREE.HemisphereLight(0x7f9db0, 0x2a2420, 1.15));
+scene.add(new THREE.HemisphereLight(0x7f9db0, 0x2a2420, 0.7));
+// small baked environment for metal highlights: warm sun, slate planet glow below, black above
+{
+  const env = new THREE.Scene(), g = new THREE.SphereGeometry(50, 24, 16);
+  const col = new Float32Array(g.attributes.position.count * 3), c = new THREE.Color();
+  for (let i = 0; i < g.attributes.position.count; i++) { const y = g.attributes.position.getY(i) / 50; c.set(0x0b1218).lerp(new THREE.Color(0x4b6574), Math.max(0, -y) ** 1.3); col.set([c.r, c.g, c.b], i * 3); }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  env.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(6, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(14, 11, 8) }));
+  sunDisc.position.copy(SUN_DIR).multiplyScalar(40); env.add(sunDisc);
+  const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(env, 0.02).texture; scene.environmentIntensity = 0.55; pm.dispose();
+}
 
-const world = new World(scene);
+const [shipModel, stationModel, debrisModel] = await Promise.all([loadModel(urls.ship), loadModel(urls.station), loadModel(urls.debris)]);
+const world = new World(scene, { station: stationModel, debris: debrisModel });
 scene.add(world.sky);
 
 const ship = new Ship();
 ship.pos.set(30, 14, 142); ship.quat.setFromEuler(new THREE.Euler(-0.06, 0.28, 0));
-const shipMesh = buildShip(); scene.add(shipMesh);
+const shipMesh = buildShip(shipModel); scene.add(shipMesh);
 const parts = new Particles(900); scene.add(parts.points);
 
 const input = new Input(canvas);

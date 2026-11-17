@@ -18,3 +18,5 @@
 **Controls overlay:** a small ? button (top right) or H/F1 toggles icon + one-word key/touch layouts. Brake icon is four inward arrows to a dot.
 
 **RCS:** 14 cool-white nozzles (layout in `src/rcs.js`, easy to re-map for the .glb ship) fire in proportion to the acceleration actually applied each frame, so assist, brake, strafe, roll and look all show as short jets opposite the motion they push or cancel. Hazard orange stays reserved for the main engines.
+
+**Models (authored):** ship, station (21 named chunks with colliders) and 9 debris props are built by scripted Blender (`tools/blender/*.py`, run with the `bpy` pip module, no GUI) and exported as meshopt-compressed .glb (`npm run assets`). Colour and baked ambient occlusion live in vertex colours: no textures. Chamfered hard-surface edges, hazard bands, one orange accent. The ship's RCS layout is exported with the model (`ship.json`) and read by `src/rcs.js`.

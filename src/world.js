@@ -1,7 +1,11 @@
 import * as THREE from 'three';
+import { mats } from './assets.js';
+import stationData from './assets/station.json';
+import debrisData from './assets/debris.json';
 
 export const SUN_DIR = new THREE.Vector3(0.62, 0.5, 0.6).normalize();
 const V = THREE;
+const _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _sv = new THREE.Vector3();
 const _l = new THREE.Vector3(), _n = new THREE.Vector3(), _rv = new THREE.Vector3();
 
 // Seeded RNG so every load lays out the same yard.
@@ -36,7 +40,7 @@ function box(w, h, d, tile = 9) {
 }
 
 export class World {
-  constructor(scene) {
+  constructor(scene, assets) {
     this.scene = scene;
     this.obbs = [];        // static oriented boxes
     this.statics = [];     // moving static-ish spheres (rotating ring)
@@ -44,7 +48,7 @@ export class World {
     this.flicker = [];
     this.ringGroup = new THREE.Group(); this.ringSpheres = [];
     this.tex = panelTexture(); this.haz = hazardTexture();
-    this.buildSky(); this.buildStation(); this.buildDebris();
+    this.buildSky(); this.buildStation(assets.station); this.buildDebris(assets.debris);
   }
 
   mat(tint) { return new THREE.MeshStandardMaterial({ map: this.tex, color: tint, roughness: 0.85, metalness: 0.12 }); }
@@ -81,51 +85,31 @@ export class World {
     }
   }
 
-  buildStation() {
+  buildStation(model) {
     const st = this.station = new THREE.Group(); this.scene.add(st);
-    const B = (...a) => this.addBox(st, ...a);
-    // spine + hub
-    B(10, 10, 150, 0, 0, 0, 0xd8d0bc);
-    B(24, 24, 28, 0, 0, 0, 0xffffff);
-    B(17, 17, 24, 0, 0, 84, 0xe0d8c4);                   // nose module
-    B(12, 12, 10, 0, 0, 102, 0x8a8170);                 // docking collar
-    B(16, 16, 28, 0, 0, -86, 0xa59c88);                 // aft engine block
-    B(10, 10, 10, 0, 0, -106, 0x4a433b);
-    // cargo pods
-    for (const [x, z] of [[14, 32], [-14, 32], [14, -38], [-14, -38]]) B(11, 11, 20, x, 0, z, 0xbfb6a0);
-    for (const [y, z] of [[15, 44], [-15, -52]]) B(8, 8, 18, 0, y, z, 0x8a8170);
-    // solar: boom along X, panels; one torn off at an angle
-    B(120, 1.6, 1.6, 0, 0, -26, 0x55504a);
-    B(50, 0.7, 22, 42, 0, -26, 0x2c3b4d, [0, 0, 0.03]);
-    B(50, 0.7, 22, -42, 0, -26, 0x2c3b4d, [0, 0, -0.55]);
-    // antennae
-    B(0.8, 0.8, 40, 6, 12, 60, 0x55504a, [0, 0.18, 0]);
-    B(0.8, 30, 0.8, -4, 18, -66, 0x55504a, [0.2, 0, 0.1]);
-    // hazard bands (visual)
-    for (const z of [74, 94, -78, -92]) this.hazard(st, 17.4, 17.4, 2.4, 0, 0, z);
-    this.hazard(st, 24.4, 24.4, 2.4, 0, 0, -16);
-    // dim windows along the nose module, flat on +Y face and sides
-    const wy = this.windowsGroup = new THREE.Group(); wy.position.set(0, 8.55, 84); wy.rotation.x = -Math.PI / 2; st.add(wy);
-    this.windows(wy, 0, 0, 0, 5, 'x', 1.4, 2.6);
-    const wy2 = new THREE.Group(); wy2.position.set(0, 8.55, 84 - 6); wy2.rotation.x = -Math.PI / 2; st.add(wy2); this.windows(wy2, 0, 0, 0, 5, 'x', 1.4, 2.6);
-    const wx = new THREE.Group(); wx.position.set(8.55, 0, 84); wx.rotation.y = Math.PI / 2; st.add(wx); this.windows(wx, 0, 0, 0, 6, 'x', 1.4, 3);
-    // rotating ring + spokes
-    const rg = this.ringGroup; st.add(rg);
-    const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(50, 3.6, 8, 40), this.mat(0xc9c0aa));
-    ringMesh.castShadow = ringMesh.receiveShadow = true; rg.add(ringMesh);
+    const nodes = {}; model.traverse((o) => { if (o.name) nodes[o.name] = o; });
+    this.chunks = nodes;
+    // flickering window lamps: three groups with their own material so they can pulse out of step
+    this.lampMats = ['lamps_a', 'lamps_b', 'lamps_c'].map((n) => { const m = mats.lamp.clone(); if (nodes[n]) nodes[n].material = m; return m; });
+    st.add(model);
+    this.ringGroup = nodes.ring;
+    // colliders authored with the chunks
+    for (const [name, c] of Object.entries(stationData.chunks)) for (const o of c.obbs) {
+      const q = new THREE.Quaternion(...o.q);
+      this.obbs.push({ c: new THREE.Vector3(...o.c), qi: q.clone().invert(), q, h: new THREE.Vector3(...o.h), chunk: name });
+    }
+    // rotating ring + spoke colliders (spheres, positions follow the ring angle)
     for (let k = 0; k < 4; k++) {
-      const a = k * Math.PI / 2 + 0.3; const L = 40;
-      const sp = new THREE.Mesh(box(3, L, 3), this.mat(0xa59c88));
-      sp.position.set(Math.cos(a) * (12 + L / 2), Math.sin(a) * (12 + L / 2), 0); sp.rotation.z = a - Math.PI / 2; sp.castShadow = sp.receiveShadow = true; rg.add(sp);
+      const a = k * Math.PI / 2 + 0.3;
       for (let i = 0; i < 14; i++) { const r = 12 + i * 3; this.ringSpheres.push({ a, r, rad: 2.3, pos: new THREE.Vector3(), w: new THREE.Vector3() }); }
     }
-    for (let i = 0; i < 52; i++) { const a = i / 52 * Math.PI * 2; this.ringSpheres.push({ a, r: 50, rad: 3.8, pos: new THREE.Vector3(), w: new THREE.Vector3() }); }
+    for (let i = 0; i < 52; i++) { const a = i / 52 * Math.PI * 2; this.ringSpheres.push({ a, r: 50, rad: 4.2, pos: new THREE.Vector3(), w: new THREE.Vector3() }); }
     this.ringAngle = 0; this.updateRing(0);
     this.statics = this.ringSpheres;
   }
 
   updateRing(dt) {
-    this.ringAngle += 0.045 * dt; this.ringGroup.rotation.z = this.ringAngle;
+    this.ringAngle += 0.045 * dt; if (this.ringGroup) this.ringGroup.rotation.z = this.ringAngle;
     for (const s of this.ringSpheres) {
       const a = s.a + this.ringAngle; s.pos.set(Math.cos(a) * s.r, Math.sin(a) * s.r, 0);
       s.w.set(-Math.sin(a) * s.r * 0.045, Math.cos(a) * s.r * 0.045, 0); // surface velocity
@@ -187,13 +171,21 @@ export class World {
     d.lines.material.opacity = Math.min(0.55, 0.12 + vel.length() * 0.01);
   }
 
-  buildDebris() {
-    const geos = [
-      new THREE.IcosahedronGeometry(1, 0), new THREE.DodecahedronGeometry(1, 0), box(1.6, 0.25, 1.1, 4), box(0.35, 0.35, 3.2, 4),
-      new THREE.CylinderGeometry(0.5, 0.5, 1.6, 6), box(1.2, 1.2, 1.2, 4),
-    ];
-    const tints = [0x9a917d, 0x6e665a, 0xbfb6a0, 0x4a433b];
-    const mats = tints.map((t) => this.mat(t));
+  buildDebris(model) {
+    // one InstancedMesh per prop type (shared geometry + materials), updated from the body list each frame
+    const nodes = {}; model.traverse((o) => { if (o.name) nodes[o.name] = o; });
+    const parts = (n) => { const o = nodes[n]; const out = []; o.traverse((c) => { if (c.isMesh) out.push(c); }); return out; };
+    const types = debrisData.order.map((n) => ({ name: n, radius: debrisData.radius[n], parts: parts(n) }));
+    const COUNT = 90, perType = types.map(() => []);
+    for (let i = 0; i < COUNT; i++) perType[Math.floor(rnd() * types.length)].push(i);
+    this.debrisInst = types.map((t, ti) => t.parts.map((p) => {
+      const im = new THREE.InstancedMesh(p.geometry, p.material, Math.max(1, perType[ti].length));
+      im.castShadow = im.receiveShadow = true; im.frustumCulled = false; im.count = perType[ti].length;
+      this.scene.add(im); return im;
+    }));
+    this.allInst = this.debrisInst.flat();
+    const slot = new Array(COUNT), tyOf = new Array(COUNT);
+    perType.forEach((ids, ti) => ids.forEach((id, k) => { slot[id] = k; tyOf[id] = ti; }));
     const place = (i) => {
       for (let tries = 0; tries < 40; tries++) {
         const near = i < 28;
@@ -206,16 +198,19 @@ export class World {
       }
       return new THREE.Vector3(200, 0, 200);
     };
-    for (let i = 0; i < 90; i++) {
-      const gi = Math.floor(rnd() * geos.length), scale = rr(0.9, 3.2) * (gi === 0 || gi === 1 ? 1.4 : 1);
-      const mesh = new THREE.Mesh(geos[gi], mats[Math.floor(rnd() * mats.length)]);
-      mesh.scale.setScalar(scale); mesh.castShadow = mesh.receiveShadow = true;
-      const radius = Math.max(0.8, scale * (gi === 3 ? 1.3 : gi === 2 ? 0.95 : 0.95));
+    for (let i = 0; i < COUNT; i++) {
+      const ti = tyOf[i], t = types[ti], scale = rr(0.9, 2.3);
+      const radius = Math.max(0.8, t.radius * scale);
       const pos = place(i);
-      mesh.position.copy(pos); mesh.rotation.set(rnd() * 6, rnd() * 6, rnd() * 6); this.scene.add(mesh);
       const drift = new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize().multiplyScalar(rr(0.4, 3.4));
-      this.debris.push({ mesh, pos: mesh.position, vel: drift, radius, mass: Math.pow(radius, 3) * 0.35 + 0.2, spin: new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(0.6) });
+      this.debris.push({ inst: this.debrisInst[ti], slot: slot[i], scale, pos, euler: new THREE.Euler(rnd() * 6, rnd() * 6, rnd() * 6), vel: drift, radius, mass: Math.pow(radius, 3) * 0.35 + 0.2, spin: new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(0.6) });
     }
+    this.syncDebris();
+  }
+
+  syncDebris() {
+    for (const d of this.debris) { _q.setFromEuler(d.euler); _m.compose(d.pos, _q, _sv.setScalar(d.scale)); for (const im of d.inst) im.setMatrixAt(d.slot, _m); }
+    for (const im of this.allInst) im.instanceMatrix.needsUpdate = true;
   }
 
   // ---- collisions -------------------------------------------------------------------------
@@ -266,7 +261,7 @@ export class World {
     const ds = this.debris;
     for (const d of ds) {
       d.pos.addScaledVector(d.vel, dt);
-      d.mesh.rotation.x += d.spin.x * dt; d.mesh.rotation.y += d.spin.y * dt; d.mesh.rotation.z += d.spin.z * dt;
+      d.euler.x += d.spin.x * dt; d.euler.y += d.spin.y * dt; d.euler.z += d.spin.z * dt;
       const h = this.collideStatic(d, 0.5);
       if (h && h.speed > 1) d.spin.add(new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(Math.min(2, h.speed * 0.2)));
     }
@@ -277,12 +272,13 @@ export class World {
   }
 
   updateVisual(time, camPos) {
+    this.syncDebris();
     this.planet.material.uniforms.uTime.value = time;
     this.sky.position.copy(camPos);
-    for (const f of this.flicker) {
-      const s = Math.sin(time * f.sp + f.ph), s2 = Math.sin(time * f.sp * 3.7 + f.ph * 2);
-      const v = f.broken ? (s > 0.5 && s2 > -0.2 ? 1 : 0.05) : 0.6 + 0.4 * s2;
-      f.mat.color.copy(f.base).multiplyScalar(v);
-    }
+    this.lampMats.forEach((m, i) => {
+      const s = Math.sin(time * (1.7 + i * 2.3) + i * 4), s2 = Math.sin(time * (6.1 + i * 3.1) + i);
+      const v = i === 1 ? (s > 0.45 && s2 > -0.3 ? 1 : 0.06) : 0.65 + 0.35 * s2;   // group b is a dying circuit
+      m.color.setScalar(v);
+    });
   }
 }
