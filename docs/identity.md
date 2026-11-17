@@ -14,3 +14,5 @@
 **Layout:** HUD hugs the edges and leaves the view clear. Speed is large bottom-left, hull is a segmented bar on the right edge, a prograde marker floats in the scene. Flat-shaded low-poly forms with painted panel texture, hard sun, no gradients on UI.
 
 **Motion:** one deliberate moment — the opening camera sweep that swings around the ship to reveal the station. Everything else is physics. Reduced-motion skips the sweep, shake and FOV warp.
+
+**Controls overlay:** a small ? button (top right) or H/F1 toggles icon + one-word key/touch layouts. Brake icon is four inward arrows to a dot.
