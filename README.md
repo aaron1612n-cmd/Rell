@@ -18,3 +18,7 @@ Visual identity: see [docs/identity.md](docs/identity.md).
 - `src/camera.js` — lagging chase cam, speed FOV, shake, opening sweep
 - `src/input.js` — keyboard / mouse / touch
 - `src/hud.js` — speed, hull, assist, nose reticle, prograde marker
+
+## Deploy
+
+`npm run deploy` builds and uploads the game as a Cloudflare Worker (`low-orbit`). Needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment.
