@@ -16,3 +16,5 @@
 **Motion:** one deliberate moment — the opening camera sweep that swings around the ship to reveal the station. Everything else is physics. Reduced-motion skips the sweep, shake and FOV warp.
 
 **Controls overlay:** a small ? button (top right) or H/F1 toggles icon + one-word key/touch layouts. Brake icon is four inward arrows to a dot.
+
+**RCS:** 14 cool-white nozzles (layout in `src/rcs.js`, easy to re-map for the .glb ship) fire in proportion to the acceleration actually applied each frame, so assist, brake, strafe, roll and look all show as short jets opposite the motion they push or cancel. Hazard orange stays reserved for the main engines.

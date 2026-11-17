@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { NOZZLES } from './rcs.js';
 
 // Low-poly salvage skiff. Nose points to -Z. Bone hull, hazard-orange accents, dark canopy.
 export function buildShip() {
@@ -28,6 +29,17 @@ export function buildShip() {
   const glowGeo = new THREE.ConeGeometry(0.3, 1, 10); glowGeo.rotateX(-Math.PI / 2); glowGeo.translate(0, 0, 0.5); // base at z=0, tip +Z
   const glows = [-0.55, 0.55].map((x) => { const m = new THREE.Mesh(glowGeo, glowMat); m.position.set(x, 0, 2.3); g.add(m); return m; });
   const light = new THREE.PointLight(0xff6a2a, 0, 14, 1.6); light.position.set(0, 0, 3); g.add(light);
-  g.userData = { glows, light };
+  // RCS: a dark nozzle stub plus a short cool-white flame per nozzle (data in rcs.js)
+  const stub = new THREE.CylinderGeometry(0.07, 0.1, 0.16, 6); stub.rotateX(Math.PI / 2);
+  const flameGeo = new THREE.ConeGeometry(0.09, 0.9, 6); flameGeo.rotateX(Math.PI / 2); flameGeo.translate(0, 0, 0.45); // base z=0, tip +Z
+  const flameMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+  const q = new THREE.Quaternion(), zp = new THREE.Vector3(0, 0, 1);
+  const nubs = NOZZLES.map((n) => {
+    q.setFromUnitVectors(zp, n.dir);
+    const s = new THREE.Mesh(stub, dark); s.position.copy(n.pos); s.quaternion.copy(q); g.add(s);
+    const f = new THREE.Mesh(flameGeo, flameMat); f.position.copy(n.pos).addScaledVector(n.dir, 0.08); f.quaternion.copy(q); f.visible = false; g.add(f);
+    return f;
+  });
+  g.userData = { glows, light, nubs };
   return g;
 }

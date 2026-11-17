@@ -11,6 +11,7 @@ import { CamRig } from './camera.js';
 import { Hud } from './hud.js';
 import { Help } from './help.js';
 import { Particles } from './particles.js';
+import { NOZZLES, solveRcs } from './rcs.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -67,7 +68,7 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 // ---- effects ----------------------------------------------------------------------------
-const C = { hot: new THREE.Color(1, 0.55, 0.22), warm: new THREE.Color(1, 0.8, 0.5), white: new THREE.Color(0.8, 0.85, 1), spark: new THREE.Color(1, 0.7, 0.35) };
+const C = { hot: new THREE.Color(1, 0.55, 0.22), warm: new THREE.Color(1, 0.8, 0.5), white: new THREE.Color(0.8, 0.85, 1), cool: new THREE.Color(0.75, 0.9, 1), spark: new THREE.Color(1, 0.7, 0.35) };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 let emitAcc = 0;
 
@@ -85,11 +86,36 @@ function engineFx(dt) {
       parts.emit(_a, _b, 0.5 + Math.random() * 0.4, 0.9, Math.random() < 0.35 ? C.warm : C.hot);
     }
   }
-  // RCS puffs from the side that's pushing
-  if ((f.x || f.y || f.z) && Math.random() < dt * 60) {
-    _a.set(-f.x * 0.9, -f.y * 0.5, f.z ? -1.4 : 0.4).applyQuaternion(ship.quat).add(ship.pos);
-    _b.set(-f.x * 7, -f.y * 7, f.z ? -7 : 0).applyQuaternion(ship.quat).add(ship.vel);
-    parts.emit(_a, _b, 0.35, 0.35, C.white);
+}
+
+// RCS: every nozzle fires in proportion to the acceleration actually applied this frame,
+// so assist and brake visibly burn opposite to the drift or spin they cancel.
+const rcsLvl = new Float32Array(NOZZLES.length), rcsSm = new Float32Array(NOZZLES.length), rcsAcc = new Float32Array(NOZZLES.length);
+const _accel = new THREE.Vector3(), _alpha = new THREE.Vector3();
+function rcsFx(dt) {
+  ship.takeFx(_accel, _alpha);
+  // a main-engine burn also shows when assist or brake kills backward drift
+  const f = ship.fx, cover = Math.max(0, -_accel.z) / 18;
+  if (cover > f.main) f.main = Math.min(1, cover);
+  solveRcs(_accel, _alpha, rcsLvl);
+  const nub = shipMesh.userData.nubs;
+  for (let i = 0; i < NOZZLES.length; i++) {
+    const k = rcsLvl[i] > rcsSm[i] ? 30 : 9;                 // fast attack, short tail
+    rcsSm[i] = THREE.MathUtils.damp(rcsSm[i], rcsLvl[i], k, dt);
+    const v = rcsSm[i]; nub[i].visible = v > 0.04;
+    if (v < 0.04) continue;
+    nub[i].scale.set(0.6 + v * 0.6, 0.6 + v * 0.6, 0.35 + v * 1.1);
+    const n = NOZZLES[i];
+    // short bright core (this frame only) plus a trail of pooled puffs
+    _a.copy(n.pos).addScaledVector(n.dir, 0.12).applyQuaternion(ship.quat).add(ship.pos);
+    _b.copy(n.dir).multiplyScalar(5 + v * 5).applyQuaternion(ship.quat).add(ship.vel);
+    parts.emit(_a, _b, 0.07, 0.55 + v * 0.5, C.cool);
+    rcsAcc[i] += dt * 40 * v;
+    while (rcsAcc[i] > 1) {
+      rcsAcc[i]--;
+      _b.copy(n.dir).multiplyScalar(7 + Math.random() * 5 * v).add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(1.6)).applyQuaternion(ship.quat).add(ship.vel);
+      parts.emit(_a, _b, 0.28 + Math.random() * 0.2, 0.34, C.white);
+    }
   }
 }
 
@@ -137,6 +163,7 @@ function frame(now) {
   if (n >= 8) acc = 0;
 
   shipMesh.position.copy(ship.pos); shipMesh.quaternion.copy(ship.quat);
+  rcsFx(dt);
   engineFx(dt);
   parts.update(dt, innerHeight, renderer.getPixelRatio());
   world.updateDust(ship.pos, ship.vel);
