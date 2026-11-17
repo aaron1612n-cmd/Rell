@@ -6,7 +6,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
 // The game's "camera and film": light rig, reflection environment, tone mapping and the post chain.
-// Desktop: MSAA, bloom, lens ghosts, chromatic fringe, grain. Phones: bloom at low res, grade + vignette only.
+// Desktop: MSAA, bloom, lens ghosts, chromatic fringe, grain. Phones: grade + vignette only.
 
 export function setupLights(scene, renderer, sunDir, coarse) {
   renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = 0.95;
@@ -94,13 +94,16 @@ const GradeShader = {
 };
 
 export class Look {
-  constructor(renderer, scene, camera, coarse) {
+  constructor(renderer, scene, camera, coarse, extra = []) {
     this.renderer = renderer; this.camera = camera; this.coarse = coarse;
     const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: coarse ? 0 : 4 });
     const c = this.composer = new EffectComposer(renderer, rt);
     c.addPass(new RenderPass(scene, camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), coarse ? 0.45 : 0.55, 0.55, 0.92);
-    c.addPass(this.bloom);
+    for (const p of extra) c.addPass(p);
+    // bloom only picks up HDR values (exhaust, lamps, sun) so the hull never washes out.
+    // Phones skip it: their exhaust particles carry their own halo.
+    this.bloom = coarse ? null : new UnrealBloomPass(new THREE.Vector2(512, 512), 0.45, 0.3, 1.0);
+    if (this.bloom) c.addPass(this.bloom);
     c.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.grade.uniforms.uFull.value = coarse ? 0 : 1;
@@ -109,8 +112,6 @@ export class Look {
 
   setSize(w, h, pr) {
     this.composer.setPixelRatio(pr); this.composer.setSize(w, h);
-    // phones: bloom from a quarter-size buffer is plenty and cheap
-    if (this.coarse) this.bloom.setSize(Math.round(w * pr / 2), Math.round(h * pr / 2));
     this.grade.uniforms.uRes.value.set(w * pr, h * pr); this.grade.uniforms.uAspect.value = w / h;
   }
 
