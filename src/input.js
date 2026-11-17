@@ -30,7 +30,19 @@ export class Input {
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
 
-    document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === canvas; });
+    // Stop double-tap zoom, pinch zoom and iOS gesture zoom from fighting the controls.
+    // Pointer events still fire when touch default is cancelled, so the stick, look and buttons keep working.
+    for (const t of ['touchstart', 'touchmove', 'touchend']) {
+      addEventListener(t, (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+    }
+    for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
+      addEventListener(g, (e) => e.preventDefault(), { passive: false });
+    }
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === canvas;
+      // Esc releases the mouse: bring the "click to aim" hint back so PC players know how to re-grab it.
+      if (!this.locked && !this.touchUI) document.getElementById('hint').style.opacity = '';
+    });
     canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch') return;
       if (!this.locked && canvas.requestPointerLock) {
