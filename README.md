@@ -21,4 +21,4 @@ Visual identity: see [docs/identity.md](docs/identity.md).
 
 ## Deploy
 
-`npm run deploy` builds and uploads the game as a Cloudflare Worker (`low-orbit`). Needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment.
+`npm run deploy` builds and uploads the game as a Cloudflare Worker (`rell`, override with `WORKER_NAME`). Needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment.
