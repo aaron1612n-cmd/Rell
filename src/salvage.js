@@ -38,7 +38,7 @@ class Item {
   unweld(vel, angVel) {
     if (this.state !== 'welded') return;
     this.mgr.detach(this);
-    this.state = 'free';
+    this.state = this.mgr.ropes.some((r) => r.item === this) ? 'towed' : 'free';
     if (vel) this.body.vel.copy(vel); if (angVel) this.body.angVel.copy(angVel);
   }
 }
@@ -71,12 +71,31 @@ export class Salvage {
     const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6));
     if (spec.type === 'core') quat.copy(site.group.quaternion);
     const body = new Body({ mass: d.mass, spheres: d.spheres, pos, quat });
+    this.clear(site, body);
     if (spec.type !== 'core') body.angVel.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.25);
     this.scene.add(obj);
     const it = new Item({ mgr: this, kind: spec.type, site, body, obj, value: d.value, state: spec.type === 'core' ? 'welded' : 'free', weld: spec.type === 'core' ? 0.55 : 0, home: pos.clone() });
     if (it.kind === 'core') { site.core = it; obj.traverse((m) => { if (m.isMesh && m.material === mats.lamp) { m.material = it.glow = it.glow || mats.lamp.clone(); } }); }
     this.items.push(it); this.sync(it);
     return it;
+  }
+
+  // nudge a freshly placed prop out of any structure it was dropped into
+  clear(site, body) {
+    for (let k = 0; k < 40; k++) {
+      let moved = false;
+      for (const p of site.parts) for (const o of p.obbs) for (let i = 0; i < body.wp.length; i++) {
+        const r = body.spheres[i].r + 0.4;
+        _a.copy(body.wp[i]).sub(o.c).applyQuaternion(o.qi);
+        _b.copy(_a).clamp(_c.copy(o.h).negate(), o.h);
+        const d = _a.distanceTo(_b);
+        if (d >= r) continue;
+        if (d < 1e-4) { const ax = ['x', 'y', 'z'].reduce((m, a) => (o.h[a] - Math.abs(_a[a]) < o.h[m] - Math.abs(_a[m]) ? a : m), 'y'); _n.set(0, 0, 0)[ax] = Math.sign(_a[ax]) || 1; _n.multiplyScalar(o.h[ax] - Math.abs(_a[ax]) + r); }
+        else _n.copy(_a).sub(_b).normalize().multiplyScalar(r - d);
+        body.pos.add(_n.applyQuaternion(o.q)); body.updateSpheres(); moved = true;
+      }
+      if (!moved) break;
+    }
   }
 
   // weld broke (or the wreck fell apart): the chunk leaves the site's colliders and becomes a body
@@ -170,6 +189,10 @@ export class Salvage {
 
     const world = this.world;
     for (const it of this.items) {
+      if (it.state === 'welded' && it.part && it.site.tumble && it.site.active) {   // welded to something that moves
+        it.part.node.updateWorldMatrix(true, false);
+        it.body.pos.copy(it.part.centerL).applyMatrix4(it.part.node.matrixWorld); it.part.node.matrixWorld.decompose(_a, it.body.quat, _s); it.body.updateSpheres();
+      }
       if (it.state === 'welded' || it.state === 'gone') continue;
       const b = it.body;
       if (it.state === 'captured') { this.stepCapture(it, dt, depot); continue; }

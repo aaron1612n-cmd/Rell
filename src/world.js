@@ -229,7 +229,10 @@ export class World {
   update(dt, ship, onShipHit) {
     for (const s of this.sites) {
       if (s.active || s.state === 'unstable') s.step(dt);
-      else if (s.spin && s.ringNode) s.ringNode.rotation.z += s.spin * dt;   // keep turning when seen from afar
+      else {   // keep turning when seen from afar
+        if (s.spin && s.ringNode) s.ringNode.rotation.z += s.spin * dt;
+        if (s.tumble && s.state !== 'collapsed') s.tumble.node.rotateOnAxis(s.tumble.axis, s.tumble.rate * dt);
+      }
     }
     const ds = this.debris;
     for (const d of ds) {

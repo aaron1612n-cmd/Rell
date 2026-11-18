@@ -48,7 +48,14 @@ export class Tutorial {
       g.userData.st = st;
     }
     const zone = STEPS.find((s) => s.zone);
-    this.zone = new THREE.Mesh(new THREE.SphereGeometry(zone.r, 32, 16), new THREE.MeshBasicMaterial({ color: 0xe8e0cc, wireframe: true, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, depthWrite: false }));
+    // stop zone: a soft fresnel bubble with a ring round its waist
+    this.zoneMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uA: { value: 0.3 } },
+      vertexShader: 'varying vec3 vN, vV; void main(){ vec4 w = modelMatrix * vec4(position,1.); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }',
+      fragmentShader: 'uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(1. - abs(dot(vN, vV)), 2.5); gl_FragColor = vec4(vec3(.91,.88,.8) * f * uA, 1.); }',
+    });
+    this.zone = new THREE.Mesh(new THREE.SphereGeometry(zone.r, 48, 24), this.zoneMat);
+    this.zone.add(new THREE.Mesh(new THREE.TorusGeometry(zone.r, 0.1, 6, 96), this.mat)); this.zone.children[0].rotation.x = Math.PI / 2;
     this.zone.position.set(...zone.zone); this.rings.add(this.zone);
     // the canister to grab
     const gi = STEPS.find((s) => s.item);
@@ -110,10 +117,10 @@ export class Tutorial {
       g.userData.ticks.rotation.z = this.reduced ? 0 : time * (hot ? 0.8 : 0.15);
       const s = hot && !this.reduced ? 1 + 0.04 * Math.sin(time * 5) : 1; g.scale.setScalar(s);
     }
-    this.zone.material.opacity = STEPS[this.step].zone ? 0.18 + 0.08 * Math.sin(time * 4) : 0.05;
+    this.zoneMat.uniforms.uA.value = STEPS[this.step].zone ? 0.55 + 0.2 * Math.sin(time * 4) : 0.15;
     // glyph follows the target, clamped on screen
     const p = this.target().clone().project(camera);
-    let x = (p.x * 0.5 + 0.5) * w, y = (-p.y * 0.5 + 0.5) * h + 54;
+    let x = (p.x * 0.5 + 0.5) * w + Math.min(90, w * 0.12), y = (-p.y * 0.5 + 0.5) * h - 20;
     if (p.z > 1 || x < 80 || x > w - 80 || y < 90 || y > h - 120) { x = w / 2; y = h * 0.68; }
     this.g.style.transform = `translate(${x.toFixed(0)}px,${y.toFixed(0)}px)`;
   }

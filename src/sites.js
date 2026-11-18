@@ -169,6 +169,7 @@ export class Site {
   step(dt) {
     if (this.state === 'unstable') { this.timer -= dt; if (this.timer <= 0) this.collapse(); }
     if (this.spin && this.ringNode) { this.ringNode.rotation.z += this.spin * dt; }
+    if (this.tumble && this.state !== 'collapsed') { const t = this.tumble; t.node.rotateOnAxis(t.axis, t.rate * dt); t.node.updateMatrixWorld(true); for (const p of t.parts) if (!p.pivot) p.sync(dt); }
     for (const p of this.parts) if (p.moving) { p.step(dt); p.sync(dt); }
     if (this.spheres.length && (this.spin || this.ringPart)) this.syncSpheres(dt);
   }
@@ -225,16 +226,20 @@ export function buildSites(world, models) {
     s.syncSpheres(0);
     s.salvageSpec = [
       { type: 'chunk', part: 'pod_1', value: 450, mass: 30 }, { type: 'chunk', part: 'pod_2', value: 450, mass: 30 },
-      { type: 'core', at: [0, 6, 4] },
+      { type: 'core', at: [0, 2, 23] },
       { type: 'canister', at: [18, 6, -2] }, { type: 'canister', at: [-12, 14, 20] }, { type: 'crate', at: [6, -16, 30] }, { type: 'crate', at: [-26, 4, -30] },
     ];
     // the fore half floats free of the rest, drifting apart with a slow tumble
     s.afterBuild = () => {
-      for (const n of ['spine_fore', 'nose', 'collar', 'pod_0', 'module_up', 'mast_fore']) {
-        const p = s.byName[n]; if (!p) continue;
-        p.node.position.set(4, 18, 38); p.node.rotation.set(0.32, 0.12, 0.2); p.node.updateMatrixWorld(true); p.sync(0);
+      // fore half on its own pivot, pushed clear of the hub and turning end over end, very slowly
+      const piv = new THREE.Group(); piv.position.set(0, 0, 50); s.group.add(piv); s.group.updateMatrixWorld(true);
+      const parts = [];
+      for (const n of ['spine_fore', 'nose', 'collar', 'pod_0', 'pod_1', 'module_up', 'mast_fore']) {
+        const p = s.byName[n]; if (!p) continue; piv.attach(p.node); parts.push(p);
       }
-      for (const n of ['pod_1']) { const p = s.byName[n]; if (p) { p.node.position.set(4, 18, 38); p.node.rotation.set(0.32, 0.12, 0.2); p.node.updateMatrixWorld(true); p.sync(0); } }
+      piv.position.set(16, 44, 96); piv.rotation.set(0.7, 0.35, 0.5); piv.updateMatrixWorld(true);
+      for (const p of parts) p.sync(0);
+      s.tumble = { node: piv, parts, axis: new THREE.Vector3(1, 0.3, 0.2).normalize(), rate: 0.018 };
     };
     s.debrisSpec = { n: 46, rMin: 40, rMax: 240 };
     S.push(s);
