@@ -18,8 +18,8 @@ import data from './assets/cockpit.json';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _qi = new THREE.Quaternion(), _e = new THREE.Euler(), _m = new THREE.Matrix4();
 const DEG = 180 / Math.PI;
-const EYE = new THREE.Vector3(...data.eye);
-const PITCH = -5 / DEG;                 // seat looks a touch down, so the panel sits in view
+export const EYE = new THREE.Vector3(...data.eye);
+export const PITCH = -5 / DEG;                 // seat looks a touch down, so the panel sits in view
 const PLANET_C = new THREE.Vector3(300, -5500, -800), PLANET_R = 5200;
 
 function frame(name) {
@@ -51,7 +51,7 @@ bool inCanopy(vec3 p){
   return p.y > y0 - .014 && p.y < top + (ax < .05 ? .12 : .035);
 }`;
 
-function cutawayHull(geoToShip) {
+export function cutawayHull(geoToShip) {
   const m = addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.35 }), { scale: 0.5, grime: 0.6, scratch: 0.6, bump: 1.6 });
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (sh, r) => {
@@ -62,6 +62,32 @@ function cutawayHull(geoToShip) {
   };
   m.customProgramCacheKey = () => 'hulldetail-cut';
   return m;
+}
+
+// The canopy opens: it hinges up at its aft edge. The inner frame (two bows, the spine, the grab handle)
+// is part of the interior mesh, so the same mesh is drawn twice: once fixed with the band along the canopy
+// shell cut away, once on the hinge with everything but that band cut away.
+export const HINGE = (() => { const z = data.canopy[data.canopy.length - 1][0], [, ch, y0] = canopyAt(z); return new THREE.Vector3(0, y0 + ch + 0.01, z); })();
+export const OPEN_ANGLE = 62 / DEG;
+const FRAME_GLSL = `${CUT_GLSL}
+float segD(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.); return length(pa - ba * h); }
+bool inFrame(vec3 p){
+  if (p.z < ${data.canopy[0][0].toFixed(3)} - .05 || p.z > ${data.canopy[data.canopy.length - 1][0].toFixed(3)} + .05) return false;
+  float cw = cpW(p.z), ch = cpH(p.z), y0 = cpY(p.z) - .08;
+  if (p.y < y0 + .045) return false;
+  vec2 q = vec2(abs(p.x), p.y);
+  vec2 A = vec2(cw, y0), B = vec2(.8 * cw, y0 + .7 * ch), C = vec2(.35 * cw, y0 + ch), D = vec2(0., y0 + ch);
+  return min(segD(q, A, B), min(segD(q, B, C), segD(q, C, D))) < .085;
+}`;
+export function frameCut(mat, geoToShip, open, hinge) {
+  const base = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => {
+    base(sh, r);
+    sh.uniforms.uCutF = { value: geoToShip }; sh.uniforms.uOpen = open;
+    sh.fragmentShader = sh.fragmentShader.replace('void main() {', `uniform mat4 uCutF; uniform float uOpen;\n${FRAME_GLSL}\nvoid main() {\n  { bool f = inFrame((uCutF * vec4(vOP, 1.)).xyz); if (${hinge ? '!f' : 'uOpen > .001 && f'}) discard; }`);
+  };
+  mat.customProgramCacheKey = () => 'hulldetail-frame' + (hinge ? 'H' : 'F');
+  return mat;
 }
 
 // ---- canopy glass -----------------------------------------------------------------------
@@ -137,7 +163,7 @@ void main(){
   gl_FragColor = vec4(col, a);
 }`;
 
-function canopyGeometry() {
+export function canopyGeometry() {
   const Z0 = data.canopy[0][0], Z1 = data.canopy[data.canopy.length - 1][0];
   const nz = 48, per = 4, pos = [], uv = [], idx = [];
   const ring = (z) => {
@@ -161,6 +187,26 @@ function canopyGeometry() {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
   g.userData.dim = [girth, Z1 - Z0];
+  return g;
+}
+
+// outer canopy frame for the hinged canopy seen from outside: sill rails, front and aft arches, two bows
+export function canopyFrame() {
+  const Z0 = data.canopy[0][0], Z1 = data.canopy[data.canopy.length - 1][0];
+  const mat = new THREE.MeshStandardMaterial({ color: 0x2b2d31, roughness: 0.42, metalness: 0.7 });
+  const haz = new THREE.MeshStandardMaterial({ color: 0xff5a1f, roughness: 0.55, metalness: 0.2 });
+  const g = new THREE.Group();
+  const arch = (z, s = 1) => { const [cw, ch, y0] = canopyAt(z); return [[cw, y0], [cw * .8, y0 + ch * .7], [cw * .35, y0 + ch], [-cw * .35, y0 + ch], [-cw * .8, y0 + ch * .7], [-cw, y0]].map(([x, y]) => new THREE.Vector3(x * s, y0 + (y - y0) * s + 0.004, z)); };
+  const tube = (pts, r, m = mat, closed = false) => { const c = new THREE.CatmullRomCurve3(pts, closed, 'catmullrom', 0.1); const t = new THREE.Mesh(new THREE.TubeGeometry(c, pts.length * 8, r, 6, closed), m); g.add(t); return t; };
+  for (const sx of [-1, 1]) {
+    const pts = []; for (let i = 0; i <= 16; i++) { const z = Z0 + (Z1 - Z0) * i / 16, [cw, , y0] = canopyAt(z); pts.push(new THREE.Vector3(sx * cw * 0.99, y0 + 0.006, z)); }
+    tube(pts, 0.016);
+  }
+  tube(arch(Z1 - 0.012), 0.02); tube(arch(Z0 + 0.03), 0.014);
+  for (const z of [-0.62, 0.0]) tube(arch(z, 1.004), 0.012);
+  // hinge knuckles and a hazard-striped lift strut stub at the aft arch
+  for (const sx of [-0.12, 0.12]) { const k = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.07, 10), mat); k.rotation.z = Math.PI / 2; k.position.set(sx, HINGE.y - 0.01, HINGE.z); g.add(k); }
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.012, 0.03), haz); const [, , fy] = canopyAt(Z0 + 0.1); lip.position.set(0, fy + 0.012, Z0 + 0.1); g.add(lip);
   return g;
 }
 
@@ -220,7 +266,7 @@ export class Cockpit {
     // the exterior hull, minus the canopy, glass and everything else inside the bubble
     const ext = model.clone(); ext.updateMatrixWorld(true);
     let geo = null; ext.traverse((o) => { if (o.isMesh && !geo) geo = o.matrixWorld.clone(); });
-    const cut = cutawayHull(geo), hidden = new THREE.MeshBasicMaterial({ visible: false });
+    const cut = this.cutMat = cutawayHull(geo), hidden = new THREE.MeshBasicMaterial({ visible: false });
     ext.traverse((o) => {
       if (!o.isMesh) return;
       const swap = (m) => (m === mats.glass ? hidden : m === mats.shipHull ? cut : m);
@@ -235,7 +281,23 @@ export class Cockpit {
     const g = await loadModel(cockpitUrl, mat);
     const byName = { cockpit: g.getObjectByName('cockpit'), throttle: g.getObjectByName('throttle'), stick: g.getObjectByName('stick') };
     const interior = byName.cockpit;
+    g.updateMatrixWorld(true);
+    this.openU = { value: 0 }; this.open = 0; this.openTarget = 0;
+    // the interior node is a group of meshes, each with its own quantization matrix: one material pair per mesh
+    const mk = () => addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.66, metalness: 0.28 }), { scale: 4.5, grime: 0.5, scratch: 0.22, bump: 0.45 });
+    this.hingeMats = new Map();
+    interior.traverse((o) => {
+      if (!o.isMesh) return;
+      const geoToShip = o.matrixWorld.clone();
+      o.material = frameCut(mk(), geoToShip, this.openU, false);
+      this.hingeMats.set(o.name || o.uuid, frameCut(mk(), geoToShip, this.openU, true));
+    });
+    this.interior = interior;
     this.root.add(interior);
+    // the hinge: pivot at the canopy's aft top edge; children are posed in ship space under `off`
+    this.hinge = new THREE.Group(); this.hinge.position.copy(HINGE); this.root.add(this.hinge);
+    const off = this.hingeOff = new THREE.Group(); off.position.copy(HINGE).negate(); this.hinge.add(off);
+    const band = this.bandClone(); band.visible = false; off.add(band); this.band = band;
 
     // moving parts, hung on the frames authored with the model
     const thr = frame('throttle'); this.root.add(thr); this.throttle = byName.throttle; thr.add(this.throttle);
@@ -307,7 +369,7 @@ export class Cockpit {
       vertexShader: GLASS_VS, fragmentShader: GLASS_FS, uniforms: this.glassU, transparent: true, depthWrite: false, side: THREE.DoubleSide,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
     }));
-    glass.renderOrder = 10; this.root.add(glass);
+    glass.renderOrder = 10; this.hingeOff.add(glass);
 
     // HUD combiner glass
     const hf = frame('hud'), [hw, hh] = hf.userData.size, hr = Instruments.uv('HUD');
@@ -323,6 +385,34 @@ export class Cockpit {
 
     this.buildTag();
   }
+
+  // A copy of the cabin for the outside world: when the canopy is open (EVA) the main scene draws the
+  // interior, the hinged frame and glass, so you can look back into your own seat.
+  buildEvaCabin(envMap) {
+    const g = new THREE.Group();
+    g.add(this.interior.clone());
+    for (const n of ['throttle', 'stick']) { const f = frame(n); f.add((n === 'throttle' ? this.throttle : this.stick).clone()); g.add(f); }
+    this.root.children.filter((o) => o.userData && o.userData.size && o.children.some((c) => c.isMesh && c.material.map === this.inst.tex)).forEach((f) => g.add(f.clone()));
+    const hinge = new THREE.Group(); hinge.position.copy(HINGE); g.add(hinge);
+    const off = new THREE.Group(); off.position.copy(HINGE).negate(); hinge.add(off);
+    off.add(this.bandClone());
+    const glass = new THREE.Mesh(canopyGeometry(), new THREE.MeshStandardMaterial({ color: 0x0a0f14, roughness: 0.06, metalness: 0.9, transparent: true, opacity: 0.32, envMap, side: THREE.DoubleSide, depthWrite: false }));
+    glass.renderOrder = 2; off.add(glass);
+    off.add(canopyFrame());
+    g.userData.hinge = hinge;
+    g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    glass.castShadow = false;
+    return g;
+  }
+
+  bandClone() {
+    const b = this.interior.clone(), src = []; this.interior.traverse((o) => { if (o.isMesh) src.push(o); });
+    let i = 0; b.traverse((o) => { if (o.isMesh) { o.material = this.hingeMats.get(src[i].name || src[i].uuid); i++; } });
+    return b;
+  }
+
+  // open/close the canopy (EVA). Returns true once it has reached the target.
+  setCanopy(open) { this.openTarget = open ? 1 : 0; }
 
   // a salvage tag on a short chain, hung from the forward bow. Zero g: it floats, and only thrust moves it.
   buildTag() {
@@ -371,6 +461,17 @@ export class Cockpit {
 
   update(dt, ship, rig) {
     this.t += dt;
+    // ---- canopy hinge ------------------------------------------------------------------------
+    if (this.hinge) {
+      const sp = this.reduced ? 4 : 0.75;
+      this.open = THREE.MathUtils.clamp(this.open + Math.sign(this.openTarget - this.open) * dt * sp, 0, 1);
+      if (Math.abs(this.openTarget - this.open) < dt * sp) this.open = this.openTarget;
+      const k = this.open, e = k * k * (3 - 2 * k);
+      this.openAngle = e * OPEN_ANGLE + (k > 0 && k < 1 ? Math.sin(k * Math.PI) * 0.015 * Math.sin(this.t * 31) : 0);
+      this.hinge.rotation.x = this.openAngle;
+      this.openU.value = k; this.band.visible = k > 0.001;
+      if (this.chain) this.chain.visible = this.tag.visible = k < 0.001;
+    }
     // ---- view blend --------------------------------------------------------------------
     const goingIn = this.target > this.blend;
     if (!this.reduced) this.blend = THREE.MathUtils.clamp(this.blend + (this.target ? 1 : -1) * dt / 0.55, 0, 1);
