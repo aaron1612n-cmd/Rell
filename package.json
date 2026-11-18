@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "bash scripts/deploy.sh",
-    "assets": "for f in ship station debris; do python tools/blender/$f.py; done && node tools/optimize.mjs"
+    "assets": "for f in ship station debris cockpit; do python tools/blender/$f.py; done && node tools/optimize.mjs"
   },
   "repository": {
     "type": "git",

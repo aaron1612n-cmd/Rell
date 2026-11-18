@@ -58,6 +58,11 @@ body.touch #hint{display:none}
 #helpbtn{position:absolute;right:max(16px,env(safe-area-inset-right));top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:.15s}
 #helpbtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 #helpbtn.on{background:var(--hazard);border-color:var(--hazard)}#helpbtn.on svg{stroke:var(--void)}
+#viewbtn{position:absolute;right:calc(max(16px,env(safe-area-inset-right)) + 56px);top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:.15s;padding:0;color:inherit}
+#viewbtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+body.cockpit #viewbtn{border-color:var(--bone)}
+#speed,#hullwrap,#reticle,#pro,#assist{transition:opacity .35s}
+body.cockpit #speed,body.cockpit #hullwrap,body.cockpit #reticle,body.cockpit #pro,body.cockpit #assist{opacity:0!important;pointer-events:none}
 #help{position:fixed;inset:0;display:grid;place-items:center;background:rgba(7,9,13,.72);opacity:0;pointer-events:none;transition:opacity .2s;z-index:5}
 #help.show{opacity:1;pointer-events:auto}
 #help .card{display:flex;flex-wrap:wrap;justify-content:center;gap:28px 48px;padding:24px;max-width:min(94vw,820px);max-height:92vh;overflow:auto}
@@ -80,7 +85,7 @@ body.touch #hint{display:none}
 <div id="hud">
   <div id="reticle"></div><div id="pro"></div>
   <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
-  <button id="helpbtn" aria-label="Controls"></button>
+  <button id="helpbtn" aria-label="Controls"></button><button id="viewbtn" aria-label="View"></button>
   <div id="hullwrap"><span class="mono">Hull</span><div id="hull"></div></div>
   <div id="speed"><span class="mono">m/s</span><b id="spd">000</b><div id="spdbar"><i id="spdfill"></i><s></s></div></div>
 </div>

@@ -176,13 +176,15 @@ class Kit:
         self._finish(before, color, mat, wear, bf)
         if collide_box: self._obb(Matrix.Translation(Vector(c)) @ rot.to_matrix().to_4x4(), collide_box)
 
-    def loft(self, sections, color=BONE, c=(0, 0, 0), rot=(0, 0, 0), bevel=0.0, mat=HULL, wear=0.1, cap=True, colors=None):
-        """sections: list of (z, [(x,y)...]) with equal point counts. Faces connect consecutive sections."""
+    def loft(self, sections, color=BONE, c=(0, 0, 0), rot=(0, 0, 0), bevel=0.0, mat=HULL, wear=0.1, cap=True, colors=None, closed=True, recalc=True):
+        """sections: list of (z, [(x,y)...]) with equal point counts. Faces connect consecutive sections.
+        closed=False leaves the ring open between the last and first point (a shell, e.g. a cockpit tub);
+        recalc=False keeps the winding as given (sections in +z order, points clockwise seen from +z = normals inward)."""
         before = set(self.bm.faces)
         rings = [[self.bm.verts.new((x, y, z)) for (x, y) in pts] for z, pts in sections]
         n = len(rings[0])
         for a, b in zip(rings, rings[1:]):
-            for i in range(n):
+            for i in range(n if closed else n - 1):
                 j = (i + 1) % n
                 try: self.bm.faces.new((a[i], a[j], b[j], b[i]))
                 except ValueError: pass
@@ -192,7 +194,7 @@ class Kit:
                 except ValueError: pass
         allv = [v for r_ in rings for v in r_]
         faces = list({f for v in allv for f in v.link_faces if f not in before})
-        bmesh.ops.recalc_face_normals(self.bm, faces=faces)
+        if recalc: bmesh.ops.recalc_face_normals(self.bm, faces=faces)
         if not isinstance(rot, Euler): rot = R(*rot)
         self._xf(allv, Matrix.Translation(Vector(c)) @ rot.to_matrix().to_4x4())
         edges = list({e for v in allv for e in v.link_edges})
