@@ -27,7 +27,7 @@ export function buildShip(model, coarse = false) {
   const dot = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d'); const gr = x.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, '#fff'); gr.addColorStop(0.35, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 32, 32); return c; })());
   const navs = (shipData.nav || [[-2.45, -0.05, 1.0, 0xff3b2a], [2.45, -0.05, 1.0, 0x3bff7a], [0, 0.9, 2.0, 0xffffff]]).map(([x, y, z, col]) => {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    sp.position.set(x, y, z); sp.scale.setScalar(0.6); g.add(sp); return sp;
+    sp.position.set(x, y, z); sp.scale.setScalar(0.4); g.add(sp); return sp;
   });
   g.userData = { glows, light, nubs, navs, engines };
   return g;

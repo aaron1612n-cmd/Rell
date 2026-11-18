@@ -44,7 +44,7 @@ for z in (-.62, 0.0):
     cw = 0.40 + zi * .1; y0 = prof(z)[1] - .08
     k.loft([(z - .035, [(-cw * 1.02, y0 - .02), (-cw * .84, y0 + .27), (-cw * .36, y0 + .36), (cw * .36, y0 + .36), (cw * .84, y0 + .27), (cw * 1.02, y0 - .02)]),
             (z + .035, [(-cw * 1.02, y0 - .02), (-cw * .84, y0 + .27), (-cw * .36, y0 + .36), (cw * .36, y0 + .36), (cw * .84, y0 + .27), (cw * 1.02, y0 - .02)])], BONE_D, bevel=.01)
-k.box((0, .86, -.32), (.05, .05, 1.0), BONE_D, bevel=.01)  # centre rail
+k.box((0, .80, -.32), (.05, .08, 1.0), BONE_D, bevel=.01)  # centre rail (sunk into the canopy crown)
 # headlamp
 k.lamp((0, -.02, -2.2), (.12, .07, .05), WHITE)
 k.lamp((.30, -.12, -1.88), (.06, .05, .05), AMBER); k.lamp((-.30, -.12, -1.88), (.06, .05, .05), AMBER)
@@ -53,9 +53,9 @@ k.lamp((.30, -.12, -1.88), (.06, .05, .05), AMBER); k.lamp((-.30, -.12, -1.88), 
 k.box((0, .67, 1.0), (.62, .26, 1.0), BONE_D, bevel=.03)
 k.box((0, .82, 1.0), (.36, .06, .8), RUST, bevel=.015)
 for x in (-.22, .22): k.box((x, .70, 1.45), (.12, .34, .14), SLATE, bevel=.015)
-k.stripes((0, .85, .35), (.34, .14), 6, 'y', thick=.012)
+k.stripes((0, .595, .35), (.34, .14), 6, 'y', thick=.012)  # lies on the spine panel
 # mast + dish
-k.cyl((.0, 1.15, 1.55), .02, .02, .7, 'y', 6, SLATE_L)
+k.cyl((.0, 1.18, 1.55), .02, .02, .78, 'y', 6, SLATE_L)
 k.sphere((0, 1.55, 1.55), .12, (1, .5, 1), SLATE_L, 10, 6, half=True, rot=(-90, 0, 0))
 k.cyl((.32, .72, .1), .02, .02, .5, 'y', 6, SLATE_L); k.lamp((.32, 1.0, .1), (.06, .06, .06), RED)
 
@@ -74,26 +74,28 @@ for sx in (-1, 1):
 
 # ---- wings ---------------------------------------------------------------------------
 for sx in (-1, 1):
-    pts = [(.8, -.4), (.8, 1.55), (2.35, 1.25), (2.35, .68)]
+    pts = [(.5, -.4), (.5, 1.55), (2.35, 1.25), (2.35, .68)]   # root buried in the fuselage (hull is only .70 wide at z=-.4)
     if sx < 0: pts = [(-x, z) for x, z in reversed(pts)]
     k.poly([(x, z) for x, z in pts], .13, (0, -.12, 0), BONE, 'xz', bevel=.02)
     # leading-edge hazard strip & rust trailing flap
     lx = [(1.0, -.12), (2.25, .62), (2.35, .68), (.8, -.4)]
-    k.box((sx * 1.62, -.12, .26), (1.7, .15, .1), HAZ, rot=(0, -sx * 24, 0), bevel=.015, wear=0)
+    k.box((sx * 1.52, -.12, .22), (1.95, .15, .1), HAZ, rot=(0, -sx * 24, 0), bevel=.015, wear=0)
     k.box((sx * 1.55, -.12, 1.4), (1.5, .14, .1), RUST, rot=(0, sx * 10, 0), bevel=.015)
     k.panels((sx * 1.55, -.052, .95), (1.4, .8), 3, 2, 'y', 1, gap=.05, lift=.02, color=BONE_L, bevel=.01)
     # tip RCS block + nav light
     k.box((sx * 2.3, -.09, .95), (.22, .28, .55), SLATE, bevel=.03)
     k.lamp((sx * 2.4, -.09, .68), (.05, .06, .06), RED if sx < 0 else GREEN)
     # under-wing pylon + tool pod
-    k.box((sx * 1.4, -.28, .7), (.18, .2, .6), SLATE_L, bevel=.02)
+    k.box((sx * 1.4, -.26, .7), (.18, .2, .6), SLATE_L, bevel=.02)
 
 # ---- tail ----------------------------------------------------------------------------
-k.poly([(0, 0), (1.0, 0), (.85, .72), (.45, 1.05), (0, 1.05)], .09, (0, .52, .98), BONE, 'yz', bevel=.02)  # (z,y)->? see plane
+# plane 'yz': point (a, b) -> (y, z). Base sits 0.14 below the old one so it bites into the tapering aft hull (top y=.42 at z=1.88)
+k.poly([(0, 0), (1.14, 0), (.99, .72), (.59, 1.05), (0, 1.05)], .09, (0, .38, .98), BONE, 'yz', bevel=.02)
 k.box((0, 1.0, 1.9), (.1, .12, .3), HAZ, bevel=.02, wear=0)
 
 # ---- salvage arms + sled -------------------------------------------------------------
 for sx in (-1, 1):
+    k.box((sx * .3, -.45, -1.1), (.2, .12, .3), SLATE, bevel=.015)           # shoulder bracket into the keel
     k.cyl((sx * .3, -.52, -1.1), .09, .09, .22, 'x', 10, SLATE)
     k.box((sx * .3, -.52, -1.55), (.1, .1, .85), SLATE_L, bevel=.02)
     k.cyl((sx * .3, -.52, -1.95), .08, .08, .14, 'x', 10, SLATE)
@@ -127,10 +129,12 @@ for sx in (-1, 1):
 
 # hull greebles on fuselage flanks
 for sx in (-1, 1):
-    k.greebles((sx * prof(.2)[0], 0, .2), (1.6, .5), 7, 'x', sx, hmax=.08, smax=.3, smin=.1)
-k.greebles((0, .56, -.2), (.8, 1.0), 6, 'y', 1, hmax=.05, smax=.2, smin=.08)
+    # u runs along y, v along z: keep y within the flat flank (+-.27) and embed the base so none hover on the taper
+    k.greebles((sx * .69, 0, .02), (.55, .75), 4, 'x', sx, hmax=.1, smax=.2, smin=.1)   # forward of the pods; hull is >=.70 wide for z>-.4
+k.greebles((0, .54, -.2), (.5, 1.0), 6, 'y', 1, hmax=.07, smax=.2, smin=.08)   # on the spine panel
 
-meta = {'nozzles': NOZ, 'glow': [[-.66, 0, 2.38], [.66, 0, 2.38]]}
+meta = {'nozzles': NOZ, 'glow': [[-.66, 0, 2.38], [.66, 0, 2.38]],
+        'nav': [[-2.4, -.09, .68, 0xff3b2a], [2.4, -.09, .68, 0x3bff7a], [0, .98, 1.97, 0xffffff]]}  # on the wingtip lamps / fin trailing edge
 k.meta['x'] = 1
 bake_ao([k], rays=24, dist=.9, strength=.9)
 out = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'assets')
