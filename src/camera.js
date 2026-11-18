@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 const _o = new THREE.Vector3(), _t = new THREE.Vector3(), _up = new THREE.Vector3(), _f = new THREE.Vector3(), _y = new THREE.Vector3(0, 1, 0);
+const _bq = new THREE.Quaternion();
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 
 // Chase camera: orientation lags the ship (so you feel rotation), distance stretches with speed,
@@ -13,6 +14,9 @@ export class CamRig {
     this.tow = 0; this.towSm = 0;   // length of the tow line + load: the camera backs off and rises to keep the load in frame
     this.introDur = reduced ? 0 : 4.2;
   }
+
+  // ease from a pose the camera is in now (the end of a cutscene) into the chase view over `dur` seconds
+  blendFrom(cam, dur) { this.bf = { p: cam.position.clone(), q: cam.quaternion.clone(), t: 0, d: this.reduced ? 0 : dur }; }
 
   kick(a) { if (!this.reduced) this.shake = Math.min(1, this.shake + a); }
 
@@ -40,6 +44,11 @@ export class CamRig {
     this.cam.up.copy(_up);
     this.cam.lookAt(_t);
 
+    if (this.bf) {
+      const b = this.bf; b.t += dt; const k = b.d ? Math.min(1, b.t / b.d) : 1, e = k * k * k * (k * (6 * k - 15) + 10);
+      this.cam.position.lerpVectors(b.p, this.cam.position, e); this.cam.quaternion.slerpQuaternions(b.q, _bq.copy(this.cam.quaternion), e);
+      if (k >= 1) this.bf = null;
+    }
     if (this.shake > 0.001) {
       const s = this.shake * 0.55;
       this.cam.position.x += (Math.random() - 0.5) * s; this.cam.position.y += (Math.random() - 0.5) * s; this.cam.position.z += (Math.random() - 0.5) * s;

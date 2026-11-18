@@ -35,7 +35,7 @@ function interp(tab, z) {
   }
   return (z < tab[0][0] ? tab[0] : tab[tab.length - 1]).slice(1);
 }
-function canopyAt(z) { const [cw, ch] = interp(data.canopy, z); return [cw, ch, interp(data.profile, z)[1] - 0.08]; }
+export function canopyAt(z) { const [cw, ch] = interp(data.canopy, z); return [cw, ch, interp(data.profile, z)[1] - 0.08]; }
 
 // GLSL: is an object-space point inside the canopy volume? Used to cut the exterior hull away around the pilot.
 const glslTable = (name, tab, col) => `float ${name}(float z){\n` + tab.slice(0, -1).map((a, i) => {
@@ -69,6 +69,14 @@ export function cutawayHull(geoToShip) {
 // shell cut away, once on the hinge with everything but that band cut away.
 export const HINGE = (() => { const z = data.canopy[data.canopy.length - 1][0], [, ch, y0] = canopyAt(z); return new THREE.Vector3(0, y0 + ch + 0.01, z); })();
 export const OPEN_ANGLE = 62 / DEG;
+// how the canopy moves (0 shut .. 1 open): the seal cracks a few degrees and catches, then the gas struts
+// swing it up and it settles with a little overshoot. Run backwards that's a slow lowering, a pause on the
+// seal and a firm last few degrees: the latch.
+export function canopyCurve(k) {
+  if (k < 0.16) { const a = Math.min(1, k / 0.08); return 0.05 * a * a * (3 - 2 * a); }
+  const s = (k - 0.16) / 0.84, e = s * s * (3 - 2 * s);
+  return 0.05 + 0.95 * e + 0.05 * Math.sin(Math.PI * s) * s * s;
+}
 const FRAME_GLSL = `${CUT_GLSL}
 float segD(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.); return length(pa - ba * h); }
 bool inFrame(vec3 p){
@@ -463,12 +471,12 @@ export class Cockpit {
     this.t += dt;
     // ---- canopy hinge ------------------------------------------------------------------------
     if (this.hinge) {
-      const sp = this.reduced ? 4 : 0.75;
+      const sp = this.reduced ? 3 : 0.6;
       this.open = THREE.MathUtils.clamp(this.open + Math.sign(this.openTarget - this.open) * dt * sp, 0, 1);
       if (Math.abs(this.openTarget - this.open) < dt * sp) this.open = this.openTarget;
-      const k = this.open, e = k * k * (3 - 2 * k);
-      this.openAngle = e * OPEN_ANGLE + (k > 0 && k < 1 ? Math.sin(k * Math.PI) * 0.015 * Math.sin(this.t * 31) : 0);
+      this.openAngle = canopyCurve(this.open) * OPEN_ANGLE;
       this.hinge.rotation.x = this.openAngle;
+      const k = this.open;
       this.openU.value = k; this.band.visible = k > 0.001;
       if (this.chain) this.chain.visible = this.tag.visible = k < 0.001;
     }
