@@ -6,12 +6,18 @@ import { World, SUN_DIR } from './world.js';
 import { Input, ICONS } from './input.js';
 import { CamRig } from './camera.js';
 import { Hud } from './hud.js';
+import { Impact } from './impact.js';
 import { Help } from './help.js';
 import { GpuParticles, HeatHazePass, K } from './gpufx.js';
 import { Engine } from './engine.js';
 import { setupLights, Look } from './look.js';
 import { NOZZLES, solveRcs } from './rcs.js';
 import { Cockpit } from './cockpit.js';
+import { LAYOUT } from './sites.js';
+import { Salvage } from './salvage.js';
+import { Econ } from './economy.js';
+import { Nav, NAV_ICONS } from './nav.js';
+import { Tutorial } from './tutorial.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -27,12 +33,14 @@ const camera = new THREE.PerspectiveCamera(66, 1, 0.1, 20000);
 // light rig, reflection environment and tone mapping live in look.js
 const { sun } = setupLights(scene, renderer, SUN_DIR, coarse);
 
-const [shipModel, stationModel, debrisModel] = await Promise.all([loadModel(urls.ship, mats.shipHull), loadModel(urls.station), loadModel(urls.debris)]);
-const world = new World(scene, { station: stationModel, debris: debrisModel }, { coarse });
+const [shipModel, stationModel, debrisModel, depotModel, freighterModel, salvageModel] = await Promise.all([
+  loadModel(urls.ship, mats.shipHull), loadModel(urls.station), loadModel(urls.debris), loadModel(urls.depot), loadModel(urls.freighter), loadModel(urls.salvage)]);
+const world = new World(scene, { station: stationModel, stationB: stationModel.clone(true), debris: debrisModel, depot: depotModel, freighter: freighterModel, salvage: salvageModel }, { coarse });
+const depot = world.site.depot;
 scene.add(world.sky);
 
 const ship = new Ship();
-ship.pos.set(30, 14, 142); ship.quat.setFromEuler(new THREE.Euler(-0.06, 0.28, 0));
+ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler));
 const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh);
 // the ship's meshes live on layer 1: the chase camera sees them, the cockpit view doesn't, the sun's shadow always does
 shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.set(1); });
@@ -45,9 +53,99 @@ addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) cockpit
 
 const input = new Input(canvas);
 input.onToggleAssist = () => { ship.assist = !ship.assist; };
+const impact = new Impact(scene, world, ship, { reduced, coarse });
+{
+  const el = document.getElementById('impact');
+  let on = true; try { on = localStorage.getItem('rell.impact') !== '0'; } catch {}
+  const set = (v) => { on = v; impact.setEnabled(v); el.classList.toggle('on', v); try { localStorage.setItem('rell.impact', v ? '1' : '0'); } catch {} };
+  set(on);
+  input.onToggleImpact = () => set(!on);
+  el.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); set(!on); });
+}
 const rig = new CamRig(camera, reduced);
 const hud = new Hud();
-new Help(input);
+const help = new Help(input);
+
+// ---- salvage loop: tow line, depot, credits, upgrades, tutorial ------------------------------
+const econ = new Econ();
+const salvage = new Salvage({
+  scene, world, ship, models: { salvage: salvageModel }, coarse,
+  onImpact: (h, m) => onShipHit(h, Math.min(3, m * 0.3)),
+  onDeliver: (it, v) => { econ.earn(v); nav.pop(v); tutorial.delivered(); depotFlash = 1; },
+  onEvent: (e, it, p) => {
+    if (e === 'snap') { sparks({ point: p, normal: _c.copy(ship.pos).sub(p).normalize(), speed: 10 }, 40); rig.kick(0.35); hud.pulse(0.12); cockpit.alert(0.5); }
+    if (e === 'hook') rig.kick(0.05);
+    if (e === 'miss') hud.miss();
+  },
+});
+econ.apply(ship, salvage);
+const nav = new Nav({ world, salvage, econ, ship, input });
+nav.onBuy = () => econ.apply(ship, salvage);
+const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced });
+if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
+help.onTutorial = () => { respawn(true); tutorial.start(); };
+input.onGrab = () => salvage.grab();
+let depotFlash = 0;
+
+world.onSiteEvent = (e, site) => {
+  const d = site.pos.distanceTo(ship.pos);
+  if (e === 'unstable') { rig.kick(d < 400 ? 0.4 : 0.05); if (d < 400) cockpit.alert(0.6); }
+  if (e === 'collapse') {
+    shock(site);
+    const near = 1 - THREE.MathUtils.clamp((d - site.radius * 0.3) / 260, 0, 1);
+    if (near > 0) {
+      rig.kick(Math.min(1, near * 1.4)); hud.pulse(0.45 * near); cockpit.alert(near);
+      ship.hull = Math.max(0, ship.hull - 0.5 * near * near * (ship.armor ?? 1));
+      ship.vel.addScaledVector(_c.copy(ship.pos).sub(site.pos).normalize(), 22 * near);
+      ship.angVel.add(_c.set(R() - 0.5, R() - 0.5, R() - 0.5).multiplyScalar(3 * near));
+      if (ship.hull <= 0 && !respawnT) { respawnT = 1.6; salvage.releaseAll(); }
+    }
+  }
+};
+// collapse shockwave: a bright shell that races out from the wreck
+const shockMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  uniforms: { uA: { value: 0 } },
+  vertexShader: 'varying vec3 vN, vV; void main(){ vec4 w = modelMatrix * vec4(position,1.); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }',
+  fragmentShader: 'uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(1. - abs(dot(vN, vV)), 3.); gl_FragColor = vec4(vec3(1.4,.62,.3) * f * uA, 1.); }',
+});
+const shockMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), shockMat); shockMesh.visible = false; shockMesh.frustumCulled = false; scene.add(shockMesh);
+let shockT = -1;
+function shock(site) {
+  shockMesh.position.copy(site.pos); shockT = 0; shockMesh.visible = true;
+  for (const p of site.parts) if (p.pivot) { _c.copy(p.pivot.position); sparks({ point: _c, normal: _a.copy(_c).sub(site.pos).normalize(), speed: 20 }, 50); }
+  fx.emit(site.pos, _b.set(0, 0, 0), fxT, 0.5, 0.6, 60, K.FLASH, 1);
+}
+function shockFx(dt) {
+  if (shockT < 0) return;
+  shockT += dt; const k = shockT / 2.2;
+  if (k >= 1) { shockT = -1; shockMesh.visible = false; return; }
+  shockMesh.scale.setScalar(20 + 380 * (1 - Math.pow(1 - k, 2.2))); shockMat.uniforms.uA.value = (1 - k) * 1.6;
+}
+// weld tearing throws sparks where the line bites
+let strainAcc = 0;
+function strainFx(dt) {
+  for (const r of salvage.ropes) {
+    const s = r.item.strainVis || 0; if (r.item.state !== 'welded' || s < 0.05) continue;
+    strainAcc += dt * 160 * s * Q;
+    while (strainAcc > 1) {
+      strainAcc--;
+      _b.copy(r.pa).sub(r.pb).normalize().multiplyScalar(3 + R() * 8).add(_c.set(rs(), rs(), rs()).multiplyScalar(9));
+      fx.emit(r.pb, _b, fxT - R() * dt, 0.3 + R() * 0.5, 0.03, 0.02, R() < 0.4 ? K.EMBER : K.SPARK, 0.6, 0.04);
+    }
+    if (s > 0.4) rig.kick(0.008 * s);
+  }
+}
+// docked at the depot: hull gets patched up, upgrade tiles open
+function dockCheck(dt) {
+  const docked = ship.pos.distanceTo(depot.dockPt) < depot.dockR && ship.vel.length() < 6 && !respawnT;
+  nav.setDocked(docked);
+  if (docked && ship.hull < 1) ship.hull = Math.min(1, ship.hull + dt * 0.2);
+  depotFlash = Math.max(0, depotFlash - dt * 0.8);
+  const towing = salvage.ropes.length > 0;
+  const k = towing ? 0.7 + 0.5 * Math.sin(time * 6) : 0.55;
+  depot.catchMat.color.setRGB(k + depotFlash * 2, k * (towing ? 0.45 : 1) + depotFlash, k * (towing ? 0.2 : 1) + depotFlash * 0.5);
+}
 
 // post (look.js): heat haze (desktop), bloom on HDR only, lens ghosts, grade, vignette, grain. Phones skip haze and bloom.
 const hazeScene = new THREE.Scene();   // heat-shimmer particles, rendered only into the haze pass
@@ -272,16 +370,23 @@ function onShipHit(hit, otherMass) {
   if (s > 2) { rig.kick(Math.min(1, s / 28)); hud.pulse(Math.min(0.35, s / 70)); }
   if (s > 4) cockpit.alert(Math.min(1, s / 18));
   // glancing bumps are free; real hits cost hull, scaled by what you hit
-  const dmg = Math.max(0, s - 7) * 0.011 * Math.min(2, 0.7 + otherMass * 0.15);
+  const dmg = Math.max(0, s - 7) * 0.011 * Math.min(2, 0.7 + otherMass * 0.15) * (ship.armor ?? 1);
   if (dmg > 0) ship.hull = Math.max(0, ship.hull - dmg);
   // knock: a hit tumbles you
   ship.angVel.add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(Math.min(3, s * 0.12)));
-  if (ship.hull <= 0 && !respawnT) respawnT = 1.6;
+  if (ship.hull <= 0 && !respawnT) { respawnT = 1.6; salvage.releaseAll(); }
 }
 
-function respawn() {
-  ship.pos.set(30, 14, 142); ship.vel.set(0, 0, 0); ship.angVel.set(0, 0, 0); ship.quat.setFromEuler(new THREE.Euler(-0.06, 0.28, 0)); ship.hull = 1;
+// back at the start for the tutorial, otherwise towed home to the depot's dock
+function respawn(start = false) {
+  salvage.releaseAll();
+  ship.vel.set(0, 0, 0); ship.angVel.set(0, 0, 0); ship.hull = 1;
+  if (start) { ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler)); return; }
+  ship.pos.copy(depot.dockPt);
+  // face away from the depot, out toward the wrecks
+  _m4.lookAt(_c.set(0, 0, 0), _a.copy(depot.axis).negate(), _b.set(0, 1, 0)); ship.quat.setFromRotationMatrix(_m4);
 }
+const _m4 = new THREE.Matrix4();
 
 // ---- loop -------------------------------------------------------------------------------
 const STEP = 1 / 120;
@@ -299,28 +404,37 @@ function frame(now) {
   while (acc >= STEP && n++ < 8) {
     ship.step(STEP, first ? cmd : { ...cmd, dx: 0, dy: 0, yawKey: cmd.yawKey, pitchKey: cmd.pitchKey });
     world.update(STEP, ship, onShipHit);
+    salvage.step(STEP, depot);
     acc -= STEP; first = false;
   }
   if (n >= 8) acc = 0;
 
+  world.refreshActive(ship.pos);
+  dockCheck(dt);
   shipMesh.position.copy(ship.pos); shipMesh.quaternion.copy(ship.quat);
   fxT += dt;
+  strainFx(dt); shockFx(dt);
   rcsFx(dt);
   engineFx(dt);
   scrapeFx(dt);
   navFx(time);
   fx.update(fxT); smoke.update(fxT); if (haze) haze.update(fxT);
+  impact.update(dt, time);
   world.updateDust(ship.pos, ship.vel);
+  rig.tow = salvage.ropes.reduce((m, r) => Math.max(m, r.shoot < 1 ? 0 : r.rest + r.item.body.radius), 0);
   rig.update(dt, ship);
   ship.braking = cmd.brake; cockpit.heat = heat;
   cockpit.update(dt, ship, rig);
   world.updateVisual(time, camera.position);
 
   sun.position.copy(ship.pos).addScaledVector(SUN_DIR, 250); sun.target.position.copy(ship.pos);
+  salvage.update(dt, time, camera);
   hud.update(dt, ship, camera, innerWidth, innerHeight);
+  nav.update(dt, camera, innerWidth, innerHeight, time);
+  tutorial.update(dt, time, camera, innerWidth, innerHeight);
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-window.__game = { ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit };
+window.__game = { salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit };

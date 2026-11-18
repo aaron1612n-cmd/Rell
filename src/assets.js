@@ -5,6 +5,9 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import shipUrl from './assets/ship.glb?url';
 import stationUrl from './assets/station.glb?url';
 import debrisUrl from './assets/debris.glb?url';
+import depotUrl from './assets/depot.glb?url';
+import freighterUrl from './assets/freighter.glb?url';
+import salvageUrl from './assets/salvage.glb?url';
 
 // Shared materials for authored models. Colour (with baked ambient occlusion) lives in vertex colours,
 // so there are no textures: small downloads, nothing to decode on a phone.
@@ -30,4 +33,4 @@ export function loadModel(url, hull = mats.hull) {
   }, undefined, rej));
 }
 
-export const urls = { ship: shipUrl, station: stationUrl, debris: debrisUrl };
+export const urls = { ship: shipUrl, station: stationUrl, debris: debrisUrl, depot: depotUrl, freighter: freighterUrl, salvage: salvageUrl };

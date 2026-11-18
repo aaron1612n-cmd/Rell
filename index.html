@@ -24,6 +24,10 @@ canvas#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-ac
 #assist i{width:10px;height:10px;border:1.5px solid var(--dim);transform:rotate(45deg);transition:.15s}
 #assist.on i{background:var(--hazard);border-color:var(--hazard);box-shadow:0 0 10px var(--hazard)}
 #assist.on span{color:var(--bone)}
+#impact{position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 34px);display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;padding:8px 0;touch-action:none}
+#impact i{position:relative;width:10px;height:10px;border:1.5px solid var(--dim);border-radius:1px;transition:.15s}
+#impact.on i{border-color:var(--hazard);box-shadow:0 0 10px var(--hazard)}
+#impact.on span{color:var(--bone)}
 #hullwrap{position:absolute;right:max(16px,env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;gap:10px}
 #hullwrap .mono{writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;order:2}
 #hull{display:flex;flex-direction:column-reverse;gap:4px;padding:6px 0;border-right:1px solid rgba(232,224,204,.18);padding-right:6px}
@@ -78,6 +82,78 @@ body.cockpit #speed,body.cockpit #hullwrap,body.cockpit #reticle,body.cockpit #p
 @media (max-height:420px){#help .card{gap:12px 28px;padding:8px}#help .row{margin-bottom:6px;font-size:15px}#help .ic{width:38px;height:38px}}
 @media (prefers-reduced-motion:reduce){#help,#helpbtn{transition:none}}
 @media (max-width:700px){#hull i{height:12px}}
+
+/* ---- nav markers, salvage brackets, credits, dock, tutorial ---- */
+#nav{position:absolute;inset:0;pointer-events:none}
+.mk{position:absolute;left:0;top:0;width:0;height:0;will-change:transform;transition:opacity .3s}
+.mk>svg{position:absolute;left:-10px;top:-10px;width:20px;height:20px;stroke:var(--bone);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.mk b{position:absolute;left:14px;top:-9px;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap;opacity:.9}
+.mk u{position:absolute;left:14px;top:7px;text-decoration:none;font:500 8px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.mk em{position:absolute;left:-30px;top:13px;width:60px;text-align:center;font-style:normal;font-size:22px;font-weight:700;color:var(--hazard);font-variant-numeric:tabular-nums}
+.mk .ar{position:absolute;left:-4px;top:-4px;width:8px;height:8px;border-top:2px solid var(--bone);border-right:2px solid var(--bone);transform:rotate(calc(var(--a,0rad) + 45deg)) translate(17px,-17px) ;display:none;opacity:.8}
+.mk.off .ar{display:block}
+.mk.off b,.mk.off u{left:auto;right:14px;text-align:right}
+.mk.depot>svg{stroke:var(--bone);opacity:1}
+.mk.hot>svg{stroke:var(--hazard);filter:drop-shadow(0 0 6px var(--hazard))}.mk.hot b{color:var(--hazard)}.mk.hot .ar{border-color:var(--hazard)}
+.mk.warn>svg{stroke:var(--hazard);animation:blink .5s steps(2) infinite}.mk.warn .ar{border-color:var(--hazard)}
+.mk.dead{opacity:.35}.mk.gone{opacity:0}
+@keyframes blink{50%{opacity:.2}}
+.br{position:absolute;left:0;top:0;will-change:transform;display:none}
+.br svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.br path{fill:none;stroke:var(--bone);stroke-width:1.5;vector-effect:non-scaling-stroke;opacity:.4}
+.br.weld path{stroke-dasharray:3 3}
+.br.hot path{stroke:var(--hazard);opacity:1;stroke-width:2;filter:drop-shadow(0 0 4px var(--hazard))}
+.br.tow path{stroke:var(--bone);opacity:.95;stroke-width:2}
+.br.core path{stroke:var(--hazard);opacity:.75}
+.br b{position:absolute;left:50%;top:100%;transform:translate(-50%,6px);font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--hazard);white-space:nowrap}
+.br.tow b{color:var(--bone)}
+.br s{position:absolute;left:0;right:0;bottom:-4px;height:2px;background:rgba(232,224,204,.18);opacity:0}
+.br s i{display:block;height:100%;width:100%;background:var(--bone)}
+.br.weld s i{background:var(--hazard)}
+#cr{position:absolute;left:50%;top:max(12px,env(safe-area-inset-top));transform:translateX(-50%);text-align:center;line-height:1}
+#cr .mono{display:block;margin-bottom:3px}
+#cr b{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+#tow{display:flex;gap:7px;justify-content:center;margin-top:8px;height:8px}
+#tow i{width:7px;height:7px;border:1.5px solid var(--dim);transform:rotate(45deg)}
+#tow i.on{background:var(--hazard);border-color:var(--hazard);box-shadow:0 0 8px var(--hazard)}
+#pop{position:absolute;left:50%;top:100%;width:0}
+#pop i{position:absolute;left:0;top:10px;transform:translateX(-50%);font-style:normal;font-size:22px;font-weight:700;color:var(--hazard);white-space:nowrap;animation:rise 1.6s ease-out forwards}
+@keyframes rise{0%{opacity:0;transform:translate(-50%,16px)}15%{opacity:1;transform:translate(-50%,0)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,-8px)}}
+#reticle.miss{animation:miss .3s}
+@keyframes miss{25%{margin-left:-19px}75%{margin-left:-11px}}
+#dock{position:fixed;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translate(-50%,16px);display:flex;gap:10px;align-items:stretch;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:3}
+#dock.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#dock button{position:relative;width:82px;padding:12px 6px 10px;display:flex;flex-direction:column;align-items:center;gap:7px;border:1.5px solid var(--dim);border-radius:4px;background:rgba(7,9,13,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:var(--bone);font:inherit;cursor:pointer;touch-action:none}
+#dock button svg{width:26px;height:26px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#dock .pips{display:flex;gap:4px}#dock .pips i{width:10px;height:3px;background:rgba(232,224,204,.2)}#dock .pips i.on{background:var(--hazard)}
+#dock button b{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+#dock button.cant b{color:var(--dim)}#dock button.max{opacity:.45}
+#dock button.ok{background:var(--hazard);border-color:var(--hazard)}#dock button.ok svg{stroke:var(--void)}
+#dock button.no{animation:miss .3s}
+#dock kbd{position:absolute;right:5px;top:4px;font:600 9px ui-monospace,Menlo,Consolas,monospace;color:var(--dim)}
+body.touch #dock kbd,body.touch #dock .rep{display:none}
+#dock .rep{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:46px}
+#dock .rep svg{width:20px;height:20px;stroke:var(--bone);fill:none;stroke-width:1.6}
+#dock .rep s{display:block;width:34px;height:3px;background:rgba(232,224,204,.2)}#dock .rep s i{display:block;height:100%;background:var(--bone);transition:width .3s}
+body.touch #dock{top:calc(max(12px,env(safe-area-inset-top)) + 64px);bottom:auto;transform:translate(-50%,-10px)}
+body.touch #dock.show{transform:translate(-50%,0)}
+@media (max-width:420px){#dock button{width:70px}#dock{gap:7px}}
+#tut{position:fixed;inset:0;pointer-events:none;display:none;z-index:3}
+#tut.show{display:block}
+#tut .g{position:absolute;left:0;top:0;will-change:transform}
+#tut .g>*{position:relative;left:0}
+#tut .g{display:flex;flex-direction:column;align-items:center;width:0}
+#tut .k{display:grid;place-items:center;min-width:44px;height:44px}
+#tut .k kbd{min-width:40px;height:40px;padding:0 10px;display:inline-grid;place-items:center;border:1.5px solid var(--hazard);border-bottom-width:3.5px;border-radius:6px;font:700 15px ui-monospace,Menlo,Consolas,monospace;color:var(--bone);background:rgba(7,9,13,.5);white-space:nowrap}
+#tut .k svg{width:40px;height:40px;padding:8px;border:1.5px solid var(--hazard);border-radius:50%;stroke:var(--bone);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;background:rgba(7,9,13,.5)}
+#tut .w{margin-top:8px;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.24em;text-transform:uppercase;color:var(--bone);white-space:nowrap;text-shadow:0 1px 10px rgba(2,3,5,.8)}
+#tut .g.pop{animation:tpop .45s cubic-bezier(.2,1.4,.4,1)}
+@keyframes tpop{0%{opacity:0;scale:.6}100%{opacity:1;scale:1}}
+#tut .skip{position:fixed;left:50%;top:calc(max(12px,env(safe-area-inset-top)) + 66px);transform:translateX(-50%);pointer-events:auto;cursor:pointer;background:none;border:1px solid rgba(232,224,204,.25);border-radius:20px;padding:7px 16px;color:var(--dim);font:500 10px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.2em;text-transform:uppercase}
+#help .tut{flex-basis:100%;display:flex;justify-content:center}
+#help .tut button{display:flex;align-items:center;gap:10px;background:none;border:1.5px solid var(--dim);border-radius:24px;padding:8px 18px 8px 12px;color:var(--bone);font:inherit;font-size:16px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+#help .tut svg{width:22px;height:22px;stroke:var(--hazard);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@media (prefers-reduced-motion:reduce){#pop i,#tut .g.pop,.mk.warn>svg,#reticle.miss,#dock button.no{animation:none}#dock{transition:none}}
 </style>
 </head>
 <body>
@@ -85,6 +161,7 @@ body.cockpit #speed,body.cockpit #hullwrap,body.cockpit #reticle,body.cockpit #p
 <div id="hud">
   <div id="reticle"></div><div id="pro"></div>
   <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
+  <div id="impact" class="on"><i></i><span class="mono">Impact</span></div>
   <button id="helpbtn" aria-label="Controls"></button><button id="viewbtn" aria-label="View"></button>
   <div id="hullwrap"><span class="mono">Hull</span><div id="hull"></div></div>
   <div id="speed"><span class="mono">m/s</span><b id="spd">000</b><div id="spdbar"><i id="spdfill"></i><s></s></div></div>
