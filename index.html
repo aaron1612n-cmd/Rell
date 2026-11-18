@@ -11,17 +11,23 @@
 html,body{margin:0;height:100%;background:var(--void);color:var(--bone);overflow:hidden;overscroll-behavior:none;touch-action:none;
   -webkit-touch-callout:none;font-family:"Bahnschrift","DIN Alternate","Arial Narrow","Roboto Condensed",sans-serif;user-select:none;-webkit-user-select:none}
 canvas#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
-#hud{position:fixed;inset:0;z-index:2;pointer-events:none;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+#hud{position:fixed;inset:0;z-index:2;pointer-events:none;text-shadow:0 1px 14px rgba(2,3,5,.55);padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.14em;font-size:10px;text-transform:uppercase;color:var(--dim)}
 #speed{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));line-height:.85}
 #speed b{display:block;font-size:clamp(54px,9vw,104px);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 #speed .mono{display:block;margin:0 0 6px 4px}
+#spdbar{position:relative;height:2px;margin:10px 0 2px 4px;width:clamp(120px,15vw,190px);background:rgba(232,224,204,.16)}
+#spdbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--bone);transition:background .2s}
+#spdbar i.hot{background:var(--hazard);box-shadow:0 0 8px var(--hazard)}
+#spdbar s{position:absolute;left:58%;top:-4px;width:1px;height:10px;background:var(--dim)}
 #assist{position:absolute;left:max(16px,env(safe-area-inset-left));top:max(16px,env(safe-area-inset-top));display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;padding:8px 0;touch-action:none}
 #assist i{width:10px;height:10px;border:1.5px solid var(--dim);transform:rotate(45deg);transition:.15s}
 #assist.on i{background:var(--hazard);border-color:var(--hazard);box-shadow:0 0 10px var(--hazard)}
 #assist.on span{color:var(--bone)}
-#hull{position:absolute;right:max(16px,env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column-reverse;gap:4px}
-#hull i{display:block;width:6px;height:16px;background:var(--bone);opacity:.85;transition:opacity .2s,background .2s}
+#hullwrap{position:absolute;right:max(16px,env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+#hullwrap .mono{writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;order:2}
+#hull{display:flex;flex-direction:column-reverse;gap:4px;padding:6px 0;border-right:1px solid rgba(232,224,204,.18);padding-right:6px}
+#hull i{display:block;width:6px;height:16px;background:var(--bone);opacity:.85;transition:opacity .2s,background .2s;box-shadow:0 0 6px rgba(2,3,5,.4)}
 #hull i.off{opacity:.14}
 #hull.low i:not(.off){background:var(--hazard)}
 #reticle,#pro{position:absolute;left:0;top:0;will-change:transform}
@@ -41,7 +47,7 @@ body.touch #touch{display:block}
 .knob{width:46px;height:46px;margin:-23px;background:var(--hazard);opacity:0}
 .on>.knob-base{opacity:1}.on>.knob{opacity:.9}
 .btns{position:absolute;right:max(14px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(2,64px);gap:12px}
-.btn{width:64px;height:64px;border:1.5px solid var(--dim);border-radius:50%;display:grid;place-items:center;touch-action:none;background:rgba(7,9,13,.35)}
+.btn{width:64px;height:64px;border:1.5px solid var(--dim);border-radius:50%;display:grid;place-items:center;touch-action:none;background:rgba(7,9,13,.38);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .btn svg{width:26px;height:26px;stroke:var(--bone);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .btn.down{background:var(--hazard);border-color:var(--hazard)}
 .btn.down svg{stroke:var(--void)}
@@ -75,8 +81,8 @@ body.touch #hint{display:none}
   <div id="reticle"></div><div id="pro"></div>
   <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
   <button id="helpbtn" aria-label="Controls"></button>
-  <div id="hull"></div>
-  <div id="speed"><span class="mono">m/s</span><b id="spd">000</b></div>
+  <div id="hullwrap"><span class="mono">Hull</span><div id="hull"></div></div>
+  <div id="speed"><span class="mono">m/s</span><b id="spd">000</b><div id="spdbar"><i id="spdfill"></i><s></s></div></div>
 </div>
 <div id="touch">
   <div class="zone" id="zl"><div class="knob-base"></div><div class="knob"></div></div>

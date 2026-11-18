@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "bash scripts/deploy.sh"
+    "deploy": "bash scripts/deploy.sh",
+    "assets": "for f in ship station debris; do python tools/blender/$f.py; done && node tools/optimize.mjs"
   },
   "repository": {
     "type": "git",
@@ -24,5 +25,11 @@
   "dependencies": {
     "three": "^0.170.0",
     "vite": "^5.4.21"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^1.3.0"
   }
 }

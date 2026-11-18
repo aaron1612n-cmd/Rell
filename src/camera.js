@@ -18,12 +18,12 @@ export class CamRig {
   update(dt, ship) {
     this.t += dt;
     if (this.first) { this.qs.copy(ship.quat); this.first = false; }
-    this.qs.slerp(ship.quat, 1 - Math.exp(-(this.reduced ? 12 : 5.5) * dt));
+    this.qs.slerp(ship.quat, 1 - Math.exp(-(this.reduced ? 12 : 7) * dt));
 
     const speed = ship.vel.length();
     const k = this.introDur ? Math.min(1, this.t / this.introDur) : 1;
     const e = ease(k);
-    const dist = 11 + speed * 0.035;
+    const dist = 11 + speed * 0.035 + (ship.fx.boost ? 1.6 : 0);
     _o.set(0, 3.2, dist);
     // intro: start close and off to the side, then swing round behind
     _o.multiplyScalar(0.55 + 0.45 * e);
@@ -44,7 +44,7 @@ export class CamRig {
       this.cam.rotateZ((Math.random() - 0.5) * this.shake * 0.04);
       this.shake *= Math.exp(-5.5 * dt);
     }
-    const fov = this.baseFov + (this.reduced ? 0 : Math.min(22, speed * 0.2));
-    if (Math.abs(fov - this.cam.fov) > 0.01) { this.cam.fov = THREE.MathUtils.damp(this.cam.fov, fov, 4, dt); this.cam.updateProjectionMatrix(); }
+    const fov = this.baseFov + (this.reduced ? 0 : Math.min(22, speed * 0.2) + (ship.fx.boost ? 6 : 0) + ship.boostT * 5);
+    if (Math.abs(fov - this.cam.fov) > 0.01) { this.cam.fov = THREE.MathUtils.damp(this.cam.fov, fov, ship.boostT > 0.5 ? 9 : 4, dt); this.cam.updateProjectionMatrix(); }
   }
 }
