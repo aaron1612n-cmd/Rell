@@ -4,6 +4,7 @@ import { addHullDetail } from './hullDetail.js';
 import stationData from './assets/station.json';
 import depotData from './assets/depot.json';
 import freighterData from './assets/freighter.json';
+import extraColliders from './assets/colliders.json';   // gap-fillers traced from the meshes (scripts/colliders.mjs)
 
 // The yard: one working depot and several wrecks spread over a few kilometres of low orbit.
 // Every site is a group of named chunks with oriented-box colliders. Chunks can be welded salvage
@@ -94,7 +95,7 @@ export class Site {
     this.core = null;           // salvage item whose removal destabilises the site
   }
 
-  addModel(model, data, { darkened = false } = {}) {
+  addModel(model, data, { darkened = false, extra = null } = {}) {
     if (darkened) {
       const { dark, deadLamp } = darkMats();
       model.traverse((o) => { if (o.isMesh) { if (o.material === mats.hull) o.material = dark; else if (o.material === mats.lamp) o.material = deadLamp; } });
@@ -104,7 +105,7 @@ export class Site {
     this.nodes = nodes;
     for (const [name, c] of Object.entries(data.chunks)) {
       if (!nodes[name]) continue;
-      const p = new Part(this, name, nodes[name], c.obbs); p.sync(0);
+      const p = new Part(this, name, nodes[name], c.obbs.concat(extra?.chunks[name] || [])); p.sync(0);
       this.parts.push(p); this.byName[name] = p;
     }
     return nodes;
@@ -116,20 +117,24 @@ export class Site {
     const p = this.byName[name]; if (p) { this.parts.splice(this.parts.indexOf(p), 1); delete this.byName[name]; }
   }
 
+  // Sphere chain for the ring (4 spokes, rim 46-54 m out, 10 m deep), in the ring's authoring frame.
+  // The .glb node carries a dequantize offset/scale; ringUnq strips it so spheres sit on the mesh.
   ring(node, spin) {
     this.ringNode = node; this.spin = spin;
+    node.updateMatrix(); this.ringUnq = new THREE.Matrix4().compose(node.position, _q.identity(), node.scale).invert(); this.ringM = new THREE.Matrix4();
+    const add = (x, y, z, rad) => this.spheres.push({ lp: new THREE.Vector3(x, y, z), rad, pos: new THREE.Vector3(), w: new THREE.Vector3(), node });
     for (let k = 0; k < 4; k++) {
       const a = k * Math.PI / 2 + 0.3;
-      for (let i = 0; i < 14; i++) this.spheres.push({ lp: new THREE.Vector3(Math.cos(a) * (12 + i * 3), Math.sin(a) * (12 + i * 3), 0), rad: 2.3, pos: new THREE.Vector3(), w: new THREE.Vector3(), node });
+      for (let i = 0; i < 18; i++) add(Math.cos(a) * (4 + i * 2.4), Math.sin(a) * (4 + i * 2.4), 0, 2.3);
     }
-    for (let i = 0; i < 52; i++) { const a = i / 52 * Math.PI * 2; this.spheres.push({ lp: new THREE.Vector3(Math.cos(a) * 50, Math.sin(a) * 50, 0), rad: 4.2, pos: new THREE.Vector3(), w: new THREE.Vector3(), node }); }
+    for (let i = 0; i < 60; i++) { const a = i / 60 * Math.PI * 2; for (const z of [-2.6, 2.6]) add(Math.cos(a) * 50, Math.sin(a) * 50, z, 3.9); }
     this.syncSpheres(0);
   }
 
   syncSpheres(dt) {
     if (!this.spheres.length) return;
     this.ringNode.updateWorldMatrix(true, false);
-    const M = this.ringNode.matrixWorld;
+    const M = this.ringM.multiplyMatrices(this.ringNode.matrixWorld, this.ringUnq);
     for (const s of this.spheres) {
       _v.copy(s.lp).applyMatrix4(M);
       if (dt) s.w.copy(_v).sub(s.pos).divideScalar(dt); else s.w.set(0, 0, 0);
@@ -191,7 +196,7 @@ export function buildSites(world, models) {
   {
     const L = LAYOUT.depot;
     const s = new Site(world, { id: 'depot', kind: 'depot', pos: L.pos, yaw: L.yaw, radius: 140 });
-    const nodes = s.addModel(models.depot, depotData);
+    const nodes = s.addModel(models.depot, depotData, { extra: extraColliders.depot });
     s.beacon = mats.lamp.clone(); s.catchMat = mats.lamp.clone();
     nodes.beacon && (nodes.beacon.material = s.beacon); nodes.catch_lights && (nodes.catch_lights.material = s.catchMat);
     const c = depotData.catch;
@@ -207,7 +212,7 @@ export function buildSites(world, models) {
   {
     const L = LAYOUT.meridian;
     const s = new Site(world, { id: 'meridian', kind: 'wreck', pos: L.pos, yaw: L.yaw, radius: 150 });
-    const nodes = s.addModel(models.station, stationData);
+    const nodes = s.addModel(models.station, stationData, { extra: extraColliders.station });
     s.lampMats = ['lamps_a', 'lamps_b', 'lamps_c'].map((n) => { const m = mats.lamp.clone(); if (nodes[n]) nodes[n].material = m; return m; });
     s.ring(nodes.ring, 0.045);
     s.salvageSpec = [
@@ -224,7 +229,7 @@ export function buildSites(world, models) {
   {
     const L = LAYOUT.halves;
     const s = new Site(world, { id: 'halves', kind: 'wreck', pos: L.pos, yaw: L.yaw, roll: L.roll, radius: 170 });
-    const nodes = s.addModel(models.stationB, stationData, { darkened: true });
+    const nodes = s.addModel(models.stationB, stationData, { darkened: true, extra: extraColliders.station });
     for (const n of ['lamps_a', 'lamps_c', 'solar_r', 'mast_aft']) s.remove(n);
     s.ring(nodes.ring, 0);
     nodes.ring.rotation.set(0.25, -0.18, 0.6);         // ring knocked off its bearing
@@ -254,7 +259,7 @@ export function buildSites(world, models) {
   {
     const L = LAYOUT.freighter;
     const s = new Site(world, { id: 'freighter', kind: 'wreck', pos: L.pos, yaw: L.yaw, roll: L.roll, radius: 160 });
-    const nodes = s.addModel(models.freighter, freighterData);
+    const nodes = s.addModel(models.freighter, freighterData, { extra: extraColliders.freighter });
     s.lampMats = [mats.lamp.clone()]; if (nodes.lamps) nodes.lamps.material = s.lampMats[0];
     s.salvageSpec = [
       ...freighterData.boxes.map((b) => ({ type: 'chunk', part: b, value: 300, mass: 22 })),

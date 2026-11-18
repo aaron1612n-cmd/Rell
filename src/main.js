@@ -221,13 +221,13 @@ function ignite(strong) {
     _b.copy(ship.vel).addScaledVector(e.axis, 3);
     fx.emit(e.cur, _b, fxT, 0.12, 0.4, strong ? 1.8 : 1.3, K.FLASH, 3);
     _b.copy(ship.vel).addScaledVector(e.axis, strong ? 9 : 5);
-    fx.emit(e.cur, _b, fxT, strong ? 0.35 : 0.28, 0.3, strong ? 3.2 : 2.0, strong ? K.RING_B : K.RING, 2.5);
-    for (let i = 0; i < 46 * n * Q; i++) {
-      coneDir(e, 1.1, _a); _b.copy(ship.vel).addScaledVector(_a, 8 + R() * 26 * n);
+    fx.emit(e.cur, _b, fxT, strong ? 0.22 : 0.18, 0.2, strong ? 1.5 : 1.0, strong ? K.RING_B : K.RING, 2.5);
+    for (let i = 0; i < 18 * n * Q; i++) {
+      coneDir(e, 0.7, _a); _b.copy(ship.vel).addScaledVector(_a, 8 + R() * 26 * n);
       fx.emit(exitPoint(e, 1, 0.2, _c), _b, fxT - R() * 0.02, 0.3 + R() * 0.45, 0.25, 0.9 + R() * 0.7, strong ? K.BOOST : K.PLASMA, 2.4, 0.01);
     }
-    for (let i = 0; i < 28 * n * Q; i++) {
-      coneDir(e, 0.9, _a); _b.copy(ship.vel).addScaledVector(_a, 20 + R() * 45);
+    for (let i = 0; i < 12 * n * Q; i++) {
+      coneDir(e, 0.45, _a); _b.copy(ship.vel).addScaledVector(_a, 20 + R() * 45);
       fx.emit(exitPoint(e, 1, 0.25, _c), _b, fxT, 0.3 + R() * 0.6, 0.03, 0.02, K.SPARK, 0.6, 0.045);
     }
     for (let i = 0; i < 10 * n * Q; i++) {
@@ -248,6 +248,7 @@ function shutdown() {
   }
 }
 
+let jetLen = 0;
 function engineFx(dt) {
   const { glows, light, engines } = shipMesh.userData, f = ship.fx, main = f.main;
   const flick = 0.92 + 0.08 * Math.sin(fxT * 47) * Math.sin(fxT * 13.7 + 1) + 0.04 * rs();
@@ -263,8 +264,9 @@ function engineFx(dt) {
   engines.forEach((en, i) => { en.gimbal(gx + Math.sign(en.position.x) * gr, gy); en.update(dt, main, boostSm, heat); });
   shipMesh.updateMatrixWorld(true);
 
-  const len = main * (3.6 + 4.2 * boostSm) * flick, wid = 0.5 + 0.12 * main + 0.12 * boostSm;
-  for (const g of glows) { g.tick(fxT); g.set(main * (0.4 - 0.12 * boostSm), Math.max(0.05, len), wid, boostSm, 1 + 0.25 * boostSm); }
+  // volumetric jet: length and brightness follow throttle, boost stretches it and adds shock cells
+  const len = jetLen = (1.2 + main * (4.2 + 5.5 * boostSm)) * flick, r0 = 0.2 + 0.03 * main + 0.09 * boostSm;
+  for (const g of glows) { g.tick(fxT); g.set(main * (0.75 + 0.35 * boostSm) * flick, len, r0, boostSm); }
   flashL = Math.max(0, flashL - dt * 5);
   light.intensity = main * (18 + 26 * boostSm) * flick + flashL * 60;
   light.color.setRGB(1, 0.42 + 0.25 * boostSm, 0.16 + 0.3 * boostSm);
@@ -286,16 +288,19 @@ function engineFx(dt) {
   if (main < 0.03) return;
 
   const B = boostSm;
-  const rates = [main * (260 + 300 * B), main * (90 + 90 * B), main * (12 + 40 * B), 2 + 7 * B, main * 45];
+  // the volumetric jet (src/exhaust.js) is the flame now; particles only add what a volume can't:
+  // a thin wake of cooling gas past its tip, sparks, boost smoke, and heat shimmer
+  const rates = [main * (34 + 46 * B), 0, main * (5 + 16 * B), 2 + 7 * B, main * 45];
   for (const e of E) {
     // 0: plasma body. Spawned along the path the nozzle swept this frame, so fast flight leaves no gaps.
     e.acc[0] += dt * rates[0] * Q;
     for (let n = Math.floor(e.acc[0]), k = 0; k < n; k++) {
       const s = (k + R()) / n; e.acc[0]--;
-      coneDir(e, 0.07 + 0.05 * (1 - B), _a);
-      _b.copy(ship.vel).addScaledVector(_a, (20 + R() * 10) * (1 + 0.8 * B));
-      fx.emit(exitPoint(e, s, 0.2, _c), _b, fxT - (1 - s) * dt, (0.26 + R() * 0.26) * (1 + 0.25 * B), 0.17, (0.38 + R() * 0.32) * (1 + 0.35 * B) / Math.pow(Q, 0.25),
-        B > 0.5 && R() < 0.75 ? K.BOOST : K.PLASMA, 1.3, 0.012);
+      coneDir(e, 0.06 + 0.04 * (1 - B), _a);
+      _b.copy(ship.vel).addScaledVector(_a, (16 + R() * 8) * (1 + 0.6 * B));
+      exitPoint(e, s, 0.15, _c).addScaledVector(e.axis, jetLen * (0.55 + R() * 0.3));
+      fx.emit(_c, _b, fxT - (1 - s) * dt, (0.3 + R() * 0.3) * (1 + 0.25 * B), 0.3, (0.5 + R() * 0.4) * (1 + 0.35 * B) / Math.pow(Q, 0.25),
+        K.PLASMA, 1.6, 0.006);
     }
     // 1: fast tight core: the white-hot spine near the nozzle
     e.acc[1] += dt * rates[1] * Q;
@@ -308,8 +313,8 @@ function engineFx(dt) {
     e.acc[2] += dt * rates[2] * Q;
     for (let n = Math.floor(e.acc[2]), k = 0; k < n; k++) {
       const s = (k + R()) / n; e.acc[2]--;
-      coneDir(e, 0.18, _a); _b.copy(ship.vel).addScaledVector(_a, 38 + R() * 40);
-      fx.emit(exitPoint(e, s, 0.15, _c), _b, fxT - (1 - s) * dt, 0.25 + R() * 0.5, 0.05, 0.03, R() < 0.3 ? K.EMBER : K.SPARK, 0.4, 0.035);
+      coneDir(e, 0.12, _a); _b.copy(ship.vel).addScaledVector(_a, 30 + R() * 30);
+      fx.emit(exitPoint(e, s, 0.12, _c), _b, fxT - (1 - s) * dt, 0.15 + R() * 0.3, 0.035, 0.02, R() < 0.4 ? K.EMBER : K.SPARK, 0.6, 0.02);
     }
     // 3: thin smoke trail on boost (incomplete burn), lit by the plume then sunlit
     e.acc[3] += dt * rates[3] * Q * main;

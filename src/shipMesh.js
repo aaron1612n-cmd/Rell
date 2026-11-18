@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { NOZZLES } from './rcs.js';
 import { Plume, PALETTE } from './plume.js';
+import { Exhaust } from './exhaust.js';
 import { Engine } from './engine.js';
 import shipData from './assets/ship.json';
 import { rigShip } from './shipRig.js';
@@ -16,7 +17,7 @@ export function buildShip(model, coarse = false) {
   // main engines: procedural turbine rockets on gimbals (src/engine.js), mounted on each pod's aft face.
   // The plume rides on the nozzle's exit plane so it follows the gimbal.
   const engines = shipData.glow.map(([x, y]) => { const e = new Engine(coarse, Math.sign(x)); e.position.set(x, y, POD_AFT); e.gimbal(0, 0); g.add(e); return e; });
-  const glows = engines.map((e) => { const m = new Plume(PALETTE.engine, { octaves: coarse ? 2 : 3 }); e.exit.add(m); return m; });
+  const glows = engines.map((e) => { const m = new Exhaust({ coarse }); e.exit.add(m); return m; });
   const light = new THREE.PointLight(0xff6a2a, 0, 16, 1.6); light.position.set(0, 0, 3.4); g.add(light);
   // RCS: a tiny cool puff per nozzle (layout authored with the model)
   const q = new THREE.Quaternion(), zp = new THREE.Vector3(0, 0, 1);
