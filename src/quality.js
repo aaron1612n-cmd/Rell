@@ -99,15 +99,18 @@ export class Quality {
     const slow = med > target * 1.3 || p80 > target * 1.7;
 
     if (this.probe) {                                    // just stepped up: keep it only if it held
-      if (slow) { this.ban = this.i; this.fails = (this.fails || 0) + 1; this.banT = 20 * 2 ** this.fails; this.set(this.probe.from); }
+      if (slow) { this.ban = this.i; this.fails = (this.fails || 0) + 1; this.banT = 60 * 2 ** this.fails; this.set(this.probe.from); }
       this.probe = null; return;
     }
-    if (slow) { this.set(this.i - (med > target * 2.2 ? 2 : 1)); return; }
+    if (slow) { this.roomN = 0; this.set(this.i - (med > target * 2.2 ? 2 : 1)); return; }
     if (this.banT > 0) { this.banT -= N * med; if (this.banT <= 0) this.ban = this.levels.length; }
     if (this.i + 1 >= Math.min(this.ban, this.levels.length)) return;
     // headroom: with GPU timing we know exactly; without it only a fast screen can show spare time,
     // so on a 60 Hz screen we just try the next rung and let the probe decide
     const room = gpuMs ? gpuMs / 1000 < target * 0.55 : (this.refresh < 1 / 70 ? med < target * 0.8 : med < target * 1.08);
-    if (room) { this.probe = { from: this.i }; this.set(this.i + 1); }
+    // every rung change reallocates render targets / the shadow map (a hitch on its own), so only probe
+    // after several calm windows in a row, and back off for longer each time a probe fails
+    this.roomN = room ? (this.roomN || 0) + 1 : 0;
+    if (this.roomN >= 4) { this.roomN = 0; this.probe = { from: this.i }; this.set(this.i + 1); }
   }
 }
