@@ -5,6 +5,7 @@ export const ICONS = {
   boost: '<path d="M6 17l6-6 6 6M6 11l6-6 6 6"/>',
   brake: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5M9 6.5V9H6.5M15 6.5V9h2.5M9 17.5V15H6.5M15 17.5V15h2.5"/><circle cx="12" cy="12" r="1.6"/>',
   assist: '<path d="M12 4l8 8-8 8-8-8z"/>',
+  view: '<path d="M3 18h18M5 18c0-5 3-9 7-9s7 4 7 9M12 9v4M8.5 13h7"/>',
 };
 
 export class Input {

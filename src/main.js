@@ -3,7 +3,7 @@ import { Ship } from './ship.js';
 import { buildShip } from './shipMesh.js';
 import { loadModel, urls, mats } from './assets.js';
 import { World, SUN_DIR } from './world.js';
-import { Input } from './input.js';
+import { Input, ICONS } from './input.js';
 import { CamRig } from './camera.js';
 import { Hud } from './hud.js';
 import { Help } from './help.js';
@@ -11,6 +11,7 @@ import { GpuParticles, HeatHazePass, K } from './gpufx.js';
 import { Engine } from './engine.js';
 import { setupLights, Look } from './look.js';
 import { NOZZLES, solveRcs } from './rcs.js';
+import { Cockpit } from './cockpit.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -33,6 +34,14 @@ scene.add(world.sky);
 const ship = new Ship();
 ship.pos.set(30, 14, 142); ship.quat.setFromEuler(new THREE.Euler(-0.06, 0.28, 0));
 const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh);
+// the ship's meshes live on layer 1: the chase camera sees them, the cockpit view doesn't, the sun's shadow always does
+shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.set(1); });
+camera.layers.enable(1); sun.shadow.camera.layers.enable(1);
+const cockpit = new Cockpit({ renderer, camera, shipModel, env: scene.environment, sunDir: SUN_DIR, world, coarse, reduced });
+await cockpit.load();
+addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) cockpit.toggle(); });
+{ const vb = document.getElementById('viewbtn'); vb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.view}</svg>`;
+  vb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); cockpit.toggle(); }); }
 
 const input = new Input(canvas);
 input.onToggleAssist = () => { ship.assist = !ship.assist; };
@@ -43,14 +52,14 @@ new Help(input);
 // post (look.js): heat haze (desktop), bloom on HDR only, lens ghosts, grade, vignette, grain. Phones skip haze and bloom.
 const hazeScene = new THREE.Scene();   // heat-shimmer particles, rendered only into the haze pass
 const hazePass = coarse ? null : new HeatHazePass(hazeScene, camera);
-const look = new Look(renderer, scene, camera, coarse, hazePass ? [hazePass] : []);
+const look = new Look(renderer, scene, camera, coarse, [hazePass, cockpit.pass].filter(Boolean));
 
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h;
   // keep the ship readable on tall phone screens
   camera.fov = rig.baseFov = w / h < 0.8 ? 80 : 66; camera.updateProjectionMatrix();
-  look.setSize(w, h, renderer.getPixelRatio());
+  look.setSize(w, h, renderer.getPixelRatio()); cockpit.setSize(w, h);
   world.stars.material.uniforms.uPR.value = renderer.getPixelRatio();
 }
 addEventListener('resize', resize); resize();
@@ -261,6 +270,7 @@ function onShipHit(hit, otherMass) {
   const s = hit.speed;
   sparks(hit, Math.min(40, Math.floor(s * 2.5)));
   if (s > 2) { rig.kick(Math.min(1, s / 28)); hud.pulse(Math.min(0.35, s / 70)); }
+  if (s > 4) cockpit.alert(Math.min(1, s / 18));
   // glancing bumps are free; real hits cost hull, scaled by what you hit
   const dmg = Math.max(0, s - 7) * 0.011 * Math.min(2, 0.7 + otherMass * 0.15);
   if (dmg > 0) ship.hull = Math.max(0, ship.hull - dmg);
@@ -302,6 +312,8 @@ function frame(now) {
   fx.update(fxT); smoke.update(fxT); if (haze) haze.update(fxT);
   world.updateDust(ship.pos, ship.vel);
   rig.update(dt, ship);
+  ship.braking = cmd.brake; cockpit.heat = heat;
+  cockpit.update(dt, ship, rig);
   world.updateVisual(time, camera.position);
 
   sun.position.copy(ship.pos).addScaledVector(SUN_DIR, 250); sun.target.position.copy(ship.pos);
@@ -311,4 +323,4 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer };
+window.__game = { ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit };
