@@ -30,10 +30,13 @@ function darkMats() {
   return { dark, deadLamp };
 }
 
-// A chunk of a site. obbsL are colliders in the node's local frame; obbs are the live world copies.
+// A chunk of a site. obbsL are colliders in the model's authoring frame (Blender object space); obbs are
+// the live world copies. The .glb is quantized, so each node carries a dequantize offset/scale on top of
+// that frame: `unq` strips it back off, and frame() gives the true node frame in world space.
 class Part {
   constructor(site, name, node, obbsL) {
     this.site = site; this.name = name; this.node = node;
+    node.updateMatrix(); this.unq = node.matrix.clone().invert(); this.M = new THREE.Matrix4();
     this.obbsL = obbsL.map((o) => ({ c: new THREE.Vector3(...o.c), q: new THREE.Quaternion(...o.q), h: new THREE.Vector3(...o.h) }));
     this.obbs = this.obbsL.map((o) => ({ c: new THREE.Vector3(), q: new THREE.Quaternion(), qi: new THREE.Quaternion(), h: o.h.clone(), v: new THREE.Vector3(), br: o.h.length(), node, chunk: name, part: this }));
     this.moving = false; this.pivot = null; this.vel = new THREE.Vector3(); this.angVel = new THREE.Vector3();
@@ -42,9 +45,11 @@ class Part {
     this.centerL = new THREE.Vector3(); for (const o of this.obbsL) this.centerL.add(o.c); if (this.obbsL.length) this.centerL.divideScalar(this.obbsL.length);
   }
 
+  // world matrix of the authoring frame (unit scale), so colliders and centres land on the mesh
+  frame() { this.node.updateWorldMatrix(true, false); return this.M.multiplyMatrices(this.node.matrixWorld, this.unq); }
+
   sync(dt) {
-    this.node.updateWorldMatrix(true, false);
-    const M = this.node.matrixWorld; M.decompose(_c, _q, _s);
+    const M = this.frame(); M.decompose(_c, _q, _s);
     for (let i = 0; i < this.obbs.length; i++) {
       const L = this.obbsL[i], W = this.obbs[i];
       _v.copy(L.c).applyMatrix4(M);
@@ -56,9 +61,9 @@ class Part {
   // detach into a free-drifting pivot at the chunk's centre (world transform preserved)
   free(scene) {
     if (this.pivot) return this.pivot;
-    this.node.updateWorldMatrix(true, false);
-    const p = new THREE.Object3D(); p.position.copy(this.centerL).applyMatrix4(this.node.matrixWorld);
-    this.node.matrixWorld.decompose(_c, p.quaternion, _s);
+    const M = this.frame();
+    const p = new THREE.Object3D(); p.position.copy(this.centerL).applyMatrix4(M);
+    M.decompose(_c, p.quaternion, _s);
     scene.add(p); p.updateMatrixWorld(true); p.attach(this.node);
     this.pivot = p; this.moving = true; this.welded = false;
     return p;

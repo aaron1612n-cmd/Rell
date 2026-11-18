@@ -12,7 +12,20 @@ import { mats } from './assets.js';
 // Hooks for EVA (out-of-ship) play: items are plain Bodies with a `hook` point; anything with
 // { pos, vel, towMass } can be the puller end of a rope, so a jetpack pilot can tow too.
 
-const TAIL = new THREE.Vector3(0, 0.15, 2.3);    // tow point on the ship, local
+const TAIL = new THREE.Vector3(0, -0.3, 2.06);   // tow eye on the ship's rear face (hull at z 1.88), local
+
+// the tow eye the line runs from: a bolted plate with a ring, on the centreline of the rear face
+export function addHitch(shipMesh) {
+  const steel = new THREE.MeshStandardMaterial({ color: 0x3b3f45, roughness: 0.45, metalness: 0.85 });
+  const g = new THREE.Group(); g.name = 'hitch';
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.08), steel); plate.position.set(0, -0.3, 1.9);
+  const lug = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.16), steel); lug.position.set(0, -0.3, 1.98);
+  const eye = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.022, 8, 18), steel); eye.position.copy(TAIL); eye.rotation.y = Math.PI / 2;
+  for (const m of [plate, lug, eye]) { m.castShadow = true; g.add(m); }
+  shipMesh.add(g);
+  return g;
+}
+const _rc = new THREE.Raycaster(); _rc.layers.enableAll();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _n = new THREE.Vector3(), _q = new THREE.Quaternion();
 const _m = new THREE.Matrix4(), _s = new THREE.Vector3(), _f = new THREE.Vector3(), _cam = new THREE.Vector3();
 
@@ -57,9 +70,9 @@ export class Salvage {
   spawn(site, spec) {
     if (spec.type === 'chunk') {
       const part = site.byName[spec.part]; if (!part) return null;
-      part.node.updateWorldMatrix(true, false);
-      const pos = part.centerL.clone().applyMatrix4(part.node.matrixWorld);
-      part.node.matrixWorld.decompose(_a, _q, _s);
+      const M = part.frame();
+      const pos = part.centerL.clone().applyMatrix4(M);
+      M.decompose(_a, _q, _s);
       const body = new Body({ mass: spec.mass, spheres: boxSpheres(part.obbsL, part.centerL), pos, quat: _q });
       const it = new Item({ mgr: this, kind: 'chunk', site, part, body, obj: part.node, value: spec.value, state: 'welded', weld: 1, home: pos.clone() });
       part.salvage = it; this.items.push(it); return it;
@@ -143,9 +156,17 @@ export class Salvage {
     const ship = this.ship, b = it.body; b.updateSpheres();
     // hook on the near face
     let best = 0, bd = 1e9; for (let i = 0; i < b.wp.length; i++) { const d = b.wp[i].distanceTo(ship.pos) - b.spheres[i].r; if (d < bd) { bd = d; best = i; } }
-    const hookW = _a.copy(ship.pos).sub(b.wp[best]).normalize().multiplyScalar(b.spheres[best].r * 0.92).add(b.wp[best]);
-    const hookL = hookW.clone().sub(b.pos).applyQuaternion(_q.copy(b.quat).invert());
     const pa = TAIL.clone().applyQuaternion(ship.quat).add(ship.pos);
+    // bite on the real surface: cast from the ship's tow eye at the nearest collider sphere, then the
+    // body's centre; fall back to the sphere surface if the mesh is missed
+    let hookW = null; it.obj.updateWorldMatrix(true, true);
+    for (const t of [b.wp[best], b.pos]) {
+      _rc.set(pa, _d.copy(t).sub(pa).normalize()); _rc.far = pa.distanceTo(t) + b.radius;
+      const h = _rc.intersectObject(it.obj, true).find((x) => x.object.isMesh && x.object.visible);
+      if (h) { hookW = _a.copy(h.point).addScaledVector(_d, 0.05); break; }
+    }
+    if (!hookW) hookW = _a.copy(ship.pos).sub(b.wp[best]).normalize().multiplyScalar(b.spheres[best].r * 0.92).add(b.wp[best]);
+    const hookL = hookW.clone().sub(b.pos).applyQuaternion(_q.copy(b.quat).invert());
     const d0 = pa.distanceTo(hookW);
     const rope = { item: it, a: ship, b: it.state === 'welded' ? null : b, hookL, pa, pb: hookW.clone(), rest: Math.max(5, d0), target: 9 + b.radius * 0.6, len: d0, tension: 0, shoot: 0, d0 };
     this.ropes.push(rope);
@@ -190,8 +211,8 @@ export class Salvage {
     const world = this.world;
     for (const it of this.items) {
       if (it.state === 'welded' && it.part && it.site.tumble && it.site.active) {   // welded to something that moves
-        it.part.node.updateWorldMatrix(true, false);
-        it.body.pos.copy(it.part.centerL).applyMatrix4(it.part.node.matrixWorld); it.part.node.matrixWorld.decompose(_a, it.body.quat, _s); it.body.updateSpheres();
+        const M = it.part.frame();
+        it.body.pos.copy(it.part.centerL).applyMatrix4(M); M.decompose(_a, it.body.quat, _s); it.body.updateSpheres();
       }
       if (it.state === 'welded' || it.state === 'gone') continue;
       const b = it.body;
@@ -294,7 +315,7 @@ export class Salvage {
 
   // ---- visuals, once per frame --------------------------------------------------------------
   sync(it) {
-    const o = it.obj; if (!o || it.state === 'welded') return;
+    const o = it.obj; if (!o || (it.state === 'welded' && it.part)) return;   // welded chunks are the site's own mesh
     o.position.copy(it.body.pos); o.quaternion.copy(it.body.quat);
     if (it.state === 'captured') { const s = it.capT > 2.6 ? Math.max(0.001, 1 - (it.capT - 2.6) / 0.8) : 1; o.scale.setScalar(s); }
   }

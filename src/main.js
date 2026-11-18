@@ -21,7 +21,7 @@ import { loadSuit } from './astronaut.js';
 import { Lockers } from './lockers.js';
 import { HullDamage } from './damage.js';
 import { LAYOUT } from './sites.js';
-import { Salvage } from './salvage.js';
+import { Salvage, addHitch } from './salvage.js';
 import { Econ } from './economy.js';
 import { Nav, NAV_ICONS } from './nav.js';
 import { Tutorial } from './tutorial.js';
@@ -53,7 +53,7 @@ bakeSky(renderer, world.sky); bakePlanet(renderer, world.planet, coarse ? 768 : 
 
 const ship = new Ship();
 ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler));
-const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh);
+const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh); addHitch(shipMesh);
 // the ship's meshes live on layer 1: the chase camera sees them, the cockpit view doesn't, the sun's shadow always does
 shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.set(1); });
 camera.layers.enable(1); sun.shadow.camera.layers.enable(1);
