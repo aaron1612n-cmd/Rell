@@ -57,13 +57,13 @@ void main(){
   vec3 col = vec3(.035, .036, .038) * (.5 + .5 * uSun) * (1. - .5 * frame);
   float a = frame * .97;
   // the shell's rolled lip catches a little light just inside the edge
-  float lip = exp(-pow((open - .98) * 14., 2.)) * smoothstep(-.2, .4, e.y);
+  float lk = (open - .98) * 14., lip = exp(-lk * lk) * smoothstep(-.2, .4, e.y);
   col += vec3(.16, .155, .145) * lip * (.2 + .35 * uSun); a = max(a, lip * .22);
   float edge = smoothstep(.35, 1., length(e * vec2(.8, 1.)));
   col += vec3(.01, .014, .02) * edge; a = max(a, edge * .08);
   // reflections of the inside of the helmet on the bubble: a wide arc low and a narrow streak that slides as you look
-  float arc = exp(-pow((length((e - vec2(0., 1.6)) * vec2(.55, 1.)) - 2.25) * 9., 2.)) * smoothstep(1., .2, abs(e.x)) * .05;
-  float streak = exp(-pow((e.x * .55 + e.y * .2 - uLook) * 3.2, 2.)) * smoothstep(.2, .8, e.y + .2) * .035;
+  float ak = (length((e - vec2(0., 1.6)) * vec2(.55, 1.)) - 2.25) * 9., arc = exp(-ak * ak) * smoothstep(1., .2, abs(e.x)) * .05;
+  float sk = (e.x * .55 + e.y * .2 - uLook) * 3.2, streak = exp(-sk * sk) * smoothstep(.2, .8, e.y + .2) * .035;
   col += vec3(.55, .6, .68) * (arc + streak); a = max(a, (arc + streak) * .5);
   float rim = open;
   // condensation: creeps in from the bottom and the edges as air runs low, pulses with breathing

@@ -49,6 +49,7 @@ export class World {
     this.allDebris = [];
     this.tex = panelTexture(); this.haz = hazardTexture();
     this.buildSky();
+    this.debrisFar = 1000;
     this.sites = buildSites(this, assets);
     this.site = Object.fromEntries(this.sites.map((s) => [s.id, s]));
     this.debrisTypes(assets.debris);
@@ -254,6 +255,12 @@ export class World {
     for (const s of this.sites) if (s.active) this.syncDebris(s);
     this.planet.userData.surf.material.uniforms.uTime.value = time;
     this.sky.position.copy(camPos);
+    // distance cull: past ~1 km a debris field is sub-pixel specks, but it is ~100k triangles per site
+    for (const s of this.sites) {
+      if (!s.inst) continue;
+      const on = camPos.distanceTo(s.pos) - (s.debrisR || s.radius) < this.debrisFar;
+      if (on !== s.instOn) { s.instOn = on; for (const t of s.inst) for (const im of t) im.visible = on; }
+    }
     for (const s of this.sites) {
       if (!s.lampMats.length) continue;
       const shake = s.state === 'unstable' ? 1 : 0;

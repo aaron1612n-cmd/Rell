@@ -52,7 +52,7 @@ export class Tutorial {
     this.zoneMat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uA: { value: 0.3 } },
       vertexShader: 'varying vec3 vN, vV; void main(){ vec4 w = modelMatrix * vec4(position,1.); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }',
-      fragmentShader: 'uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(1. - abs(dot(vN, vV)), 2.5); gl_FragColor = vec4(vec3(.91,.88,.8) * f * uA, 1.); }',
+      fragmentShader: 'uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(max(0., 1. - abs(dot(vN, vV))), 2.5); gl_FragColor = vec4(vec3(.91,.88,.8) * f * uA, 1.); }',
     });
     this.zone = new THREE.Mesh(new THREE.SphereGeometry(zone.r, 48, 24), this.zoneMat);
     this.zone.add(new THREE.Mesh(new THREE.TorusGeometry(zone.r, 0.1, 6, 96), this.mat)); this.zone.children[0].rotation.x = Math.PI / 2;
