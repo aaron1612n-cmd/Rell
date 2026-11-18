@@ -4,6 +4,8 @@ import { suitMaterials, buildAstronaut, buildArm, poseFirstPerson, driveJets, he
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
 import { Hatch } from './hatch.js';
+import { EYE } from './cockpit.js';
+const _cabEye = new THREE.Vector3();
 
 // EVA: open the canopy, float out, fly a jetpack on a tether, work salvage and your own hull by hand,
 // then fly back into the seat. States: off (flying) -> out (canopy opens, you rise out) -> eva -> in (back
@@ -301,7 +303,13 @@ export class Eva {
   camFov(f, dt) { this.camera.fov = THREE.MathUtils.damp(this.camera.fov, f, 5, dt); this.camera.updateProjectionMatrix(); this.camera.updateMatrixWorld(); }
 
   syncCabin() {
-    const ck = this.cockpit, on = ck.open > 0.001;
+    // The cutaway opens the whole canopy footprint, which is most of the nose: right for climbing in and
+    // out and for a camera at the seat, but from outside it read as a hollow, black ship. So it is only
+    // used through the hatch animation or with the camera near the cockpit; floating around outside,
+    // the open canopy sits over a closed hull.
+    const ck = this.cockpit;
+    const near = this.camera.position.distanceTo(this.shipMesh.localToWorld(_cabEye.copy(EYE))) < 2.6;
+    const on = ck.open > 0.001 && (this.state === 'out' || this.state === 'in' || near);
     if (on !== this.cabinOn) this.setCabin(on);
     if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
   }
