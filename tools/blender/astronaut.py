@@ -64,7 +64,8 @@ class P(Kit):
             c = self.bm.verts.new(sum((v.co for v in ring), Vector()) / n)
             for j in range(n):
                 k = (j + 1) % n
-                f = self.bm.faces.new((c, ring[k], ring[j]) if ring is V[0] else (c, ring[j], ring[k]))
+                # wound to match the side faces at the shared edge (they run k->j on the first ring, j->k on the last)
+                f = self.bm.faces.new((c, ring[j], ring[k]) if ring is V[0] else (c, ring[k], ring[j]))
                 caps.append(f)
         allf = faces + caps
         # orient outward: compare against the part's own centroid, majority vote
@@ -235,28 +236,41 @@ def build_torso():
     # handholds on the shoulders of the pack
     for sx in (1, -1):
         k.sweep([(sx * 0.2, 0.36, pz - 0.06), (sx * 0.22, 0.42, pz + 0.0), (sx * 0.2, 0.36, pz + 0.07)], 0.009, C_HAZ, HAZ_M, segs=8)
-    # jetpack: two thruster pods down the sides with nozzle bells, a manifold across the bottom
-    nozz = []
+    # jetpack: a propellant tank down each side of the pack, capped top and bottom by a thruster head. Each
+    # head carries four nozzles (out, back, forward, and up or down), so the pack can push along every
+    # axis and the jets that fire are always the ones pointing away from where you're going.
+    jets = []
+    def nozzle(c, d):
+        d = Vector(d); c = Vector(c)
+        M = Matrix.Translation(c) @ Vector((0, 1, 0)).rotation_difference(d).to_matrix().to_4x4()
+        # boss, then a flared bell with a lip and a dark throat
+        k.lathe([(0.0, 0.0), (0.0, 0.0125), (0.004, 0.0125), (0.004, 0.0085)], C_METAL_D, METAL, segs=18, M=M, cap0=True)
+        k.lathe([(0.003, 0.0045), (0.009, 0.0062), (0.016, 0.0095), (0.0215, 0.0125), (0.0225, 0.0128), (0.0225, 0.0112), (0.016, 0.0078), (0.009, 0.0048), (0.006, 0.0)], C_METAL, METAL, segs=18, M=M)
+        jets.append({'p': [round(v, 4) for v in (c + d * 0.023)], 'd': [round(v, 4) for v in d]})
     for sx in (1, -1):
         x, z = sx * 0.285, pz + 0.01
-        k.lathe([(-0.16, 0.0), (-0.16, 0.045), (-0.14, 0.058), (0.18, 0.058), (0.21, 0.05), (0.225, 0.03), (0.23, 0.0)], C_SLATE_L, HARD, segs=24, M=rotM(t=(x, -0.06, z)))
-        k.lathe(ring_prof(0.12, 0.058, 0.02, 0.006), C_METAL, METAL, segs=24, M=rotM(t=(x, -0.06, z)))
-        k.lathe(ring_prof(-0.06, 0.058, 0.02, 0.006), C_HAZ, HAZ_M, segs=24, M=rotM(t=(x, -0.06, z)))
-        # bell: flared, open
-        k.lathe([(-0.16, 0.03), (-0.19, 0.034), (-0.215, 0.044), (-0.24, 0.056), (-0.243, 0.058), (-0.243, 0.052), (-0.215, 0.038), (-0.19, 0.028), (-0.17, 0.022)], C_METAL_D, METAL, segs=24, M=rotM(t=(x, -0.06, z)))
-        nozz.append([x, -0.06 - 0.17, z])
-        # mounting yoke back to the pack
-        k.rbox((sx * 0.245, 0.02, z), (0.05, 0.06, 0.07), C_SLATE, HARD, bevel=0.008)
-        k.rbox((sx * 0.245, -0.14, z), (0.05, 0.05, 0.06), C_SLATE, HARD, bevel=0.008)
-        # small RCS quads at the pack corners: tiny 4-way nozzle blocks
-        for cy in (0.33, -0.3):
-            cx, cz = sx * 0.225, pz + 0.09
-            k.rbox((cx, cy, cz), (0.045, 0.045, 0.045), C_SLATE, HARD, bevel=0.006)
-            for d in ((sx, 0, 0), (0, 1 if cy > 0 else -1, 0), (0, 0, 1)):
-                c = (cx + d[0] * 0.03, cy + d[1] * 0.03, cz + d[2] * 0.03)
-                axis = 'x' if d[0] else ('y' if d[1] else 'z')
-                k.tube(c, 0.006, 0.009, 0.016, axis, C_METAL_D, METAL, segs=10, caps=False)
-    J['nozzles'] = nozz
+        T = rotM(t=(x, -0.025, z))
+        # tank: a capsule-ish lathe with weld rings and a hazard band
+        k.lathe([(0.2, 0.0), (0.2, 0.03), (0.19, 0.046), (0.17, 0.054), (-0.17, 0.054), (-0.19, 0.046), (-0.2, 0.03), (-0.2, 0.0)], C_SLATE_L, HARD, segs=28, M=T, cap0=True, cap1=True)
+        for y in (0.12, -0.12):
+            k.lathe(ring_prof(y, 0.054, 0.012, 0.004), C_METAL, METAL, segs=28, M=T)
+        k.lathe(ring_prof(0.0, 0.054, 0.03, 0.003), C_HAZ, HAZ_M, segs=28, M=T)
+        # mounting yokes back to the pack
+        k.rbox((sx * 0.245, 0.06, z), (0.05, 0.05, 0.07), C_SLATE, HARD, bevel=0.008)
+        k.rbox((sx * 0.245, -0.11, z), (0.05, 0.05, 0.07), C_SLATE, HARD, bevel=0.008)
+        # thruster heads
+        for hy, vy in ((0.215, 1), (-0.265, -1)):
+            hc = (x + sx * 0.012, hy, z)
+            k.sloft([(hy - 0.04, x + sx * 0.012, z, 0.036, 0.04, 3.0), (hy - 0.036, x + sx * 0.012, z, 0.042, 0.046, 4.5), (hy + 0.036, x + sx * 0.012, z, 0.042, 0.046, 4.5),
+                     (hy + 0.04, x + sx * 0.012, z, 0.036, 0.04, 3.0)], C_SLATE, HARD, segs=32, cap0=True, cap1=True)
+            # neck from the tank into the head
+            k.lathe([(0.0, 0.026), (-0.02, 0.026)] if vy > 0 else [(0.02, 0.026), (0.0, 0.026)], C_METAL_D, METAL, segs=20, M=rotM(t=(x, hy - vy * 0.04, z)))
+            k.rbox((hc[0], hy, z + 0.047), (0.03, 0.03, 0.004), C_HAZ, HAZ_M, bevel=0.0015)            # hazard tag on the back face
+            nozzle((hc[0] + sx * 0.042, hy, z), (sx, 0, 0))
+            nozzle((hc[0], hy, z + 0.046), (0, 0, 1))
+            nozzle((hc[0], hy, z - 0.046), (0, 0, -1))
+            nozzle((hc[0], hy + vy * 0.04, z), (0, vy, 0))
+    J['jets'] = jets
     k.rbox((0, -0.345, pz + 0.01), (0.42, 0.03, 0.08), C_SLATE, HARD, bevel=0.01, seg=2)
     # tether reel on the left hip, hazard drum
     k.lathe([(-0.03, 0.0), (-0.03, 0.055), (-0.026, 0.06), (0.026, 0.06), (0.03, 0.055), (0.03, 0.0)], C_SLATE, HARD, segs=28, M=rotM(0, 0, 90, (-0.25, -0.24, -0.01)))
@@ -410,38 +424,120 @@ def build_forearm():
     return k
 
 
+def sgp(v, e):
+    return math.copysign(abs(v) ** e, v)
+
+
+def asec(k, secs, color, mat, segs=28, M=None, cap0=False, cap1=False, closed=True, arc=None):
+    """Asymmetric superellipse loft down local Y. secs: [(y, ox, oz, back, palm, half_w, n)]: centre (ox, oz),
+    +X half depth `back`, -X half depth `palm`, Z half width; n superellipse exponent. arc: (a0, a1) for an open strip."""
+    M = M or Matrix.Identity(4)
+    rs = []
+    for (y, ox, oz, db, dp, w, n) in secs:
+        ring = []
+        cnt = segs if arc is None else segs + 1
+        for j in range(cnt):
+            th = (2 * math.pi * j / segs) if arc is None else (arc[0] + (arc[1] - arc[0]) * j / segs)
+            c, s = math.cos(th), math.sin(th)
+            x = ox + (db if c > 0 else dp) * sgp(c, 2 / n)
+            ww = w if not isinstance(w, tuple) else (w[0] if s > 0 else w[1])
+            z = oz + ww * sgp(s, 2 / n)
+            ring.append(M @ Vector((x, y, z)))
+        rs.append(ring)
+    return k.rings(rs, color, mat, cap0, cap1, closed=arc is None)
+
+
+def dome(y0, dirn, r, n=4):
+    """y positions and scale factors for a rounded end of radius r going from y0 in direction dirn (+1 / -1)."""
+    out = []
+    for i in range(1, n + 1):
+        a = i / n * math.pi / 2
+        out.append((y0 + dirn * r * math.sin(a), math.cos(a)))
+    return out
+
+
 def build_glove():
-    """Right glove in its wrist frame: fingers -Y, palm normal -X, back of hand +X, thumb toward -Z."""
+    """Right glove in its wrist frame: fingers -Y, palm normal -X, back of hand +X, thumb toward -Z.
+    A pressurised EVA glove: fat padded fingers in three phalanges with bunched fabric at each joint,
+    rubber knuckle pads and fingertip caps, a hard back-of-hand plate, a thenar pad and a wrist strap."""
     parts = []
     k = P('palm', 11)
     # the glove's own wrist, a soft ball inside the gauntlet, so the cuff never shows its hollow when the wrist bends
-    k.lathe([(0.05, 0.0), (0.046, 0.026), (0.03, 0.039), (0.008, 0.041), (-0.012, 0.038)], C_SUIT_D, GLOVE, segs=24, sz=1.1, cap0=True)
-    # hand: superellipse loft down the palm (x = thickness, z = width)
-    k.sloft([
-        (-0.0, 0.0, 0.0, 0.026, 0.036, 2.2), (-0.025, 0.002, -0.002, 0.028, 0.041, 2.6), (-0.06, 0.002, -0.001, 0.025, 0.046, 3.0),
-        (-0.09, 0.0, 0.0, 0.021, 0.046, 3.0), (-0.103, 0.0, 0.0, 0.017, 0.044, 2.6), (-0.108, 0.0, 0.0, 0.012, 0.04, 2.2)], C_SUIT, GLOVE, segs=28, cap1=True)
-    # palm grip pad and knuckle bar (rubber), restraint strap across the back
-    k.sloft([(-0.012, -0.022, 0.0, 0.006, 0.032, 3), (-0.095, -0.016, 0.0, 0.006, 0.04, 3)], C_RUB, RUBBER, segs=20, cap0=True, cap1=True)
-    k.sloft([(-0.082, 0.018, 0.0, 0.007, 0.044, 3), (-0.104, 0.013, 0.0, 0.007, 0.042, 3)], C_RUB, RUBBER, segs=20, cap0=True, cap1=True)
-    k.rbox((0.026, -0.03, 0.0), (0.008, 0.022, 0.08), C_SLATE, RUBBER, bevel=0.003)
+    k.lathe([(0.05, 0.0), (0.046, 0.026), (0.03, 0.039), (0.008, 0.041), (-0.012, 0.038)], C_SUIT_D, GLOVE, segs=28, sz=1.1, cap0=True)
+    # hand body: wrist -> knuckles; widens to the knuckle line, flatter on the back, a fuller palm, the thumb
+    # side swelling into the thenar pad, then rolls over the knuckles into the finger roots
+    hs = [(0.002, 0.0, -0.002, 0.021, 0.024, (0.036, 0.037), 2.4), (-0.02, 0.001, -0.004, 0.022, 0.028, (0.041, 0.046), 2.6),
+          (-0.04, 0.001, -0.003, 0.021, 0.03, (0.045, 0.054), 2.7), (-0.06, 0.001, -0.001, 0.02, 0.028, (0.047, 0.05), 2.9),
+          (-0.08, 0.001, 0.0, 0.019, 0.025, (0.048, 0.048), 3.1), (-0.095, 0.002, 0.0, 0.0175, 0.021, (0.048, 0.048), 3.0)]
+    for y, s_ in dome(-0.095, -1, 0.012, 4):
+        hs.append((y, 0.002, 0.0, 0.0175 * (0.6 + 0.4 * s_), 0.021 * (0.6 + 0.4 * s_), (0.048 * (0.8 + 0.2 * s_), 0.048 * (0.8 + 0.2 * s_)), 3.0))
+    asec(k, hs, C_SUIT, GLOVE, segs=40, cap0=True, cap1=True)
+    # back of the hand: two overlapping hard plates (articulated), their palm halves buried inside the hand
+    for (y0, y1, wd) in ((-0.022, -0.054, 0.036), (-0.05, -0.084, 0.041)):
+        bp = [(y0, 0.003, -0.002, 0.0205, 0.0, wd * 0.9, 3.0), (y0 - 0.004, 0.003, -0.002, 0.0245, 0.0, wd, 3.6), (y1 + 0.004, 0.003, 0.0, 0.0235, 0.0, wd, 3.6), (y1, 0.003, 0.0, 0.019, 0.0, wd * 0.92, 3.0)]
+        asec(k, bp, C_SHELL, HARD, segs=36, cap0=True, cap1=True)
+    # knuckle guards: four low hard pads over the metacarpal heads
+    for z in (-0.032, -0.011, 0.011, 0.031):
+        k.lathe([(0.0075, 0.0), (0.0065, 0.0045), (0.003, 0.0072), (-0.003, 0.0072), (-0.0065, 0.0045), (-0.0075, 0.0)], C_SHELL_D, HARD, segs=16, sx=0.55, sz=1.25,
+                M=rotM(0, 0, 0, (0.0163, -0.096, z)), cap0=True, cap1=True)
+    # palm: a grip pad in two pieces with a crease between, buried on the back side
+    for (y0, y1, w) in ((-0.028, -0.056, (0.034, 0.042)), (-0.062, -0.093, (0.042, 0.042))):
+        ps = [(y0 + 0.003, 0.0, 0.001, 0.0, 0.022, (w[0] * 0.8, w[1] * 0.8), 2.6), (y0, 0.0, 0.001, 0.0, 0.0305, w, 2.9), (y1, 0.0, 0.001, 0.0, 0.0285, w, 2.9), (y1 - 0.003, 0.0, 0.001, 0.0, 0.02, (w[0] * 0.8, w[1] * 0.8), 2.6)]
+        asec(k, ps, 0x55524b, RUBBER, segs=36, cap0=True, cap1=True)
+    # thenar: bridges the thumb side of the palm into the thumb root
+    th = rotM(-50, 0, 12, (-0.008, -0.033, -0.04))
+    k.lathe([(0.022, 0.0), (0.02, 0.009), (0.012, 0.0155), (0.0, 0.017), (-0.012, 0.0155), (-0.018, 0.01), (-0.021, 0.0)], C_SUIT, GLOVE, segs=24, sx=0.95, sz=0.85, M=th, cap0=True, cap1=True)
+    # wrist strap with a buckle on the back of the hand
+    ws = [(-0.008, 0.0, -0.002, 0.0235, 0.0265, 0.0385, 2.6), (-0.018, 0.0005, -0.003, 0.0245, 0.0285, 0.0415, 2.7)]
+    asec(k, ws, C_SLATE, RUBBER, segs=36, cap0=False, cap1=False)
+    k.rbox((0.026, -0.013, 0.006), (0.006, 0.016, 0.022), C_METAL_D, METAL, bevel=0.002)
+    k.rbox((0.0285, -0.013, 0.006), (0.002, 0.008, 0.012), C_HAZ, HAZ_M, bevel=0.0007)
     parts.append(k)
-    # finger segments (shared shapes; the game instances and scales them)
-    def finger(name, L, r, tip):
+
+    # finger phalanges: a padded fabric tube that swells at each joint, a rounder pad on the palm side, fabric
+    # bunched into ridges over the joint, rounded ends that sit inside the neighbouring segment as it bends
+    def phalanx(name, L, w, d, tip=False, pad=True):
         f = P(name, 13)
-        prof = [(0.006, 0.0), (0.004, r * 0.75), (0.0, r * 1.02), (-L * 0.5, r), (-L + 0.004, r * 0.98)]
-        if tip: prof += [(-L - r * 0.3, r * 0.92), (-L - r * 0.75, r * 0.62), (-L - r * 0.98, r * 0.2), (-L - r, 0.0)]
-        else: prof += [(-L, r * 0.9), (-L - 0.003, r * 0.6)]
-        f.lathe(prof, C_SUIT, GLOVE, segs=16, sx=0.9, cap0=True, cap1=not tip)
-        if tip:   # rubber fingertip cap on the pad side
-            f.lathe([(-L * 0.35, 0.0), (-L * 0.35, r * 1.04), (-L - r * 0.4, r * 0.98), (-L - r * 0.85, r * 0.55), (-L - r * 1.03, 0.0)], C_RUB, RUBBER, segs=16, sx=0.94, sz=1.04, M=Matrix.Translation(Vector((-0.0012, 0, 0))))
+        secs = []
+        for y, s in reversed(dome(0.0, 1, w * 0.95, 4)):
+            secs.append((y, 0.0, 0.0, d * (0.35 + 0.65 * s), d * 1.1 * (0.35 + 0.65 * s), w * (0.35 + 0.65 * s), 2.3))
+        N = 9
+        for i in range(N + 1):
+            t = i / N; y = -L * t
+            joint = math.exp(-((t - 0.04) / 0.16) ** 2) + (0 if tip else math.exp(-((t - 1.0) / 0.14) ** 2))
+            mid = math.sin(math.pi * t)
+            ww = w * (1.0 + 0.06 * joint - 0.05 * mid)
+            back = d * (1.0 + 0.1 * joint - 0.08 * mid)
+            palm = d * (1.08 + 0.18 * mid * (1 if pad else 0.4))
+            secs.append((y, 0.0, 0.0, back, palm, ww, 2.6))
+        if tip:
+            for y, s in dome(-L, -1, w * 1.05, 5):
+                secs.append((y, -0.001 * (1 - s), 0.0, d * (0.2 + 0.8 * s), d * 1.15 * (0.25 + 0.75 * s), w * (0.3 + 0.7 * s), 2.4))
+        else:
+            for y, s in dome(-L, -1, w * 0.7, 3):
+                secs.append((y, 0.0, 0.0, d * (0.45 + 0.55 * s), d * 1.1 * (0.45 + 0.55 * s), w * (0.45 + 0.55 * s), 2.4))
+        asec(f, secs, C_SUIT, GLOVE, segs=20, cap0=True, cap1=True)
+        # bunched fabric over the knuckle: two ridges on the back, partly buried
+        for j, yy in enumerate((-0.0045, -0.010)):
+            rs = [(yy + 0.0018, 0.0, 0.0, d * 1.0, 0.0, w * 0.82, 2.6), (yy, 0.0, 0.0, d * 1.16, 0.0, w * 0.9, 2.6), (yy - 0.0018, 0.0, 0.0, d * 1.0, 0.0, w * 0.82, 2.6)]
+            asec(f, rs, C_SUIT_D, GLOVE, segs=20, cap0=True, cap1=True)
+        if tip:
+            # rubber fingertip cap: palm pad + tip, buried on the back half
+            cs = [(-L * 0.25, -0.0008, 0.0, 0.0, d * 1.02, w * 0.9, 3.0), (-L * 0.4, -0.0008, 0.0, d * 0.4, d * 1.3, w * 1.04, 3.0), (-L, -0.0008, 0.0, d * 0.55, d * 1.3, w * 1.06, 3.0)]
+            for y, s in dome(-L, -1, w * 1.08, 5):
+                cs.append((y, -0.0018 * (1 - s), 0.0, d * 0.55 * (0.2 + 0.8 * s), d * 1.3 * (0.3 + 0.7 * s), w * 1.06 * (0.3 + 0.7 * s), 2.6))
+            asec(f, cs, C_RUB, RUBBER, segs=20, cap0=True, cap1=True)
         return f
-    parts.append(finger('finA', 0.038, 0.0118, False))
-    parts.append(finger('finB', 0.03, 0.0112, True))
-    parts.append(finger('thumbA', 0.034, 0.0135, False))
-    parts.append(finger('thumbB', 0.028, 0.0128, True))
-    J['fingers'] = [[0.002, -0.106, z] for z in (-0.032, -0.011, 0.011, 0.031)]
-    J['fingerScale'] = [1.0, 1.08, 1.02, 0.86]
-    J['thumb'] = [-0.006, -0.03, -0.04]
+    parts.append(phalanx('finA', 0.034, 0.0116, 0.0108))
+    parts.append(phalanx('finB', 0.024, 0.0112, 0.0104))
+    parts.append(phalanx('finC', 0.017, 0.0108, 0.01, tip=True))
+    parts.append(phalanx('thumbA', 0.03, 0.0132, 0.0122))
+    parts.append(phalanx('thumbB', 0.024, 0.0128, 0.0118, tip=True))
+    J['fingers'] = [[0.002, -0.104, z] for z in (-0.032, -0.0108, 0.0108, 0.0315)]
+    J['fingerScale'] = [1.0, 1.08, 1.02, 0.85]
+    J['fingerLen'] = [0.034, 0.024]
+    J['thumb'] = [-0.012, -0.04, -0.046]
+    J['thumbLen'] = 0.03
     return parts
 
 
@@ -489,29 +585,100 @@ def build_boot():
     return k
 
 
+C_COPPER, C_CERAMIC = 0xb9773f, 0x8f8578
+
+
+def zsec(k, secs, color, mat, segs=32, cap0=True, cap1=True, M=None):
+    """Superellipse loft along -Z: secs [(z, cx, cy, half_w (x), half_h (y), n)]."""
+    M = M or Matrix.Identity(4)
+    rs = []
+    for (z, cx, cy, a, b, n) in secs:
+        ring = []
+        for j in range(segs):
+            th = 2 * math.pi * j / segs
+            c, s = math.cos(th), math.sin(th)
+            ring.append(M @ Vector((cx + a * sgp(c, 2 / n), cy + b * sgp(s, 2 / n), z)))
+        rs.append(ring)
+    return k.rings(rs, color, mat, cap0, cap1)
+
+
 def build_tool():
-    """Plasma cutter / welder. Origin at the centre of the grip; barrel along -Z, grip down -Y."""
+    """Plasma cutter: a heavy industrial cutting torch built for a pressurised glove.
+    Origin at the centre of the grip; barrel along -Z, grip down -Y. A machined receiver with a chunky
+    rubber grip and a big paddle trigger, a gas/power canister clamped on top, a finned heat-sink barrel,
+    a ceramic nozzle with a copper tip inside a three-rod drag cage, a lanyard ring under the grip."""
     k = P('tool', 29)
-    # body: a lofted housing over the grip running forward
-    k.sloft([(0.07, 0, 0.055, 0.022, 0.028, 3), (0.06, 0, 0.058, 0.025, 0.032, 3.4), (-0.06, 0, 0.06, 0.025, 0.034, 3.4), (-0.13, 0, 0.058, 0.021, 0.03, 3),
-             (-0.15, 0, 0.056, 0.017, 0.024, 2.5)], C_SHELL_D, HARD, segs=28, axis='z', cap0=True, cap1=True)
-    k.rbox((0, 0.092, -0.03), (0.026, 0.008, 0.14), C_HAZ, HAZ_M, bevel=0.003)               # top stripe
-    # grip: slight rake, rubber
-    k.sloft([(0.04, 0, -0.008, 0.017, 0.022, 2.8), (0.0, 0, 0.0, 0.019, 0.024, 2.8), (-0.05, 0, 0.012, 0.017, 0.021, 2.6), (-0.058, 0, 0.014, 0.012, 0.016, 2.2)], C_RUB, RUBBER, segs=20, cap1=True)
-    k.rbox((0, -0.062, 0.016), (0.04, 0.012, 0.05), C_SLATE, HARD, bevel=0.004)
-    # trigger guard and trigger
-    k.sweep([(0, 0.03, -0.022), (0, 0.0, -0.05), (0, -0.045, -0.035)], 0.004, C_SLATE, HARD, segs=6)
-    k.rbox((0, 0.01, -0.03), (0.008, 0.022, 0.01), C_HAZ, HAZ_M, rot=(20, 0, 0), bevel=0.002)
-    # barrel: stepped, with cooling fins and an emitter shroud
-    k.tube((0, 0.06, -0.19), 0.016, 0.019, 0.09, 'z', C_METAL_D, METAL, segs=20, bevel=0.002)
-    for i in range(5):
-        k.tube((0, 0.06, -0.165 - i * 0.012), 0.024, 0.024, 0.004, 'z', C_METAL, METAL, segs=20)
-    k.lathe([(0.0, 0.017), (0.0, 0.024), (-0.006, 0.026), (-0.03, 0.026), (-0.034, 0.022), (-0.034, 0.018)], C_SLATE, METAL, segs=24, M=rotM(-90, 0, 0, (0, 0.06, -0.232)))
-    # power cell on the side with a level window
-    k.rbox((0.032, 0.05, 0.02), (0.022, 0.04, 0.08), C_SLATE, HARD, bevel=0.005)
-    k.box((0.0435, 0.05, 0.02), (0.002, 0.008, 0.05), color=C_AMBER, mat=LAMP, wear=0)
-    J['toolTip'] = [0, 0.06, -0.268]
-    J['toolEmit'] = [0, 0.06, -0.264]
+    AX = 0.058                       # barrel axis height
+    # receiver: machined block, chamfered (high-n superellipse), taller at the back, stepping down to the barrel
+    zsec(k, [(0.075, 0, AX + 0.002, 0.021, 0.026, 3.2), (0.07, 0, AX + 0.002, 0.026, 0.032, 5), (0.0, 0, AX + 0.0, 0.027, 0.034, 5.5),
+             (-0.07, 0, AX - 0.002, 0.026, 0.031, 5), (-0.098, 0, AX - 0.004, 0.024, 0.026, 4.5), (-0.104, 0, AX - 0.004, 0.019, 0.02, 3.4)], C_SLATE, HARD, segs=40)
+    # side cheek plates (bone), slightly proud, with a recessed vent pattern
+    for sx in (1, -1):
+        zsec(k, [(0.05, sx * 0.0215, AX - 0.004, 0.008, 0.022, 4), (0.045, sx * 0.0215, AX - 0.004, 0.009, 0.026, 6), (-0.06, sx * 0.0215, AX - 0.006, 0.009, 0.024, 6), (-0.066, sx * 0.0215, AX - 0.006, 0.008, 0.02, 4)], C_SHELL_D, HARD, segs=28)
+        for i in range(5):
+            k.rbox((sx * 0.0312, AX - 0.002, 0.022 - i * 0.014), (0.002, 0.026, 0.0055), C_BLACK, HARD, bevel=0.0008)
+        for (z, y) in ((0.038, AX + 0.016), (0.038, AX - 0.024), (-0.052, AX + 0.014), (-0.052, AX - 0.024)):
+            k.tube((sx * 0.031, y, z), 0.0032, 0.0032, 0.003, 'x', C_METAL, METAL, segs=6)
+    # status strip on the right cheek: three amber cells
+    for i in range(3):
+        k.box((0.0322, AX + 0.02, 0.0 - i * 0.012), (0.0016, 0.004, 0.008), color=C_AMBER, mat=LAMP, wear=0)
+    # canister on top: gas + power cell clamped on with two bands, a knurled cap, hazard ring, gauge
+    cy = AX + 0.056
+    k.lathe([(0.072, 0.0), (0.072, 0.012), (0.068, 0.018), (0.062, 0.0195), (-0.05, 0.0195), (-0.056, 0.017), (-0.06, 0.009), (-0.061, 0.0)], C_SHELL, HARD, segs=28, M=rotM(90, 0, 0, (0, cy, 0.0)), cap0=True, cap1=True)
+    k.lathe(convolute(0.09, 0.07, 0.0175, 0.0025, 5) + [(0.068, 0.017)], C_METAL_D, METAL, segs=28, M=rotM(90, 0, 0, (0, cy, 0.0)), cap0=True, cap1=False)
+    k.lathe([(0.092, 0.0), (0.092, 0.012), (0.09, 0.0165), (0.088, 0.0175)], C_METAL_D, METAL, segs=28, M=rotM(90, 0, 0, (0, cy, 0.0)), cap0=True)
+    k.lathe(ring_prof(-0.035, 0.0195, 0.008, 0.0016), C_HAZ, HAZ_M, segs=28, M=rotM(90, 0, 0, (0, cy, 0.0)))
+    for z in (0.04, -0.02):
+        k.lathe(ring_prof(0.0, 0.0195, 0.007, 0.0022), C_METAL, METAL, segs=28, M=rotM(90, 0, 0, (0, cy, z)))
+        k.rbox((0, AX + 0.036, z), (0.016, 0.012, 0.008), C_METAL_D, METAL, bevel=0.002)
+    k.tube((0.0205, cy, 0.012), 0.0065, 0.0065, 0.005, 'x', C_BLACK, HARD, segs=16)                 # gauge
+    k.tube((0.0235, cy, 0.012), 0.0048, 0.0048, 0.002, 'x', C_AMBER, LAMP, segs=16)
+    # feed hose: canister nose down into the barrel collar, corrugated
+    k.sweep([(-0.012, cy - 0.004, -0.06), (-0.016, cy - 0.01, -0.085), (-0.016, AX + 0.02, -0.11), (-0.01, AX + 0.012, -0.122)], 0.0055, C_BLACK, RUBBER, segs=10, ripple=0.14, rip_n=16)
+    # barrel: collar, heat-sink fin stack, ceramic nozzle, copper tip
+    B = lambda z: rotM(90, 0, 0, (0, AX, z))     # local -Y runs forward (-Z)
+    k.lathe([(0.0, 0.0), (0.0, 0.021), (-0.004, 0.0225), (-0.022, 0.0225), (-0.026, 0.019), (-0.026, 0.0)], C_METAL_D, METAL, segs=32, M=B(-0.1), cap0=True, cap1=True)
+    k.lathe([(0.0, 0.0125), (-0.09, 0.0125)], C_METAL_D, METAL, segs=24, M=B(-0.12))
+    for i in range(7):
+        z = -0.13 - i * 0.0085
+        r = 0.022 - i * 0.0006
+        k.lathe([(0.0015, 0.012), (0.0015, r - 0.001), (0.0, r), (-0.0015, r - 0.001), (-0.0015, 0.012)], C_METAL, METAL, segs=28, M=B(z))
+    # ceramic nozzle shroud, copper tip
+    k.lathe([(0.0, 0.0165), (-0.006, 0.0172), (-0.03, 0.0125), (-0.036, 0.0105), (-0.038, 0.0085)], C_CERAMIC, HARD, segs=28, M=B(-0.19), cap0=True)
+    k.lathe([(0.0, 0.0084), (-0.006, 0.007), (-0.009, 0.0058), (-0.009, 0.0035), (-0.006, 0.0025)], C_COPPER, METAL, segs=24, M=B(-0.228))
+    # drag cage: three rods from the collar to a ring in front of the tip
+    ring_z = -0.249
+    for i in range(3):
+        a = math.radians(90 + i * 120)
+        x0, y0 = math.cos(a) * 0.0215, math.sin(a) * 0.0215
+        x1, y1 = math.cos(a) * 0.016, math.sin(a) * 0.016
+        k.sweep([(x0, AX + y0, -0.124), (x0 * 1.02, AX + y0 * 1.02, -0.19), (x1, AX + y1, ring_z)], 0.0019, C_METAL_D, METAL, segs=6)
+    k.sweep([(math.cos(math.radians(a)) * 0.016, AX + math.sin(math.radians(a)) * 0.016, ring_z) for a in range(0, 360, 30)], 0.0022, C_METAL_D, METAL, segs=8, closed=True)
+    # grip: raked, rubber overmold with finger grooves on the front, palm swell at the back, pommel + lanyard ring
+    gs = []
+    for i in range(11):
+        t = i / 10; y = 0.03 - t * 0.092
+        groove = 0.0035 * max(0.0, math.cos(t * 3 * 2 * math.pi)) * (0.2 < t < 0.92)
+        gs.append((y, 0.0, 0.004 + 0.012 * t + 0.002 * math.sin(math.pi * t), 0.016 + 0.002 * math.sin(math.pi * t), 0.019 - groove * 0.4, 0.024 + 0.003 * math.sin(math.pi * t), 3.0))
+    # grip sections in (y, ox, oz, back(+X)..): reuse asec but the grip's depth runs in Z: build in a frame rotated -90 about Y
+    rs = []
+    for (y, ox, oz, wx, front, back, n) in gs:
+        ring = []
+        for j in range(32):
+            th = 2 * math.pi * j / 32; c, s = math.cos(th), math.sin(th)
+            z = oz + (back if s > 0 else front) * sgp(s, 2 / n)
+            x = wx * sgp(c, 2 / n)
+            ring.append(Vector((x, y, z)))
+        rs.append(ring)
+    k.rings(rs, C_RUB, RUBBER, True, True)
+    k.lathe([(0.0, 0.0), (0.0, 0.017), (-0.004, 0.019), (-0.012, 0.018), (-0.014, 0.0)], C_SLATE, HARD, segs=24, sx=0.95, sz=1.25, M=rotM(0, 0, 0, (0, -0.06, 0.016)), cap0=True, cap1=True)
+    k.sweep([(math.cos(math.radians(a)) * 0.009, -0.081 + math.sin(math.radians(a)) * 0.009, 0.026) for a in range(0, 360, 30)], 0.0022, C_HAZ, HAZ_M, segs=8, closed=True)
+    # paddle trigger (sized for a glove) and a wide guard loop
+    k.rbox((0, 0.012, -0.03), (0.016, 0.034, 0.011), C_HAZ, HAZ_M, rot=(14, 0, 0), bevel=0.004, seg=2)
+    k.sweep([(0, 0.03, -0.062), (0, 0.004, -0.07), (0, -0.032, -0.058), (0, -0.05, -0.03), (0, -0.052, -0.008)], 0.0045, C_SLATE, HARD, segs=8, cap=True)
+    J['toolTip'] = [0, AX, -0.252]
+    J['toolEmit'] = [0, AX, -0.2365]
+    J['toolEmitR'] = 0.0045
     return k
 
 

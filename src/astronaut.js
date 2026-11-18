@@ -3,6 +3,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import suitUrl from './assets/astronaut.glb?url';
 import J from './assets/astronaut.json';
+import { Plume } from './plume.js';
+
+// cold nitrogen jets: a clear white core going pale blue, nothing hot
+const GAS = { hot: [1.0, 1.0, 1.0], mid: [0.62, 0.74, 0.92], cool: [0.22, 0.28, 0.4] };
 
 // The pilot's EVA suit. The parts are modelled in Blender (tools/blender/astronaut.py): hard upper torso,
 // soft brief with waist bellows, life-support pack with the jetpack pods, a helmet with a gold visor, and
@@ -77,28 +81,33 @@ function part(name, M) {
   return o;
 }
 
-// glove: palm + four two-segment fingers + thumb. setCurl(c): 0 open .. 1 fist
+// glove: palm + four three-phalanx fingers + a two-segment thumb. setCurl(c): 0 open .. 1 fist
 export function buildGlove(M) {
   const g = new THREE.Group();
   g.add(part('palm', M));
-  const fingers = [];
-  J.fingers.forEach((p, i) => {
+  const [LA, LB] = J.fingerLen;
+  const seg = (name, parent, y, s) => {
+    const j = new THREE.Group(); j.position.y = y; parent.add(j);
+    const m = part(name, M); m.scale.set(1, s, 1); j.add(m); m.traverse((o) => { o.castShadow = false; });
+    return j;
+  };
+  const fingers = J.fingers.map((p, i) => {
     const s = J.fingerScale[i];
     const base = new THREE.Group(); base.position.set(...p); g.add(base);
-    const a = part('finA', M); a.scale.set(1, s, 1); base.add(a); a.traverse((m) => { m.castShadow = false; });
-    const mid = new THREE.Group(); mid.position.y = -0.038 * s; base.add(mid);
-    const b = part('finB', M); b.scale.set(1, s, 1); mid.add(b); b.traverse((m) => { m.castShadow = false; });
-    fingers.push([base, mid]);
+    const a = seg('finA', base, 0, s), b = seg('finB', a, -LA * s, s), c = seg('finC', b, -LB * s, s);
+    return [a, b, c];
   });
   const thumb = new THREE.Group(); thumb.position.set(...J.thumb); g.add(thumb);
-  thumb.add(part('thumbA', M));
-  const tmid = new THREE.Group(); tmid.position.y = -0.034; thumb.add(tmid); tmid.add(part('thumbB', M));
+  const ta = seg('thumbA', thumb, 0, 1), tb = seg('thumbB', ta, -J.thumbLen, 1);
+  // a gloved fist: the pressurised fingers never fully close, the little finger curls the most
   const setCurl = (c, spread = 0) => {
-    fingers.forEach(([b, m], i) => {
-      b.rotation.set(0, 0, -(0.12 + c * 1.35 + i * 0.05 * c)); b.rotation.x = (i - 1.5) * (0.05 + spread * 0.1);
-      m.rotation.z = -(0.18 + c * 1.45);
+    fingers.forEach(([a, b, d], i) => {
+      const k = 1 + (i - 1.5) * 0.06;
+      a.rotation.set((i - 1.5) * (0.04 + spread * 0.1) * (1 - c * 0.6), 0, -(0.1 + c * 1.25 * k));
+      b.rotation.z = -(0.14 + c * 1.35 * k);
+      d.rotation.z = -(0.1 + c * 0.95);
     });
-    thumb.rotation.set(0.85 - c * 0.25, 0, -(0.25 + c * 0.65)); tmid.rotation.z = -(0.15 + c * 0.6);
+    thumb.rotation.set(0.8 - c * 0.3, 0.15 + c * 0.25, -(0.3 + c * 0.55)); ta.rotation.z = 0; tb.rotation.z = -(0.15 + c * 0.75);
   };
   setCurl(0.3);
   return { group: g, setCurl };
@@ -107,7 +116,7 @@ export function buildGlove(M) {
 // the multi-tool: plasma cutter / welder. Origin at the grip; barrel -Z. Emitter ring glows.
 export function buildTool(M) {
   const g = part('tool', M);
-  const emitter = new THREE.Mesh(new THREE.TorusGeometry(0.0175, 0.0038, 8, 24), M.emit.clone());
+  const emitter = new THREE.Mesh(new THREE.TorusGeometry(J.toolEmitR, 0.0016, 8, 24), M.emit.clone());
   emitter.position.set(...J.toolEmit); g.add(emitter);
   const tip = new THREE.Object3D(); tip.position.set(...J.toolTip); g.add(tip);
   g.userData = { emitter, tip };
@@ -183,12 +192,18 @@ export function buildAstronaut(M) {
   const helmet = part('helmet', M); head.add(helmet);
   const lampL = new THREE.SpotLight(0xffe2c0, 0, 14, 0.42, 0.6, 1.6); lampL.position.set(...J.lamp); head.add(lampL, lampL.target); lampL.target.position.set(0, 0, -2);
 
-  // jetpack nozzle glow discs (inside the bells) and exhaust points
-  const nozzles = J.nozzles.map((p) => {
-    const inner = new THREE.Mesh(new THREE.CircleGeometry(0.03, 16), M.emit.clone()); inner.position.set(...p); inner.rotation.x = Math.PI / 2;
-    inner.material.color.setRGB(0.05, 0.03, 0.02); inner.material.side = THREE.DoubleSide; body.add(inner);
-    const exit = new THREE.Object3D(); exit.position.set(p[0], p[1] - 0.08, p[2]); body.add(exit);
-    return { exit, inner, dir: new THREE.Vector3(0, -1, 0) };
+  // jetpack: 16 cold-gas nozzles on four thruster heads (out, back, forward, up/down). Each has a throat disc
+  // that flashes when its valve opens, and a gas plume; the plumes live in their own group (jetFx) so they
+  // still show in first person, where the suit itself is hidden. The game copies the body's pose onto it.
+  const jetFx = new THREE.Group(); jetFx.matrixAutoUpdate = false;
+  const throatGeo = new THREE.CircleGeometry(0.0062, 14), _zAxis = new THREE.Vector3(0, 0, 1);
+  const nozzles = J.jets.map((j) => {
+    const dir = new THREE.Vector3(...j.d), pos = new THREE.Vector3(...j.p);
+    const q = new THREE.Quaternion().setFromUnitVectors(_zAxis, dir);
+    const throat = new THREE.Mesh(throatGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.03, 0.035, 0.04), toneMapped: false }));
+    throat.position.copy(pos).addScaledVector(dir, -0.012); throat.quaternion.copy(q); body.add(throat);
+    const plume = new Plume(GAS, { octaves: 2 }); plume.position.copy(pos); plume.quaternion.copy(q); jetFx.add(plume);
+    return { pos, dir, throat, plume, level: 0 };
   });
   const hook = new THREE.Object3D(); hook.position.set(...J.hook); body.add(hook);
 
@@ -199,7 +214,7 @@ export function buildAstronaut(M) {
   legR.hip.position.copy(SUIT.hip); legL.hip.position.copy(SUIT.hip);
   lr.add(legR.hip); ll.add(legL.hip); body.add(lr, ll);
 
-  root.userData = { body, head, armR, armL, legR, legL, nozzles, lamp: lampL, tool: armR.tool, hook };
+  root.userData = { body, head, armR, armL, legR, legL, nozzles, jetFx, lamp: lampL, tool: armR.tool, hook };
   poseAstronaut(root, 0, new THREE.Vector3(), 0);
   return root;
 }
@@ -237,10 +252,12 @@ const FPT = ['R', 'L'].reduce((o, k) => (o[k] = { S: FP_SHOULDER, W: new THREE.V
 // the first-person arm targets (arm space; left in its mirrored space), so transitions can blend into them
 export function fpTargets(o = {}) {
   const E = SUIT.eye, nar = o.narrow ?? 1, sw = o.sway || _zero, bob = o.bob || 0, r = o.reach || 0;
-  // right: tool hand low right, barrel converging on the reticle far out
+  // right: tool hand low right
   const R = FPT.R, L = FPT.L;
-  R.W.set(E.x + 0.17 * nar + (o.kick || 0), E.y - 0.22 + bob + sw.y, E.z - 0.44 + (o.firing ? 0.012 : 0) + sw.z); R.W.x += sw.x;
-  _ff.set(E.x + 0.04, E.y + 0.12, E.z - 9).sub(R.W).normalize(); _ff.y += Math.sin(TOOL_RAKE); _ft.set(-0.45, 1, 0.5);
+  // the cutter is held canted in toward the reticle (it crosses the view about a metre out), so you see its
+  // flank, the canister and your fist on the grip instead of looking straight down its back end
+  R.W.set(E.x + 0.2 * nar + (o.kick || 0), E.y - 0.21 + bob + sw.y, E.z - 0.4 + (o.firing ? 0.012 : 0) + sw.z); R.W.x += sw.x;
+  _ff.set(E.x - 0.24, E.y + 0.04, E.z - 1.2).sub(R.W).normalize(); _ff.y += Math.sin(TOOL_RAKE); _ft.set(0.25, 1, 0.3);
   handBasis(_ff, _ft, R.Q);
   // left (mirrored space, +x is outward): open hand low left, palm down; reaches forward and in to clamp tags
   L.W.set(E.x + (0.19 - 0.07 * r) * nar - sw.x, E.y - 0.24 + 0.08 * r - bob + sw.y, E.z - 0.42 - 0.1 * r + sw.z);
@@ -252,4 +269,27 @@ export function poseFirstPerson(armR, armL, o = {}) {
   const T = fpTargets(o);
   solveArm(armR, T.R.S, T.R.W, T.R.P, T.R.Q);
   solveArm(armL, T.L.S, T.L.W, T.L.P, T.L.Q);
+}
+
+// Fire the jetpack. force: the push wanted on the body (body space, 1 = full thrust); spin: the turn wanted
+// (body space angular rate, rad/s). Every nozzle pushes the body opposite to its exhaust, so a nozzle opens
+// when that push (or the twist it gives about the torso) helps; turning fires opposed couples, the way a
+// real manoeuvring unit does. Returns the summed valve opening (for sound / fuel feel).
+const _jf = new THREE.Vector3(), _jt = new THREE.Vector3();
+export function driveJets(a, force, spin, t, dt, boost = 0) {
+  let total = 0;
+  for (const n of a.userData.nozzles) {
+    _jf.copy(n.dir).negate();
+    _jt.copy(n.pos).cross(_jf);
+    const s = Math.max(0, _jf.dot(force)) + Math.max(0, _jt.dot(spin)) * 0.9;
+    const want = s < 0.16 ? 0 : Math.min(1, (s - 0.16) / 0.7);
+    // valves snap open, the gas tails off for a moment after they shut
+    n.level = want > n.level ? THREE.MathUtils.lerp(n.level, want, 1 - Math.exp(-40 * dt)) : Math.max(want, n.level - dt * 6);
+    const L = n.level; total += L;
+    const flick = 0.85 + 0.15 * Math.sin(t * 61 + n.pos.x * 40 + n.pos.y * 23);
+    n.plume.set(0.9 * L * flick * (1 + boost * 0.3), 0.2 + 0.4 * L * (1 + boost * 0.5), 0.028 + 0.02 * L, 0, 0.6);
+    n.plume.tick(t);
+    n.throat.material.color.setRGB(0.03 + L * 1.4, 0.035 + L * 1.6, 0.04 + L * 2.0);
+  }
+  return total;
 }
