@@ -14,6 +14,22 @@ function pin(site, node, obj) {
   node.add(w); w.add(obj); return obj;
 }
 
+// give a pinned radar head a box collider on the chunk it sits on (it sweeps a ~7 m bar, so the box is the
+// cylinder it turns through); the ship and astronaut otherwise fly straight through the dish
+function solid(site, node, obj, scale) {
+  let n = node, part = null; while (n && !part) { part = site.parts.find((p) => p.node === n); n = n.parent; }
+  if (!part) return obj;
+  obj.updateWorldMatrix(true, true);
+  const F = part.frame().clone().invert().multiply(obj.matrixWorld), c = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  F.decompose(c, q, sc);
+  c.add(new THREE.Vector3(0, 1.5 * scale, 0).applyQuaternion(q));
+  const L = { c, q, h: new THREE.Vector3(3.7, 1.3, 3.7).multiplyScalar(scale) };
+  part.obbsL.push(L);
+  part.obbs.push({ c: new THREE.Vector3(), q: new THREE.Quaternion(), qi: new THREE.Quaternion(), h: L.h.clone(), v: new THREE.Vector3(), br: L.h.length(), node: part.node, chunk: part.name, part });
+  part.sync(0); site.world.dirty = true;
+  return obj;
+}
+
 // blender XYZ euler (deg) -> point in the site group
 const _e = new THREE.Euler(), _m = new THREE.Matrix4();
 const local = (base, rotDeg, p) => new THREE.Vector3(...p).applyMatrix4(_m.makeRotationFromEuler(_e.set(...rotDeg.map((d) => d * Math.PI / 180), 'ZYX'))).add(new THREE.Vector3(...base));
@@ -48,7 +64,7 @@ export class WorldAnim {
       const fore = m.byName.mast_fore?.node, aft = m.byName.mast_aft?.node;
       if (fore) {
         const r = radar(1); r.position.copy(local([6, 12, 60], [0, 10, 0], [0, 0.4, 14])); r.rotation.y = 10 * Math.PI / 180;
-        this.radars.push({ obj: pin(m, fore, r), site: m, rate: 0.9, w: 0.9 });
+        this.radars.push({ obj: solid(m, fore, pin(m, fore, r), 1), site: m, rate: 0.9, w: 0.9 });
         this.beacons.push({ obj: pin(m, fore, at(beacon(0xff3b2a, 5), local([6, 12, 60], [0, 10, 0], [0, 1.6, 19.6]))), site: m, period: 2.4, ph: 0 });
       }
       if (aft) this.beacons.push({ obj: pin(m, aft, at(beacon(0xff3b2a, 5), local([-4, 18, -66], [11.5, 0, 6], [0, 16.2, 1.4]))), site: m, period: 2.4, ph: 1.2 });
@@ -72,7 +88,7 @@ export class WorldAnim {
     const dead = s.id === 'halves';
     if (best && !dead) {
       const r = radar(s.id === 'depot' ? 0.9 : 1.1); r.position.copy(best.point).applyMatrix4(inv);
-      this.radars.push({ obj: pin(s, best.object, r), site: s, rate: s.id === 'depot' ? 0.7 : 0.25, w: 0 });
+      this.radars.push({ obj: solid(s, best.object, pin(s, best.object, r), s.id === 'depot' ? 0.9 : 1.1), site: s, rate: s.id === 'depot' ? 0.7 : 0.25, w: 0 });
     }
     // beacons near both ends of the long axis
     const long = size.x > size.z ? 'x' : 'z';

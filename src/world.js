@@ -8,6 +8,9 @@ export const SUN_DIR = new THREE.Vector3(0.62, 0.5, 0.6).normalize();
 const V = THREE;
 const _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _sv = new THREE.Vector3();
 const _l = new THREE.Vector3(), _n = new THREE.Vector3(), _rv = new THREE.Vector3();
+const _hc = new THREE.Vector3(), _hr = new THREE.Vector3(), _hv = new THREE.Vector3(), _ht = new THREE.Vector3(), _hq = new THREE.Quaternion();
+// The ship is wider than its 1.5 m core sphere: extra probes for nose, wingtips, fin and engine pods (local m, radius).
+const HULL = [[0, -0.15, -2.05, 0.5], [-2.0, -0.3, 0.75, 0.5], [2.0, -0.3, 0.75, 0.5], [-1.35, -0.3, 0.3, 0.55], [1.35, -0.3, 0.3, 0.55], [0, 1.25, 1.2, 0.45], [-0.66, 0, 2.2, 0.55], [0.66, 0, 2.2, 0.55]];
 
 // Seeded RNG so every load lays out the same yard.
 let seed = 1337;
@@ -227,6 +230,29 @@ export class World {
     }
   }
 
+  // Wings, nose and engines against the static colliders: push the ship out, bounce, and kick a little spin
+  // from where it hit (a wingtip clip yaws the ship away). Returns the hardest hit or null.
+  hullContacts(ship, e) {
+    let hit = null;
+    if (!this.obbs.length && !this.statics.length) return null;
+    _hq.copy(ship.quat).invert();
+    for (const [x, y, z, r] of HULL) {
+      _hr.set(x, y, z).applyQuaternion(ship.quat); _hc.copy(ship.pos).add(_hr);
+      this.sphereContacts(_hc, r, (n, pen, point, sv) => {
+        if (!(pen > 0) || pen > 3) return;
+        ship.pos.addScaledVector(n, pen); _hc.addScaledVector(n, pen);
+        const vn = _hv.copy(ship.vel).sub(sv || _ht.set(0, 0, 0)).dot(n);
+        if (vn >= 0) return;
+        ship.vel.addScaledVector(n, -(1 + e) * vn);
+        // torque = r x J, into the ship's local frame
+        _ht.copy(_hr).cross(n).multiplyScalar(-vn * 0.35).applyQuaternion(_hq);
+        ship.angVel.add(_ht).clampLength(0, 3.4);
+        if (!hit || -vn > hit.speed) hit = { speed: -vn, normal: n.clone(), point: point.clone() };
+      });
+    }
+    return hit;
+  }
+
   update(dt, ship, onShipHit) {
     for (const s of this.sites) {
       if (s.active || s.state === 'unstable') s.step(dt);
@@ -248,6 +274,7 @@ export class World {
     // ship
     ship.contact = null;
     const h1 = this.collideStatic(ship, 0.35); if (h1 && h1.speed > 0.5) onShipHit(h1, 1);
+    const h2 = this.hullContacts(ship, 0.35); if (h2) { ship.contact = ship.contact || { point: h2.point, normal: h2.normal }; if (h2.speed > 0.5) onShipHit(h2, 1); }
     for (const d of ds) { const h = this.collidePair(ship, d, 0.45); if (h) { d.spin.add(new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(Math.min(3, h.speed * 0.25))); if (h.speed > 0.5) onShipHit(h, d.mass); } }
   }
 

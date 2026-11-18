@@ -21,7 +21,12 @@ import { loadSuit } from './astronaut.js';
 import { Lockers } from './lockers.js';
 import { HullDamage } from './damage.js';
 import { LAYOUT } from './sites.js';
-import { Salvage } from './salvage.js';
+import { Salvage, addHitch } from './salvage.js';
+
+// Sprites (beacons, flares) hang off ship and wreck nodes. Sprite.raycast needs raycaster.camera and
+// throws without it, which killed the frame whenever a ray (impact scanner, hull damage, tow hook)
+// crossed a node that carries one. None of our rays want sprites, so skip them.
+{ const sr = THREE.Sprite.prototype.raycast; THREE.Sprite.prototype.raycast = function (rc, out) { if (rc.camera) sr.call(this, rc, out); }; }
 import { Econ } from './economy.js';
 import { Nav, NAV_ICONS } from './nav.js';
 import { Tutorial } from './tutorial.js';
@@ -53,7 +58,7 @@ bakeSky(renderer, world.sky); bakePlanet(renderer, world.planet, coarse ? 768 : 
 
 const ship = new Ship();
 ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler));
-const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh);
+const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh); addHitch(shipMesh);
 // the ship's meshes live on layer 1: the chase camera sees them, the cockpit view doesn't, the sun's shadow always does
 shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.set(1); });
 camera.layers.enable(1); sun.shadow.camera.layers.enable(1);
@@ -216,13 +221,13 @@ function ignite(strong) {
     _b.copy(ship.vel).addScaledVector(e.axis, 3);
     fx.emit(e.cur, _b, fxT, 0.12, 0.4, strong ? 1.8 : 1.3, K.FLASH, 3);
     _b.copy(ship.vel).addScaledVector(e.axis, strong ? 9 : 5);
-    fx.emit(e.cur, _b, fxT, strong ? 0.35 : 0.28, 0.3, strong ? 3.2 : 2.0, strong ? K.RING_B : K.RING, 2.5);
-    for (let i = 0; i < 46 * n * Q; i++) {
-      coneDir(e, 1.1, _a); _b.copy(ship.vel).addScaledVector(_a, 8 + R() * 26 * n);
+    fx.emit(e.cur, _b, fxT, strong ? 0.22 : 0.18, 0.2, strong ? 1.5 : 1.0, strong ? K.RING_B : K.RING, 2.5);
+    for (let i = 0; i < 18 * n * Q; i++) {
+      coneDir(e, 0.7, _a); _b.copy(ship.vel).addScaledVector(_a, 8 + R() * 26 * n);
       fx.emit(exitPoint(e, 1, 0.2, _c), _b, fxT - R() * 0.02, 0.3 + R() * 0.45, 0.25, 0.9 + R() * 0.7, strong ? K.BOOST : K.PLASMA, 2.4, 0.01);
     }
-    for (let i = 0; i < 28 * n * Q; i++) {
-      coneDir(e, 0.9, _a); _b.copy(ship.vel).addScaledVector(_a, 20 + R() * 45);
+    for (let i = 0; i < 12 * n * Q; i++) {
+      coneDir(e, 0.45, _a); _b.copy(ship.vel).addScaledVector(_a, 20 + R() * 45);
       fx.emit(exitPoint(e, 1, 0.25, _c), _b, fxT, 0.3 + R() * 0.6, 0.03, 0.02, K.SPARK, 0.6, 0.045);
     }
     for (let i = 0; i < 10 * n * Q; i++) {
@@ -243,6 +248,7 @@ function shutdown() {
   }
 }
 
+let jetLen = 0;
 function engineFx(dt) {
   const { glows, light, engines } = shipMesh.userData, f = ship.fx, main = f.main;
   const flick = 0.92 + 0.08 * Math.sin(fxT * 47) * Math.sin(fxT * 13.7 + 1) + 0.04 * rs();
@@ -258,8 +264,9 @@ function engineFx(dt) {
   engines.forEach((en, i) => { en.gimbal(gx + Math.sign(en.position.x) * gr, gy); en.update(dt, main, boostSm, heat); });
   shipMesh.updateMatrixWorld(true);
 
-  const len = main * (3.6 + 4.2 * boostSm) * flick, wid = 0.5 + 0.12 * main + 0.12 * boostSm;
-  for (const g of glows) { g.tick(fxT); g.set(main * (0.4 - 0.12 * boostSm), Math.max(0.05, len), wid, boostSm, 1 + 0.25 * boostSm); }
+  // volumetric jet: length and brightness follow throttle, boost stretches it and adds shock cells
+  const len = jetLen = (1.2 + main * (4.2 + 5.5 * boostSm)) * flick, r0 = 0.2 + 0.03 * main + 0.09 * boostSm;
+  for (const g of glows) { g.tick(fxT); g.set(main * (0.75 + 0.35 * boostSm) * flick, len, r0, boostSm); }
   flashL = Math.max(0, flashL - dt * 5);
   light.intensity = main * (18 + 26 * boostSm) * flick + flashL * 60;
   light.color.setRGB(1, 0.42 + 0.25 * boostSm, 0.16 + 0.3 * boostSm);
@@ -281,16 +288,19 @@ function engineFx(dt) {
   if (main < 0.03) return;
 
   const B = boostSm;
-  const rates = [main * (260 + 300 * B), main * (90 + 90 * B), main * (12 + 40 * B), 2 + 7 * B, main * 45];
+  // the volumetric jet (src/exhaust.js) is the flame now; particles only add what a volume can't:
+  // a thin wake of cooling gas past its tip, sparks, boost smoke, and heat shimmer
+  const rates = [main * (34 + 46 * B), 0, main * (5 + 16 * B), 2 + 7 * B, main * 45];
   for (const e of E) {
     // 0: plasma body. Spawned along the path the nozzle swept this frame, so fast flight leaves no gaps.
     e.acc[0] += dt * rates[0] * Q;
     for (let n = Math.floor(e.acc[0]), k = 0; k < n; k++) {
       const s = (k + R()) / n; e.acc[0]--;
-      coneDir(e, 0.07 + 0.05 * (1 - B), _a);
-      _b.copy(ship.vel).addScaledVector(_a, (20 + R() * 10) * (1 + 0.8 * B));
-      fx.emit(exitPoint(e, s, 0.2, _c), _b, fxT - (1 - s) * dt, (0.26 + R() * 0.26) * (1 + 0.25 * B), 0.17, (0.38 + R() * 0.32) * (1 + 0.35 * B) / Math.pow(Q, 0.25),
-        B > 0.5 && R() < 0.75 ? K.BOOST : K.PLASMA, 1.3, 0.012);
+      coneDir(e, 0.06 + 0.04 * (1 - B), _a);
+      _b.copy(ship.vel).addScaledVector(_a, (16 + R() * 8) * (1 + 0.6 * B));
+      exitPoint(e, s, 0.15, _c).addScaledVector(e.axis, jetLen * (0.55 + R() * 0.3));
+      fx.emit(_c, _b, fxT - (1 - s) * dt, (0.3 + R() * 0.3) * (1 + 0.25 * B), 0.3, (0.5 + R() * 0.4) * (1 + 0.35 * B) / Math.pow(Q, 0.25),
+        K.PLASMA, 1.6, 0.006);
     }
     // 1: fast tight core: the white-hot spine near the nozzle
     e.acc[1] += dt * rates[1] * Q;
@@ -303,8 +313,8 @@ function engineFx(dt) {
     e.acc[2] += dt * rates[2] * Q;
     for (let n = Math.floor(e.acc[2]), k = 0; k < n; k++) {
       const s = (k + R()) / n; e.acc[2]--;
-      coneDir(e, 0.18, _a); _b.copy(ship.vel).addScaledVector(_a, 38 + R() * 40);
-      fx.emit(exitPoint(e, s, 0.15, _c), _b, fxT - (1 - s) * dt, 0.25 + R() * 0.5, 0.05, 0.03, R() < 0.3 ? K.EMBER : K.SPARK, 0.4, 0.035);
+      coneDir(e, 0.12, _a); _b.copy(ship.vel).addScaledVector(_a, 30 + R() * 30);
+      fx.emit(exitPoint(e, s, 0.12, _c), _b, fxT - (1 - s) * dt, 0.15 + R() * 0.3, 0.035, 0.02, R() < 0.4 ? K.EMBER : K.SPARK, 0.6, 0.02);
     }
     // 3: thin smoke trail on boost (incomplete burn), lit by the plume then sunlit
     e.acc[3] += dt * rates[3] * Q * main;
@@ -436,10 +446,28 @@ const STEP = 1 / 120;
 const _sunW = new THREE.Vector3();
 let acc = 0, last = performance.now(), time = 0, started = false;
 // compile every shader up front (in parallel where the driver allows) so the first seconds of flight don't hitch
-try { await Promise.all([renderer.compileAsync(scene, camera), cockpit.scene && renderer.compileAsync(cockpit.scene, cockpit.cam)]); } catch {}
+// compile() covers hidden objects too (engine plumes, impact fx, the suit, tool beam, EVA hands).
+// On Windows each program built mid-game is a visible freeze.
+async function precompile(sc, cam) {
+  if (!sc || !cam) return;
+  try { await renderer.compileAsync(sc, cam); } catch {}
+}
+// compile against the composer's float target: program keys include the output colour space and tone
+// mapping, and those differ between the screen and a render target, so compiling for the screen built a
+// set of programs the game never used and the real ones still compiled mid-flight
+renderer.setRenderTarget(look.composer.renderTarget1);
+await Promise.all([precompile(scene, camera), precompile(cockpit.scene, cockpit.cam), precompile(eva.handScene, eva.handCam)]);
+eva.setCabin(true); await precompile(scene, camera); eva.setCabin(false);   // the open-canopy cabin and cutaway hull
+renderer.setRenderTarget(null);
 requestAnimationFrame(() => document.getElementById('veil').classList.add('go'));
 
+// one bad frame must never stop the loop: an exception in here used to skip the next
+// requestAnimationFrame and the game froze for good
 function frame(now) {
+  requestAnimationFrame(frame);
+  try { tickFrame(now); } catch (e) { console.error(e); }
+}
+function tickFrame(now) {
   const rawDt = (now - last) / 1000, dt = Math.min(0.05, rawDt); last = now; time += dt;
   quality.tick(rawDt);
   const raw = input.consume();
@@ -488,7 +516,6 @@ function frame(now) {
   quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   quality.end();
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
