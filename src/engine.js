@@ -188,7 +188,7 @@ function build(coarse) {
         float h(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
         float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f); return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
         void main(){
-          float ang = atan(vA.y, vA.x);
+          float ang = atan(vA.y, abs(vA.x) < 1e-5 ? 1e-5 : vA.x);
           float n = vn(vec2(ang*5., vT*7. - uTime*16.)) * .6 + vn(vec2(ang*11., vT*15. - uTime*27.)) * .4;
           float hot = uPower * pow(max(1.-vT, 0.), 1.6) * (.75 + .5*n);
           vec3 c = mix(vec3(1.4,.3,.05), vec3(4.6,2.6,1.1), smoothstep(.15,.65,hot));

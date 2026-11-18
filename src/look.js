@@ -93,12 +93,42 @@ const GradeShader = {
     }`,
 };
 
+// Any NaN/Inf pixel (a shader dividing by zero on one GPU, a blend of a bad value) renders black and,
+// once it reaches the bloom mip chain or the half-res haze, grows into big black squares. This pass
+// sits after the scene (and cockpit/EVA overlays) and replaces each bad pixel with the average of its
+// good neighbours. The test is on the raw bits, because isnan()/isinf() are folded away by some
+// Windows (ANGLE/D3D) shader compilers.
+const BAD = `bool bad(float x){ return (floatBitsToUint(x) & 0x7f800000u) == 0x7f800000u; }
+  bool bad(vec4 c){ return bad(c.r) || bad(c.g) || bad(c.b) || bad(c.a); }`;
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: `void main(){ gl_Position = vec4(position.xy, 0., 1.); }`,
+  // texelFetch, not texture2D: a filtered read mixes a NaN neighbour in even at zero weight
+  fragmentShader: `uniform sampler2D tDiffuse;
+    ${BAD}
+    void main(){
+      ivec2 p = ivec2(gl_FragCoord.xy), M = textureSize(tDiffuse, 0) - 1;
+      vec4 c = texelFetch(tDiffuse, p, 0);
+      if (bad(c)) {
+        vec4 s = vec4(0.); float n = 0.;
+        for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) {
+          vec4 t = texelFetch(tDiffuse, clamp(p + ivec2(x, y), ivec2(0), M), 0);
+          if (!bad(t)) { s += t; n += 1.; }
+        }
+        c = n > 0. ? s / n : vec4(0., 0., 0., 1.);
+      }
+      gl_FragColor = clamp(c, vec4(0.), vec4(256.));
+    }`,
+};
+
 export class Look {
   constructor(renderer, scene, camera, coarse, extra = []) {
     this.renderer = renderer; this.camera = camera; this.coarse = coarse;
     const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: coarse ? 0 : 4 });
     const c = this.composer = new EffectComposer(renderer, rt);
     c.addPass(new RenderPass(scene, camera));
+    // scrub bad pixels first, before anything filters (haze resample, bloom mips) and spreads them
+    this.sanitize = new ShaderPass(SanitizeShader); c.addPass(this.sanitize);
     for (const p of extra) c.addPass(p);
     // bloom only picks up HDR values (exhaust, lamps, sun) so the hull never washes out.
     // Phones skip it: their exhaust particles carry their own halo.
@@ -107,7 +137,8 @@ export class Look {
       // belt and braces: one NaN/Inf pixel fed into the blur chain spreads into a black hole, so scrub them here
       const hp = this.bloom.materialHighPassFilter;
       hp.fragmentShader = hp.fragmentShader.replace('vec4 texel = texture2D( tDiffuse, vUv );',
-        'vec4 texel = texture2D( tDiffuse, vUv ); if (any(isnan(texel)) || any(isinf(texel))) texel = vec4(0.); texel = min(texel, vec4(64.));');
+        'vec4 texel = texture2D( tDiffuse, vUv ); if (bad(texel)) texel = vec4(0.); texel = clamp(texel, vec4(0.), vec4(64.));')
+        .replace('void main() {', BAD + '\nvoid main() {');
       c.addPass(this.bloom);
     }
     c.addPass(new OutputPass());

@@ -103,16 +103,17 @@ export function addHullDetail(mat, { scale = 0.35, grime = 0.55, scratch = 0.5, 
         varying vec3 vOP; varying vec3 vON;
         uniform sampler2D uDetail; uniform float uScale, uGrime, uScratch, uBump;
         vec4 detTri(vec3 p, vec3 n){
-          vec3 w = pow(abs(n), vec3(6.)); w /= (w.x + w.y + w.z);
+          vec3 w = n * n; w *= w * w; w /= max(w.x + w.y + w.z, 1e-6);
           return texture2D(uDetail, p.zy) * w.x + texture2D(uDetail, p.xz + .37) * w.y + texture2D(uDetail, p.xy + .71) * w.z;
         }
         vec3 perturbDet(vec3 sp, vec3 sn, vec2 dH, float fd){
           vec3 sx = dFdx(sp), sy = dFdy(sp), r1 = cross(sy, sn), r2 = cross(sn, sx);
           float det = dot(sx, r1) * fd; vec3 grad = sign(det) * (dH.x * r1 + dH.y * r2);
-          return normalize(abs(det) * sn - grad);
+          vec3 r = abs(det) * sn - grad; float l = dot(r, r);
+          return l > 1e-30 ? r * inversesqrt(l) : sn;
         }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-        vec4 det = detTri(vOP * uScale, normalize(vON));
+        vec4 det = detTri(vOP * uScale, vON * inversesqrt(max(dot(vON, vON), 1e-12)));
         float lum = dot(diffuseColor.rgb, vec3(.3,.59,.11));
         float accent = smoothstep(.12, .35, diffuseColor.r - diffuseColor.b);           // hazard paint chips more
         float seam = smoothstep(.25, .0, det.r);
