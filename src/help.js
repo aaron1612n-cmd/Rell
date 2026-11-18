@@ -8,12 +8,12 @@ const tb = (name, label) => `<div class="row"><b class="ic">${svg(ICONS[name])}<
 const KB = `
   <section><h3>Move</h3><div class="wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div></section>
   <section><h3>Thrust</h3>${key('Space', 'Up', 1)}${key('C', 'Down')}${key('Shift', 'Boost', 1)}${key('X', 'Brake')}</section>
-  <section><h3>Aim</h3>${key('Mouse', 'Look', 1)}${key('Q E', 'Roll')}${key('Z', 'Assist')}${key('I', 'Invert')}${key('V', 'View')}</section>`;
+  <section><h3>Aim</h3>${key('Mouse', 'Look', 1)}${key('Q E', 'Roll')}${key('Z', 'Assist')}${key('I', 'Invert')}${key('V', 'View')}${key('B', 'Impact')}</section>`;
 
 const TOUCH = `
   <section><h3>Left thumb</h3><div class="row"><b class="ic pad">${svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/>')}</b><span>Move</span></div></section>
   <section><h3>Right thumb</h3><div class="row"><b class="ic pad">${svg('<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>')}</b><span>Aim</span></div></section>
-  <section><h3>Buttons</h3>${tb('boost', 'Boost')}${tb('up', 'Up')}${tb('brake', 'Brake')}${tb('down', 'Down')}${tb('assist', 'Assist')}${tb('view', 'View')}</section>`;
+  <section><h3>Buttons</h3>${tb('boost', 'Boost')}${tb('up', 'Up')}${tb('brake', 'Brake')}${tb('down', 'Down')}${tb('assist', 'Assist')}${tb('view', 'View')}${tb('impact', 'Impact')}</section>`;
 
 export class Help {
   constructor(input) {

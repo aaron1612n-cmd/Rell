@@ -6,6 +6,7 @@ export const ICONS = {
   brake: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5M9 6.5V9H6.5M15 6.5V9h2.5M9 17.5V15H6.5M15 17.5V15h2.5"/><circle cx="12" cy="12" r="1.6"/>',
   assist: '<path d="M12 4l8 8-8 8-8-8z"/>',
   view: '<path d="M3 18h18M5 18c0-5 3-9 7-9s7 4 7 9M12 9v4M8.5 13h7"/>',
+  impact: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle cx="12" cy="12" r="1.6"/>',
 };
 
 export class Input {
@@ -17,6 +18,7 @@ export class Input {
     this.t = { up: false, down: false, boost: false, brake: false };
     this.invertY = false;
     this.onToggleAssist = () => {};
+    this.onToggleImpact = () => {};
     this.touchMode = matchMedia('(pointer: coarse)').matches;
     this.dragging = false;
     this.locked = false;
@@ -25,6 +27,7 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === 'KeyZ' || e.code === 'KeyT') this.onToggleAssist();
+      if (e.code === 'KeyB') this.onToggleImpact();
       if (e.code === 'KeyI') this.invertY = !this.invertY;
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     });
@@ -95,16 +98,16 @@ export class Input {
     zr.addEventListener('pointerup', endLook); zr.addEventListener('pointercancel', endLook);
 
     const btns = document.getElementById('btns');
-    const mk = (name, hold) => {
+    const mk = (name, hold, fn = () => this.onToggleAssist()) => {
       const b = document.createElement('div'); b.className = 'btn';
       b.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[name]}</svg>`;
       const set = (v) => { b.classList.toggle('down', v); if (hold) this.t[name] = v; };
-      b.addEventListener('pointerdown', (e) => { e.stopPropagation(); b.setPointerCapture(e.pointerId); set(true); if (!hold) { this.onToggleAssist(); setTimeout(() => set(false), 120); } });
+      b.addEventListener('pointerdown', (e) => { e.stopPropagation(); b.setPointerCapture(e.pointerId); set(true); if (!hold) { fn(); setTimeout(() => set(false), 120); } });
       const up = (e) => { e.stopPropagation(); if (hold) set(false); };
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
       btns.appendChild(b);
     };
-    mk('boost', true); mk('up', true); mk('brake', true); mk('down', true); mk('assist', false);
+    mk('boost', true); mk('up', true); mk('brake', true); mk('down', true); mk('assist', false); mk('impact', false, () => this.onToggleImpact());
   }
 
   k(...c) { return c.some((x) => this.keys.has(x)); }
