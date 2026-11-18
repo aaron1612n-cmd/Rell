@@ -14,6 +14,7 @@ import { setupLights, Look } from './look.js';
 import { NOZZLES, solveRcs } from './rcs.js';
 import { Cockpit } from './cockpit.js';
 import { Eva } from './eva.js';
+import { loadSuit } from './astronaut.js';
 import { Lockers } from './lockers.js';
 import { HullDamage } from './damage.js';
 import { LAYOUT } from './sites.js';
@@ -49,7 +50,7 @@ const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh);
 shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.set(1); });
 camera.layers.enable(1); sun.shadow.camera.layers.enable(1);
 const cockpit = new Cockpit({ renderer, camera, shipModel, env: scene.environment, sunDir: SUN_DIR, world, coarse, reduced });
-await cockpit.load();
+await Promise.all([cockpit.load(), loadSuit()]);
 addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) { if (eva.active) eva.toggleView(); else cockpit.toggle(); } });
 { const vb = document.getElementById('viewbtn'); vb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.view}</svg>`;
   vb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (eva.active) eva.toggleView(); else cockpit.toggle(); }); }
