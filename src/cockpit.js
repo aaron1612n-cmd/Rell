@@ -3,6 +3,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { addHullDetail } from './hullDetail.js';
 import { loadModel, mats } from './assets.js';
+import { rigShip } from './shipRig.js';
 import { Instruments, RECT, ATLAS, HUD_FIELD } from './instruments.js';
 import cockpitUrl from './assets/cockpit.glb?url';
 import data from './assets/cockpit.json';
@@ -275,13 +276,16 @@ export class Cockpit {
     const ext = model.clone(); ext.updateMatrixWorld(true);
     let geo = null; ext.traverse((o) => { if (o.isMesh && !geo) geo = o.matrixWorld.clone(); });
     const cut = this.cutMat = cutawayHull(geo), hidden = new THREE.MeshBasicMaterial({ visible: false });
+    const can = ext.getObjectByName('canopy'); if (can) can.visible = false;   // this view draws its own canopy
     ext.traverse((o) => {
       if (!o.isMesh) return;
+      for (let p = o; p; p = p.parent) if (/^(canopy|flap_)/.test(p.name)) { o.castShadow = o.receiveShadow = true; return; }
       const swap = (m) => (m === mats.glass ? hidden : m === mats.shipHull ? cut : m);
       o.material = Array.isArray(o.material) ? o.material.map(swap) : swap(o.material);
       o.castShadow = o.receiveShadow = true;
     });
     this.root.add(ext);
+    this.extRig = rigShip(ext, { struts: false });   // the vanes move in this view too
   }
 
   async load() {
@@ -404,12 +408,8 @@ export class Cockpit {
     const hinge = new THREE.Group(); hinge.position.copy(HINGE); g.add(hinge);
     const off = new THREE.Group(); off.position.copy(HINGE).negate(); hinge.add(off);
     off.add(this.bandClone());
-    const glass = new THREE.Mesh(canopyGeometry(), new THREE.MeshStandardMaterial({ color: 0x0a0f14, roughness: 0.06, metalness: 0.9, transparent: true, opacity: 0.32, envMap, side: THREE.DoubleSide, depthWrite: false }));
-    glass.renderOrder = 2; off.add(glass);
-    off.add(canopyFrame());
     g.userData.hinge = hinge;
     g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    glass.castShadow = false;
     return g;
   }
 
