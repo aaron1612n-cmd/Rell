@@ -36,7 +36,12 @@ export class HullDamage {
     this.root = shipMesh; this.model = shipModel; this.spots = [];
     this.rc = new THREE.Raycaster(); this.rc.layers.enableAll(); this.t = 0;
     this.targets = []; shipMesh.traverse((o) => { if (o.isMesh && o.geometry.attributes.position.count > 1000) this.targets.push(o); });
+    // a hidden stand-in so the scorch shader is built with everything else at load, not on the first hit
+    const warm = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat({ uAmt: { value: 0 }, uWeld: { value: 0 }, uTime: { value: 0 }, uSeed: { value: 0 }, uHot: { value: 0 } }));
+    warm.visible = false; warm.layers.set(1); shipMesh.add(warm);
   }
+
+  mat(u) { return new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms: u, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }); }
 
   // world-space hit on the ship -> a spot on the real hull. amt = hull fraction lost.
   add(point, ship, amt) {
@@ -54,7 +59,7 @@ export class HullDamage {
     if (near) { near.amt += amt; near.u.uAmt.value = near.amt; this.size(near); return near; }
     if (this.spots.length >= 10) { const s = this.spots.shift(); this.root.remove(s.m); }
     const u = { uAmt: { value: amt }, uWeld: { value: 0 }, uTime: { value: 0 }, uSeed: { value: Math.random() }, uHot: { value: 1 } };
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms: u, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat(u));
     m.position.copy(p).addScaledVector(n, 0.012); m.quaternion.setFromUnitVectors(_z, n); m.rotateZ(Math.random() * 6);
     m.layers.set(1); m.renderOrder = 3;
     this.root.add(m);

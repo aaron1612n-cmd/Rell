@@ -246,7 +246,9 @@ export function buildAstronaut(M) {
   const torso = part('torso', M); body.add(torso);
   const head = new THREE.Group(); head.position.copy(SUIT.neck); body.add(head);
   const helmet = part('helmet', M); head.add(helmet);
-  const lampL = new THREE.SpotLight(0xffe2c0, 0, 14, 0.42, 0.6, 1.6); lampL.position.set(...J.lamp); head.add(lampL, lampL.target); lampL.target.position.set(0, 0, -2);
+  // no real helmet lamp light: toggling the suit's visibility would change the scene's light count and
+  // recompile every material in the world (a long freeze on Windows/ANGLE); the lamp is emissive only
+  const lampL = null;
 
   // jetpack: 16 cold-gas nozzles on four thruster heads (out, back, forward, up/down). Each has a throat disc
   // that flashes when its valve opens, and a gas plume; the plumes live in their own group (jetFx) so they

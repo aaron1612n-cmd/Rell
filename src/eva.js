@@ -302,14 +302,20 @@ export class Eva {
 
   syncCabin() {
     const ck = this.cockpit, on = ck.open > 0.001;
-    if (on !== this.cabinOn) {
+    if (on !== this.cabinOn) this.setCabin(on);
+    if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
+  }
+
+  // canopy open: the cabin copy goes into the world and the hull gets its cutaway material
+  setCabin(on) {
+    const ck = this.cockpit;
+    {
       this.cabinOn = on;
       const sw = (m) => (m === mats.glass ? this.hiddenMat : m === mats.shipHull ? ck.cutMat : m);
       if (on) { this.shipMesh.add(this.cabin); for (const s of this.swap) s.m.material = Array.isArray(s.orig) ? s.orig.map(sw) : sw(s.orig); }
       else { this.shipMesh.remove(this.cabin); for (const s of this.swap) s.m.material = s.orig; }
       for (const g of this.shipMesh.userData.rig.glass || []) { g.material = on ? this.openGlass : mats.glass; g.renderOrder = on ? 2 : 0; }
     }
-    if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
   }
 
   flyPilot(dt, cmd) {

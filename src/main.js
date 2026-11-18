@@ -22,6 +22,11 @@ import { Lockers } from './lockers.js';
 import { HullDamage } from './damage.js';
 import { LAYOUT } from './sites.js';
 import { Salvage, addHitch } from './salvage.js';
+
+// Sprites (beacons, flares) hang off ship and wreck nodes. Sprite.raycast needs raycaster.camera and
+// throws without it, which killed the frame whenever a ray (impact scanner, hull damage, tow hook)
+// crossed a node that carries one. None of our rays want sprites, so skip them.
+{ const sr = THREE.Sprite.prototype.raycast; THREE.Sprite.prototype.raycast = function (rc, out) { if (rc.camera) sr.call(this, rc, out); }; }
 import { Econ } from './economy.js';
 import { Nav, NAV_ICONS } from './nav.js';
 import { Tutorial } from './tutorial.js';
@@ -441,10 +446,28 @@ const STEP = 1 / 120;
 const _sunW = new THREE.Vector3();
 let acc = 0, last = performance.now(), time = 0, started = false;
 // compile every shader up front (in parallel where the driver allows) so the first seconds of flight don't hitch
-try { await Promise.all([renderer.compileAsync(scene, camera), cockpit.scene && renderer.compileAsync(cockpit.scene, cockpit.cam)]); } catch {}
+// compile() covers hidden objects too (engine plumes, impact fx, the suit, tool beam, EVA hands).
+// On Windows each program built mid-game is a visible freeze.
+async function precompile(sc, cam) {
+  if (!sc || !cam) return;
+  try { await renderer.compileAsync(sc, cam); } catch {}
+}
+// compile against the composer's float target: program keys include the output colour space and tone
+// mapping, and those differ between the screen and a render target, so compiling for the screen built a
+// set of programs the game never used and the real ones still compiled mid-flight
+renderer.setRenderTarget(look.composer.renderTarget1);
+await Promise.all([precompile(scene, camera), precompile(cockpit.scene, cockpit.cam), precompile(eva.handScene, eva.handCam)]);
+eva.setCabin(true); await precompile(scene, camera); eva.setCabin(false);   // the open-canopy cabin and cutaway hull
+renderer.setRenderTarget(null);
 requestAnimationFrame(() => document.getElementById('veil').classList.add('go'));
 
+// one bad frame must never stop the loop: an exception in here used to skip the next
+// requestAnimationFrame and the game froze for good
 function frame(now) {
+  requestAnimationFrame(frame);
+  try { tickFrame(now); } catch (e) { console.error(e); }
+}
+function tickFrame(now) {
   const rawDt = (now - last) / 1000, dt = Math.min(0.05, rawDt); last = now; time += dt;
   quality.tick(rawDt);
   const raw = input.consume();
@@ -493,7 +516,6 @@ function frame(now) {
   quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   quality.end();
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 

@@ -160,9 +160,10 @@ export class Salvage {
     // bite on the real surface: cast from the ship's tow eye at the nearest collider sphere, then the
     // body's centre; fall back to the sphere surface if the mesh is missed
     let hookW = null; it.obj.updateWorldMatrix(true, true);
+    const meshes = []; it.obj.traverseVisible((o) => { if (o.isMesh) meshes.push(o); });
     for (const t of [b.wp[best], b.pos]) {
       _rc.set(pa, _d.copy(t).sub(pa).normalize()); _rc.far = pa.distanceTo(t) + b.radius;
-      const h = _rc.intersectObject(it.obj, true).find((x) => x.object.isMesh && x.object.visible);
+      const h = _rc.intersectObjects(meshes, false)[0];
       if (h) { hookW = _a.copy(h.point).addScaledVector(_d, 0.05); break; }
     }
     if (!hookW) hookW = _a.copy(ship.pos).sub(b.wp[best]).normalize().multiplyScalar(b.spheres[best].r * 0.92).add(b.wp[best]);
