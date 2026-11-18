@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { suitMaterials, buildAstronaut, poseAstronaut, buildArm, poseFirstPerson, SUIT } from './astronaut.js';
+import { suitMaterials, buildAstronaut, poseAstronaut, buildArm, poseFirstPerson, driveJets, SUIT } from './astronaut.js';
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
 import { Hatch } from './hatch.js';
@@ -108,10 +108,18 @@ export class Eva {
     // the suited pilot (third person) in the world
     this.body = buildAstronaut(this.M); this.body.visible = false; this.scene.add(this.body);
     this.body.traverse((m) => { if (m.isMesh) m.layers.set(0); });
+    this.jets = this.body.userData.jetFx; this.jets.visible = false; this.scene.add(this.jets);
+    this.jetF = new THREE.Vector3(); this.jetW = new THREE.Vector3(); this.jetRel = new THREE.Vector3();
     // the cabin as seen from outside while the canopy is open
     this.cabin = this.cockpit.buildEvaCabin(o.env); this.cabin.traverse((m) => m.layers.set(1));
     this.cabinOn = false; this.hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
-    this.swap = []; this.shipMesh.traverse((m) => { if (m.isMesh && Array.isArray(m.material)) this.swap.push({ m, orig: m.material }); });
+    this.swap = []; this.shipMesh.userData.body.traverse((m) => {
+      if (!m.isMesh) return;
+      for (let p = m; p; p = p.parent) if (/^(canopy|flap_)/.test(p.name)) return;   // hinged parts move, never cut
+      this.swap.push({ m, orig: m.material });
+    });
+    // the canopy glass turns see-through while it's up, so you can see the cabin under it
+    this.openGlass = new THREE.MeshStandardMaterial({ color: 0x0a1016, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.42, envMap: o.env, side: THREE.DoubleSide, depthWrite: false });
 
     this.buildRope(); this.buildHands(); this.buildBeam(); this.buildDom();
     this.lockers.onStow = (L) => this.stowed(L);
@@ -216,6 +224,7 @@ export class Eva {
     this.lockers.update(dt, ship, ship.pos);
     this.damage.update(dt);
 
+    if (this.state !== 'eva') this.jets.visible = false;
     if (this.state === 'off') {
       if (this.body.visible && !this.rig.bf) this.body.visible = false;
       // refill in the seat; hint at the hatch when parked near something worth taking
@@ -252,6 +261,7 @@ export class Eva {
     }
 
     // ---- EVA ----
+    this.jets.visible = true;
     this.flyPilot(dt, cmd);
     this.stepRope(dt, cmd);
     this.useTool(dt, cmd);
@@ -265,8 +275,10 @@ export class Eva {
     const ck = this.cockpit, on = ck.open > 0.001;
     if (on !== this.cabinOn) {
       this.cabinOn = on;
-      if (on) { this.shipMesh.add(this.cabin); for (const s of this.swap) s.m.material = s.orig.map((m) => (m === mats.glass ? this.hiddenMat : m === mats.shipHull ? ck.cutMat : m)); }
+      const sw = (m) => (m === mats.glass ? this.hiddenMat : m === mats.shipHull ? ck.cutMat : m);
+      if (on) { this.shipMesh.add(this.cabin); for (const s of this.swap) s.m.material = Array.isArray(s.orig) ? s.orig.map(sw) : sw(s.orig); }
       else { this.shipMesh.remove(this.cabin); for (const s of this.swap) s.m.material = s.orig; }
+      for (const g of this.shipMesh.userData.rig.glass || []) { g.material = on ? this.openGlass : mats.glass; g.renderOrder = on ? 2 : 0; }
     }
     if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
   }
@@ -287,6 +299,7 @@ export class Eva {
     _q.copy(p.quat); _q2.copy(_q).invert();
     // relative to the ship (it holds station, but this keeps its frame honest)
     const rel = _v.copy(p.vel).sub(ship.vel).applyQuaternion(_q2);
+    this.jetRel.copy(rel);
     rel.addScaledVector(th, acc * dt);
     let use = th.length() * (boost ? 2.5 : 1);
     if (cmd.brake && fuelOk) {
@@ -297,6 +310,14 @@ export class Eva {
       rel.x = ap(rel.x, cmd.strafe); rel.y = ap(rel.y, cmd.vert); rel.z = ap(rel.z, cmd.fwd);
       use += (Math.abs(bx - rel.x) + Math.abs(by - rel.y) + Math.abs(bz - rel.z)) / Math.max(dt, 1e-4) * 0.08;
     }
+    // what the jets actually did this frame (thrust + brake + assist), as a fraction of full thrust, for the plumes
+    _v2.subVectors(rel, this.jetRel).divideScalar(Math.max(dt, 1e-4) * CFG.acc);
+    if (_v2.lengthSq() > 2.25) _v2.setLength(1.5);
+    this.jetF.lerp(_v2, 1 - Math.exp(-25 * dt));
+    _v2.set(pitch, yaw, p.roll * dt).divideScalar(Math.max(dt, 1e-4)).multiplyScalar(0.55);
+    if (_v2.lengthSq() > 2.25) _v2.setLength(1.5);
+    this.jetW.lerp(_v2, 1 - Math.exp(-25 * dt));
+    if (!fuelOk) { this.jetF.set(0, 0, 0); this.jetW.set(0, 0, 0); }
     const max = boost ? CFG.maxBoost : CFG.max, sp = rel.length(); if (sp > max) rel.multiplyScalar(Math.max(max / sp, 1 - dt * 2));
     p.vel.copy(rel.applyQuaternion(_q)).add(ship.vel);
     this.fuel = Math.max(0, this.fuel - use * CFG.fuelUse * dt);
@@ -349,22 +370,23 @@ export class Eva {
     }
     this.el.fade.style.opacity = (this.blackout || 0).toFixed(3);
 
-    // jetpack puffs (world particles), from the two pod nozzles, opposite the thrust
-    this.jetFx(dt);
   }
 
+  // the plumes are driven in place() once the body is posed; here the gas: a thin stream of frost off every open
+  // valve, along that nozzle's own axis, dispersing fast
   jetFx(dt) {
-    const p = this.pilot, b = this.thrSm, mag = b.length() + (this.reeling ? 0 : 0);
-    if (mag < 0.05 || this.fuel <= 0) return;
-    this.jetAcc = (this.jetAcc || 0) + dt * 60 * mag * (this.boosting ? 2 : 1) * (this.coarse ? 0.5 : 1);
-    const dir = _v.copy(b).normalize().negate().applyQuaternion(p.quat);
-    while (this.jetAcc > 1) {
-      this.jetAcc--;
-      for (const sx of [-1, 1]) {
-        const o = _v2.set(sx * 0.27, -0.3, 0.32).applyQuaternion(p.quat).add(p.pos);
-        if (this.view === 0) o.addScaledVector(dir, 0.15);
-        const v = _v3.copy(dir).multiplyScalar(3 + Math.random() * 2.5 * (this.boosting ? 1.8 : 1)).add(p.vel); v.x += (Math.random() - 0.5) * 0.8; v.y += (Math.random() - 0.5) * 0.8; v.z += (Math.random() - 0.5) * 0.8;
-        this.fx.emit(o, v, this.fxT(), 0.18 + Math.random() * 0.15, 0.03, this.boosting ? 0.28 : 0.18, K.RCS, 2.2, 0.01);
+    const p = this.pilot, nz = this.body.userData.nozzles, m = this.body.userData.body.matrixWorld;
+    const rate = (this.coarse ? 26 : 55) * (this.boosting ? 1.5 : 1);
+    for (const n of nz) {
+      if (n.level < 0.08) continue;
+      n.acc = (n.acc || 0) + dt * rate * n.level;
+      while (n.acc > 1) {
+        n.acc--;
+        const o = _v2.copy(n.pos).addScaledVector(n.dir, 0.01).applyMatrix4(m);
+        const d = _v3.copy(n.dir).transformDirection(m);
+        const sp = 4.5 + Math.random() * 2.5;
+        const v = d.multiplyScalar(sp); v.x += (Math.random() - 0.5) * 0.9; v.y += (Math.random() - 0.5) * 0.9; v.z += (Math.random() - 0.5) * 0.9; v.add(p.vel);
+        this.fx.emit(o, v, this.fxT(), 0.22 + Math.random() * 0.18, 0.015, 0.085 + n.level * 0.05, K.RCS, 3.5, 0.012);
       }
     }
   }
@@ -491,7 +513,12 @@ export class Eva {
     // third-person body
     const b = this.body; b.position.copy(p.pos); b.quaternion.copy(p.quat);
     poseAstronaut(b, this.t, this.thrSm, this.firing ? 1 : 0.2);
-    const nz = b.userData.nozzles; for (const n of nz) n.inner.material.color.setRGB(0.05 + this.burn * 3, 0.03 + this.burn * 1.2, 0.02 + this.burn * 0.4);
+    // jets: drive the valves from what the pack is doing, carry the plume group on the posed body (it shows in
+    // first person too, where the suit is hidden), then puff gas from the open nozzles
+    b.updateMatrixWorld(true);
+    driveJets(b, this.jetF, this.jetW, this.t, dt, this.boosting ? 1 : 0);
+    this.jets.matrix.copy(b.userData.body.matrixWorld); this.jets.matrixWorldNeedsUpdate = true;
+    this.jetFx(dt);
     b.userData.tool.userData.emitter.material.color.setRGB(this.firing ? 6 : 1.2, this.firing ? 2.4 : 0.4, this.firing ? 0.8 : 0.1);
 
     // first-person hands: sway with turning and thrust, the left hand reaches to clamp tags

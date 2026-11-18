@@ -101,8 +101,7 @@ export class Hatch {
     // events
     if (this.step === 0 && t > 0.35) { ck.setCanopy(true); this.step = 1; }
     if (this.step === 1 && t > 0.5) { this.vent(1); if (!e.reduced) { if (fp) ck.headV.y += 0.12; else e.rig.kick(0.04); } this.step = 2; }
-    // once you're clear the canopy swings shut behind you (it opens again when you come back)
-    if (this.step === 2 && t > 2.6) { ck.setCanopy(false); this.step = 3; }
+    // the canopy stays up while you're outside; it comes down once you're back in the seat
     if (fp && !this.handedOff && ck.open >= 0.999) { ck.target = 0; ck.blend = 0; this.handedOff = true; }
 
     // body: seat -> up off the seat -> push up on the glareshield -> float clear over the nose
