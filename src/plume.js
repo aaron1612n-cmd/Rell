@@ -36,8 +36,8 @@ void main(){
   float r = abs(u) + turb*(.15+.6*v);                 // ragged edge, more so downstream
   float R = mix(.5,.32,v);                              // gas column narrows as it cools and fades
   float body = (1.-smoothstep(R*.15, R, r));
-  float fadeV = pow(1.-v, 1.4) * smoothstep(0.,.06,v);
-  float core = (1.-smoothstep(0., R*.55, r)) * pow(1.-v, 2.2);
+  float fadeV = pow(max(1.-v, 0.), 1.4) * smoothstep(0.,.06,v);
+  float core = (1.-smoothstep(0., R*.55, r)) * pow(max(1.-v, 0.), 2.2);
   // shock diamonds on boost: a train of bright lozenges on the axis, fading downstream
   float dz = v / .55, seg = fract(dz * 5.), di = floor(dz * 5.);
   float dw = .26 * (1. - abs(seg * 2. - 1.)) * (1. - di * .14);

@@ -58,13 +58,13 @@ const FRAG = `
     // digital dissolve at the rim: whole cells drop out, randomly, toward the edge
     float keep = step(rN, 1. - cell * .38);
     float fade = smoothstep(1., .55, rN);
-    float fres = pow(1. - abs(dot(normalize(cameraPosition - vW), normalize(vNW))), 2.);
+    float fres = pow(max(0., 1. - abs(dot(normalize(cameraPosition - vW), normalize(vNW)))), 2.);
     float shimmer = mix(.6, .5 + .5 * sin(uT * 4. + cell * 50.), uMotion);
     float fill = (cell > .78 ? .38 * shimmer : .05) * keep * fade;
     float grid = edge * keep * (.55 + .45 * fade) * (.7 + .8 * fres);
     // scan wave ripples out from the contact point across the surface
     float wr = fract(uT * .6) * 1.15;
-    float band = exp(-pow((rN - wr) * 10., 2.)) * uMotion * keep;
+    float band = exp(-((rN - wr) * 10.) * ((rN - wr) * 10.)) * uMotion * keep;
     // range contours every 1.5 m: they bend over every edge, so the shape reads at a glance
     float cd = d / 1.5; float caa = fwidth(cd) + 1e-4;
     float contour = (1. - smoothstep(caa * .5, caa * 1.5, abs(fract(cd + .5) - .5))) * .22 * fade;

@@ -13,6 +13,13 @@ const NOISE = /* glsl */`
     return mix(mix(mix(h13(i), h13(i + vec3(1,0,0)), f.x), mix(h13(i + vec3(0,1,0)), h13(i + vec3(1,1,0)), f.x), f.y),
                mix(mix(h13(i + vec3(0,0,1)), h13(i + vec3(1,0,1)), f.x), mix(h13(i + vec3(0,1,1)), h13(i + vec3(1,1,1)), f.x), f.y), f.z); }
   float fbm(vec3 p, int o){ float a = .5, s = 0.; for (int i = 0; i < 8; i++){ if (i >= o) break; s += a * vn(p); p = p * 2.03 + 17.1; a *= .5; } return s; }
+  // same noise, but octaves finer than a pixel (fw: footprint of p per pixel) are replaced by their mean.
+  // Far and grazing parts of the planet then cost a few octaves instead of eight, and shimmer less.
+  float fbmL(vec3 p, int o, float fw){ float a = .5, s = 0.;
+    for (int i = 0; i < 8; i++){ if (i >= o) break;
+      if (fw > .7) { s += a * (1. - exp2(-float(o - i))); break; }
+      s += a * mix(vn(p), .5, smoothstep(.35, .7, fw)); p = p * 2.03 + 17.1; a *= .5; fw *= 2.03; }
+    return s; }
 `;
 
 export const GALAXY = new THREE.Vector3(0.35, 0.82, -0.45).normalize();   // galactic pole
@@ -44,7 +51,7 @@ export function buildSky(sunDir, { coarse = false } = {}) {
       }`,
   }));
   dome.renderOrder = -10; dome.frustumCulled = false;
-  sky.add(dome);
+  sky.add(dome); sky.userData.dome = dome;
 
   // ---- stars: power-law brightness, colour temperature, a third crowd the galactic band ------
   const N = coarse ? 4500 : 9000;
@@ -93,40 +100,57 @@ export function buildSky(sunDir, { coarse = false } = {}) {
   return { sky, stars, sunPos };
 }
 
+// The Milky Way shader is ~18 octaves of 3D noise per sky pixel and only depends on direction:
+// render it once into a cube map and swap the dome to a single lookup.
+export function bakeSky(renderer, sky, size = 1024) {
+  const dome = sky.userData.dome; if (!dome) return;
+  const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.HalfFloatType, generateMipmaps: false });
+  const cam = new THREE.CubeCamera(1, 20000, rt), s = new THREE.Scene();
+  const copy = new THREE.Mesh(dome.geometry, dome.material); copy.frustumCulled = false; s.add(copy, cam);
+  const tm = renderer.toneMapping, rtPrev = renderer.getRenderTarget();
+  renderer.toneMapping = THREE.NoToneMapping;           // bake linear values; tone mapping happens when drawn
+  cam.update(renderer, s);
+  renderer.toneMapping = tm; renderer.setRenderTarget(rtPrev);
+  dome.material.dispose();
+  dome.material = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false, uniforms: { tSky: { value: rt.texture } },
+    vertexShader: `varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+    fragmentShader: `varying vec3 vD; uniform samplerCube tSky; void main(){ gl_FragColor = vec4(textureCube(tSky, vD).rgb, 1.); }`,
+  });
+}
+
 export function buildPlanet(sunDir, { radius = 5200, coarse = false } = {}) {
   const g = new THREE.Group();
   const surf = new THREE.Mesh(new THREE.SphereGeometry(radius, coarse ? 96 : 160, coarse ? 64 : 110), new THREE.ShaderMaterial({
-    uniforms: { uSun: { value: sunDir }, uTime: { value: 0 }, uR: { value: radius }, uC: { value: new THREE.Vector3() } },
+    uniforms: { uSun: { value: sunDir }, uTime: { value: 0 }, uR: { value: radius }, uC: { value: new THREE.Vector3() }, tBase: { value: null } },
     vertexShader: `varying vec3 vN; varying vec3 vW; varying vec3 vO;
       void main(){ vO = normalize(position); vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `varying vec3 vN; varying vec3 vW; varying vec3 vO; uniform vec3 uSun, uC; uniform float uTime, uR; ${NOISE}
+    fragmentShader: `varying vec3 vN; varying vec3 vW; varying vec3 vO; uniform vec3 uSun, uC; uniform float uTime, uR; uniform samplerCube tBase; ${NOISE}
       void main(){
         vec3 o = vO, n = normalize(vN), V = normalize(cameraPosition - vW);
         float dist = length(cameraPosition - vW);
-        int oc = ${coarse ? 6 : 8};
-        // continents with domain warp, eroded edges
-        vec3 q = o * 9.;
-        vec3 w = vec3(fbm(q + 1.7, 4), fbm(q + 8.3, 4), fbm(q + 4.1, 4));
-        float h = fbm(q * 1.3 + w * 1.6, oc);
-        float detail = fbm(o * 320., 4);
+        float fo = length(fwidth(o));               // pixel footprint on the unit sphere
+        // continents, ground tint and the big cloud decks are baked into a cube map once (bakePlanet);
+        // only the fine detail, the wisps and the lighting are computed per pixel
+        vec4 base = textureCube(tBase, o);
+        float c0 = uTime * 2.9e-4, cs = cos(c0), sn = sin(c0);
+        float cloudBase = textureCube(tBase, vec3(cs * o.x + sn * o.z, o.y, -sn * o.x + cs * o.z)).a;   // decks drift round the pole
+        float h = base.r;
+        float detail = fbmL(o * 320., 4, fo * 320.);
         float land = smoothstep(.5, .53, h + (detail - .5) * .05);
         float mtn = smoothstep(.58, .75, h + (detail - .5) * .1);
         vec3 ocean = mix(vec3(.010, .028, .040), vec3(.02, .06, .075), smoothstep(.5, .4, h));
-        vec3 ground = mix(vec3(.045, .05, .045), vec3(.12, .095, .07), smoothstep(.35, .65, fbm(o * 40. + w * 3., 5)));
-        ground = mix(ground, vec3(.15, .12, .09), smoothstep(.55, .7, fbm(o * 110., 4)) * .6);
+        vec3 ground = mix(vec3(.045, .05, .045), vec3(.12, .095, .07), smoothstep(.35, .65, base.g));
+        ground = mix(ground, vec3(.15, .12, .09), smoothstep(.55, .7, base.b) * .6);
         ground = mix(ground, vec3(.07, .07, .065), mtn);
         ground *= .8 + .4 * detail;
         vec3 col = mix(ocean, ground, land);
-        // clouds: two layers drifting slowly, with thin wisps near the camera
-        vec3 cq = o * 14. + vec3(uTime * .004, 0., 0.);
-        vec3 cw = vec3(fbm(cq * 1.5, 3), fbm(cq * 1.5 + 5., 3), 0.);
-        float cl = smoothstep(.56, .8, fbm(cq + cw * 1.2, oc));
-        cl = max(cl, smoothstep(.6, .82, fbm(o * 70. + cw, 5)) * .45);
-        cl *= .85 + .15 * fbm(o * 400., 3);
+        float cl = cloudBase;
+        cl *= .85 + .15 * fbmL(o * 400., 3, fo * 400.);
         // light: wrapped lambert, with a warm band along the terminator
         float ndl = dot(n, uSun);
         float day = smoothstep(-.12, .25, ndl);
-        float term = exp(-pow((ndl - .02) * 7., 2.));
+        float tq = (ndl - .02) * 7., term = exp(-tq * tq);
         vec3 sunC = mix(vec3(1., .55, .3), vec3(1., .95, .88), smoothstep(0., .35, ndl));
         vec3 lit = col * max(ndl, 0.) * sunC * 1.7;
         // ocean glint
@@ -136,8 +160,11 @@ export function buildPlanet(sunDir, { radius = 5200, coarse = false } = {}) {
         vec3 cloudC = vec3(.62, .61, .58) * (max(ndl, 0.) * 1.4 * sunC + .01);
         lit = mix(lit, cloudC, cl * .85);
         // night side: sparse amber city lights on land, dimmed under cloud
-        float city = smoothstep(.78, .95, fbm(o * 900., 3)) * smoothstep(.55, .75, fbm(o * 60. + 2., 3));
-        lit += vec3(1., .62, .3) * city * land * (1. - smoothstep(-.15, .05, ndl)) * (1. - cl) * 1.4;
+        float night = 1. - smoothstep(-.15, .05, ndl);
+        if (night > 0.) {
+          float city = smoothstep(.78, .95, fbmL(o * 900., 3, fo * 900.)) * smoothstep(.55, .75, fbmL(o * 60. + 2., 3, fo * 60.));
+          lit += vec3(1., .62, .3) * city * land * night * (1. - cl) * 1.4;
+        }
         lit += vec3(1., .45, .2) * term * .05 * (1. - cl * .5);
         // aerial perspective: haze toward the limb, blue by day, rust at the terminator
         float fr = pow(1. - clamp(dot(n, V), 0., 1.), 5.);
@@ -146,7 +173,7 @@ export function buildPlanet(sunDir, { radius = 5200, coarse = false } = {}) {
         gl_FragColor = vec4(lit, 1.);
       }`,
   }));
-  g.add(surf);
+  g.add(surf); surf.userData.coarse = coarse;
 
   // atmosphere limb: back faces of a slightly larger shell, density from the ray's closest approach
   const atmR = radius * 1.035;
@@ -165,7 +192,7 @@ export function buildPlanet(sunDir, { radius = 5200, coarse = false } = {}) {
         vec3 nrm = normalize(cp - uC);
         float ndl = dot(nrm, uSun);
         float lit = smoothstep(-.35, .25, ndl);
-        float term = exp(-pow((ndl + .05) * 5., 2.));
+        float tq = (ndl + .05) * 5., term = exp(-tq * tq);
         float fwd = pow(max(dot(rd, uSun), 0.), 6.);                 // forward scatter toward the sun
         vec3 col = mix(vec3(.18, .42, .75), vec3(1., .48, .2), term * .85) * lit + vec3(1., .7, .45) * fwd * lit * .8;
         gl_FragColor = vec4(col * dens * 1.25, 1.);
@@ -174,6 +201,40 @@ export function buildPlanet(sunDir, { radius = 5200, coarse = false } = {}) {
   g.add(atm);
   g.userData = { surf, atm };
   return g;
+}
+
+// Bake the planet's static layers into a cube map: R continent height, G ground tint, B dry patches,
+// A cloud decks. This was ~60 noise octaves per planet pixel every frame; now it's two lookups + detail.
+export function bakePlanet(renderer, planet, size = 1024) {
+  const surf = planet.userData.surf, oc = surf.userData.coarse ? 6 : 8;
+  const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  const cam = new THREE.CubeCamera(0.1, 10, rt), s = new THREE.Scene();
+  const m = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 48), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthTest: false, depthWrite: false,
+    vertexShader: `varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+    fragmentShader: `varying vec3 vD; ${NOISE}
+      void main(){
+        vec3 o = normalize(vD);
+        // continents with domain warp, eroded edges
+        vec3 q = o * 9.;
+        vec3 w = vec3(fbm(q + 1.7, 4), fbm(q + 8.3, 4), fbm(q + 4.1, 4));
+        float h = fbm(q * 1.3 + w * 1.6, ${oc});
+        float g = fbm(o * 40. + w * 3., 5), b = fbm(o * 110., 4);
+        // clouds: big decks plus thinner wisps
+        vec3 cq = o * 14.;
+        vec3 cw = vec3(fbm(cq * 1.5, 3), fbm(cq * 1.5 + 5., 3), 0.);
+        float cl = smoothstep(.56, .8, fbm(cq + cw * 1.2, ${oc}));
+        cl = max(cl, smoothstep(.6, .82, fbm(o * 70. + cw, 5)) * .45);
+        gl_FragColor = vec4(h, g, b, cl);
+      }`,
+  }));
+  m.frustumCulled = false; s.add(m, cam);
+  const tm = renderer.toneMapping, prev = renderer.getRenderTarget();
+  renderer.toneMapping = THREE.NoToneMapping;
+  cam.update(renderer, s);
+  renderer.toneMapping = tm; renderer.setRenderTarget(prev);
+  m.geometry.dispose(); m.material.dispose();
+  surf.material.uniforms.tBase.value = rt.texture;
 }
 
 export function placePlanet(planet, pos) {
