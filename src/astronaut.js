@@ -256,7 +256,7 @@ export function fpTargets(o = {}) {
   const R = FPT.R, L = FPT.L;
   // the cutter is held canted in toward the reticle (it crosses the view about a metre out), so you see its
   // flank, the canister and your fist on the grip instead of looking straight down its back end
-  R.W.set(E.x + 0.2 * nar + (o.kick || 0), E.y - 0.21 + bob + sw.y, E.z - 0.4 + (o.firing ? 0.012 : 0) + sw.z); R.W.x += sw.x;
+  R.W.set(E.x + 0.2 * nar + (o.kick || 0), E.y - 0.21 - 0.06 * (1 - nar) + bob + sw.y, E.z - 0.4 + (o.firing ? 0.012 : 0) + sw.z); R.W.x += sw.x;
   _ff.set(E.x - 0.24, E.y + 0.04, E.z - 1.2).sub(R.W).normalize(); _ff.y += Math.sin(TOOL_RAKE); _ft.set(0.25, 1, 0.3);
   handBasis(_ff, _ft, R.Q);
   // left (mirrored space, +x is outward): open hand low left, palm down; reaches forward and in to clamp tags
