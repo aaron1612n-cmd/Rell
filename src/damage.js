@@ -10,7 +10,7 @@ float h(vec2 p){ p = fract(p * vec2(123.34, 456.21) + uSeed); p += dot(p, p + 45
 float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + 1.), f.x), f.y); }
 float fbm(vec2 p){ float s = 0., a = .5; for (int i = 0; i < 4; i++){ s += a * n(p); p *= 2.1; a *= .5; } return s; }
 void main(){
-  vec2 p = vUv * 2. - 1.; float r = length(p), a = atan(p.y, p.x);
+  vec2 p = vUv * 2. - 1.; float r = length(p), a = atan(p.y, abs(p.x) < 1e-5 ? 1e-5 : p.x);
   float edge = .55 + .35 * fbm(vec2(a * 2., uSeed * 7.));
   float scorch = smoothstep(edge, edge * .35, r);
   // radial cracks

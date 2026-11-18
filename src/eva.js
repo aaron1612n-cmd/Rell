@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { EYE, PITCH } from './cockpit.js';
-import { suitMaterials, buildAstronaut, poseAstronaut, buildGlove, buildTool } from './astronaut.js';
+import { suitMaterials, buildAstronaut, poseAstronaut, buildArm, poseFirstPerson, SUIT } from './astronaut.js';
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
 
@@ -29,7 +29,7 @@ const ease = (k) => k * k * (3 - 2 * k);
 // ---- visor: helmet rim, condensation, the wordless suit HUD ------------------------------
 const VISOR_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
 const VISOR_FS = `varying vec2 vUv;
-uniform vec2 uAsp; uniform float uO2, uFuel, uTeth, uFog, uTime, uBreath, uWarn, uSun, uLook;
+uniform vec2 uAsp; uniform float uTan, uO2, uFuel, uTeth, uFog, uTime, uBreath, uWarn, uSun, uLook;
 float h(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + 1.), f.x), f.y); }
 float fbm(vec2 p){ float s = 0., a = .5; for (int i = 0; i < 4; i++){ s += a * n(p); p *= 2.07; a *= .5; } return s; }
@@ -46,20 +46,26 @@ void main(){
   vec2 q = (vUv - .5) * uAsp;                       // aspect-correct, centre 0
   float m = min(uAsp.x, uAsp.y);
   vec2 e = q / (uAsp * .5);                         // -1..1 across the screen
-  // helmet rim: a rounded-rect opening that pinches toward the top (brow) and the cheeks
-  vec2 ee = vec2(e.x * (1. + .04 * e.y), e.y * 1.04 + .03);
-  float rim = pow(pow(abs(ee.x), 5.) + pow(abs(ee.y * (ee.y > 0. ? 1.08 : 1.0)), 5.), .2);
-  float frame = smoothstep(.95, 1.03, rim);
-  vec3 col = vec3(0.); float a = 0.;
-  // inner bevel catching a little light
-  float bevel = smoothstep(.88, .95, rim) * (1. - smoothstep(.95, 1.02, rim));
-  col += vec3(.07, .075, .08) * bevel * (.4 + .6 * uSun);
-  a = max(a, frame * .96 + bevel * .4);
-  // glass: faint cool tint toward the edges and a soft sky reflection streak that slides as you look
-  float edge = smoothstep(.55, .95, rim);
-  col += vec3(.012, .02, .03) * edge; a = max(a, edge * .12);
-  float streak = exp(-pow((e.x * .55 + e.y * .2 - uLook) * 3.2, 2.)) * smoothstep(.2, .8, e.y + .2) * .05;
-  col += vec3(.5, .6, .7) * streak; a = max(a, streak * .5);
+  // the helmet seen from inside, from the real geometry: the shell's visor opening is about +-70 deg wide and
+  // runs from 30 deg up to 46 deg down (tools/blender/astronaut.py), so at this FOV only its brow shows,
+  // out of focus across the top; the sides only reach in at the top corners. The bubble itself is clear:
+  // a faint fresnel tint toward the edges and two soft reflections of the lit interior.
+  vec3 dir = normalize(vec3(e.x * uTan * uAsp.x / uAsp.y, e.y * uTan, -1.));
+  float yaw = degrees(atan(dir.x, -dir.z)), pit = degrees(asin(dir.y));
+  float open = pow(pow(abs(yaw / 72.), 4.) + pow(abs((pit + 7.) / 39.), 4.), .25);   // OPEN_* in astronaut.py
+  float frame = smoothstep(.93, 1.16, open);                                    // out of focus: wide soft edge
+  vec3 col = vec3(.035, .036, .038) * (.5 + .5 * uSun) * (1. - .5 * frame);
+  float a = frame * .97;
+  // the shell's rolled lip catches a little light just inside the edge
+  float lk = (open - .98) * 14., lip = exp(-lk * lk) * smoothstep(-.2, .4, e.y);
+  col += vec3(.16, .155, .145) * lip * (.2 + .35 * uSun); a = max(a, lip * .22);
+  float edge = smoothstep(.35, 1., length(e * vec2(.8, 1.)));
+  col += vec3(.01, .014, .02) * edge; a = max(a, edge * .08);
+  // reflections of the inside of the helmet on the bubble: a wide arc low and a narrow streak that slides as you look
+  float ak = (length((e - vec2(0., 1.6)) * vec2(.55, 1.)) - 2.25) * 9., arc = exp(-ak * ak) * smoothstep(1., .2, abs(e.x)) * .05;
+  float sk = (e.x * .55 + e.y * .2 - uLook) * 3.2, streak = exp(-sk * sk) * smoothstep(.2, .8, e.y + .2) * .035;
+  col += vec3(.55, .6, .68) * (arc + streak); a = max(a, (arc + streak) * .5);
+  float rim = open;
   // condensation: creeps in from the bottom and the edges as air runs low, pulses with breathing
   float fogN = fbm(q * 9. + vec2(0., uTime * .03));
   float fogM = smoothstep(.55, 1., rim + (-e.y * .35) + fogN * .5 - (1. - uFog) * 1.2) * (.75 + .25 * uBreath) * smoothstep(0., .25, uFog) * (1. - frame);
@@ -140,37 +146,23 @@ export class Eva {
     this.hSun = new THREE.DirectionalLight(0xffe4c2, 3.6); s.add(this.hSun, this.hSun.target);
     s.add(new THREE.HemisphereLight(0x0c1016, 0x2c4554, 0.7));
     this.hTool = new THREE.PointLight(0xff8a40, 0, 1.2, 2); s.add(this.hTool);
-    const hands = this.hands = new THREE.Group(); this.handCam.add(hands);
-    // right: forearm running off the bottom-right corner, fist on the tool grip
-    const R = this.handR = new THREE.Group(); R.position.set(0.19, -0.215, -0.42); R.scale.setScalar(0.85); hands.add(R);
-    const tool = this.tool = buildTool(this.M); tool.rotation.set(0.06, -0.08, 0); R.add(tool);
-    const gR = buildGlove(this.M, 1); gR.setCurl(0.92); gR.group.position.set(0.004, -0.02, 0.03); gR.group.rotation.set(0.15, Math.PI / 2 + 0.25, Math.PI / 2 - 0.2); R.add(gR.group);
-    R.add(this.sleeve(new THREE.Vector3(0.0, -0.035, 0.05), new THREE.Vector3(0.3, -0.45, 0.85)));
-    // left: open glove, low left, reaches out to clamp tags
-    const L = this.handL = new THREE.Group(); L.position.set(-0.22, -0.26, -0.4); L.scale.setScalar(0.85); hands.add(L);
-    const gL = this.gloveL = buildGlove(this.M, -1); gL.group.rotation.set(-0.35, -0.35, -0.5); L.add(gL.group);
-    L.add(this.sleeve(new THREE.Vector3(0.0, -0.01, 0.06), new THREE.Vector3(-0.3, -0.45, 0.85)));
+    // the same arms as the third-person suit, in body space: the camera sits at the suit's eye, so the
+    // shoulders are where they really are and the IK'd arms run from there to the hands
+    const hands = this.hands = new THREE.Group(); hands.position.copy(SUIT.eye).negate(); this.handCam.add(hands);
+    this.armR = buildArm(this.M, 1, true); this.armL = buildArm(this.M, -1);
+    hands.add(this.armR.root, this.armL.root);
+    this.tool = this.armR.tool; this.gloveL = this.armL.glove;
+    this.armR.glove.setCurl(0.95);
     hands.traverse((m) => { if (m.isMesh) { m.castShadow = false; m.receiveShadow = false; } });
-    this.handBase = { R: R.position.clone(), L: L.position.clone() };
     this.sway = new THREE.Vector3(); this.swayV = new THREE.Vector3(); this.reachL = 0;
     // visor overlay
     this.visorU = {
       uAsp: { value: new THREE.Vector2(1, 1) }, uO2: { value: 1 }, uFuel: { value: 1 }, uTeth: { value: 0 }, uFog: { value: 0 },
-      uTime: { value: 0 }, uBreath: { value: 0 }, uWarn: { value: 0 }, uSun: { value: 1 }, uLook: { value: 0 },
+      uTan: { value: 0.75 }, uTime: { value: 0 }, uBreath: { value: 0 }, uWarn: { value: 0 }, uSun: { value: 1 }, uLook: { value: 0 },
     };
     this.visor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ vertexShader: VISOR_VS, fragmentShader: VISOR_FS, uniforms: this.visorU, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
     this.visor.renderOrder = 100; this.visor.position.z = -0.05; this.handCam.add(this.visor);
     this.pass = new RenderPass(s, this.handCam); this.pass.clear = false; this.pass.clearDepth = true; this.pass.enabled = false;
-  }
-
-  // forearm sleeve from the wrist back toward the bottom corner of the view
-  sleeve(wrist, dir) {
-    const g = new THREE.Group(); dir.normalize();
-    g.position.copy(wrist); g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.011, 8, 20).rotateX(Math.PI / 2), this.M.dark); ring.position.y = 0.02; g.add(ring);
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.064, 0.056, 0.42, 14), this.M.suit); arm.position.y = 0.24; g.add(arm);
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 14, 1, true), this.M.haz); band.position.y = 0.1; g.add(band);
-    return g;
   }
 
   buildBeam() {
@@ -487,14 +479,14 @@ export class Eva {
   // cameras + the visible pilot
   place(dt, cmd) {
     const p = this.pilot, cam = this.camera;
-    const head = _v.set(0, 0.42, -0.02);
+    const head = _v.copy(SUIT.eye);
     if (this.view === 0) {
       cam.position.copy(p.pos).add(head.applyQuaternion(p.quat)); cam.quaternion.copy(p.quat);
       this.camFov(this.boosting ? 78 : 74, dt);
       this.body.visible = false;
     } else {
       // over the shoulder, a little lag
-      const want = _v2.set(0.45, 0.62, 2.4).applyQuaternion(p.quat).add(p.pos);
+      const want = _v2.set(0.8, 0.55, 2.35).applyQuaternion(p.quat).add(p.pos);
       if (!this.tpInit) { this.camPos.copy(want); this.tpInit = true; }
       this.camPos.lerp(want, 1 - Math.exp(-8 * dt));
       cam.position.copy(this.camPos); cam.quaternion.slerp(p.quat, 1 - Math.exp(-10 * dt));
@@ -520,10 +512,8 @@ export class Eva {
       const tgt = _v.set(THREE.MathUtils.clamp(cmd.dx * 0.0004, -0.03, 0.03), THREE.MathUtils.clamp(-cmd.dy * 0.0004, -0.03, 0.03), 0).addScaledVector(this.thrSm, -0.012);
       this.swayV.addScaledVector(_v2.copy(tgt).sub(this.sway), 90 * dt).multiplyScalar(Math.exp(-12 * dt)); this.sway.addScaledVector(this.swayV, dt);
       const bob = Math.sin(this.t * 1.1) * 0.003;
-      const nar = Math.min(1, cam.aspect * 1.25); this.handR.position.copy(this.handBase.R).add(this.sway); this.handR.position.x *= nar; this.handR.position.y += bob;
       const kick = this.firing ? (Math.random() - 0.5) * 0.003 : 0;
-      this.handR.position.x += kick; this.handR.position.z += this.firing ? 0.01 : 0;
-      this.handL.position.copy(this.handBase.L); this.handL.position.x *= nar; this.handL.position.add(this.sway).add(_v.set(0.07 * this.reachL, 0.08 * this.reachL, -0.12 * this.reachL)); this.handL.position.y -= bob;
+      poseFirstPerson(this.armR, this.armL, { narrow: Math.min(1, cam.aspect * 1.3), sway: this.sway, bob, kick, firing: this.firing, reach: this.reachL });
       this.gloveL.setCurl(0.25 + this.reachL * 0.6 + 0.05 * Math.sin(this.t));
       this.tool.userData.emitter.material.color.setRGB(this.firing ? 7 : 1.3 + 0.3 * Math.sin(this.t * 3), this.firing ? 2.8 : 0.42, this.firing ? 0.9 : 0.1);
       this.hTool.position.copy(this.tool.userData.tip.getWorldPosition(_v2)); this.hTool.intensity = this.firing ? 0.8 + Math.random() * 0.6 : 0.04;
@@ -531,7 +521,7 @@ export class Eva {
       // visor fills the view
       const hgt = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * 0.05; this.visor.scale.set(hgt * cam.aspect * 1.002, hgt * 1.002, 1);
       const u = this.visorU; u.uAsp.value.set(cam.aspect, 1); u.uO2.value = this.o2; u.uFuel.value = this.fuel; u.uTeth.value = Math.min(1, (this.tethDist || 0) / CFG.tether);
-      u.uTime.value = this.t; u.uFog.value = THREE.MathUtils.clamp((0.35 - this.o2) / 0.35, 0, 1); u.uBreath.value = 0.5 + 0.5 * Math.sin(this.t * (this.o2 < 0.25 ? 5 : 1.6));
+      u.uTan.value = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2); u.uTime.value = this.t; u.uFog.value = THREE.MathUtils.clamp((0.35 - this.o2) / 0.35, 0, 1); u.uBreath.value = 0.5 + 0.5 * Math.sin(this.t * (this.o2 < 0.25 ? 5 : 1.6));
       u.uWarn.value = this.taut > 0.1 || (this.tethDist || 0) > CFG.tether * 0.92 ? 1 : 0;
       _v.set(0, 0, -1).applyQuaternion(cam.quaternion); u.uLook.value = Math.atan2(_v.x, -_v.z) * 0.3 % 1;
     }

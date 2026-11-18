@@ -6,7 +6,7 @@ import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 import { statSync } from 'node:fs';
 await MeshoptEncoder.ready; await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions([EXTMeshoptCompression, KHRMeshQuantization]).registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
-for (const n of process.argv.slice(2).length ? process.argv.slice(2) : ['ship', 'station', 'debris', 'cockpit', 'depot', 'freighter', 'salvage']) {
+for (const n of process.argv.slice(2).length ? process.argv.slice(2) : ['ship', 'station', 'debris', 'cockpit', 'depot', 'freighter', 'salvage', 'astronaut']) {
   const f = `src/assets/${n}.glb`, before = statSync(f).size;
   const doc = await io.read(f);
   await doc.transform(dedup(), prune(), quantize({ quantizePosition: 14, quantizeNormal: 8, quantizeColor: 8 }), meshopt({ encoder: MeshoptEncoder, level: 'high' }));
