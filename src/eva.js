@@ -111,7 +111,13 @@ export class Eva {
     // the cabin as seen from outside while the canopy is open
     this.cabin = this.cockpit.buildEvaCabin(o.env); this.cabin.traverse((m) => m.layers.set(1));
     this.cabinOn = false; this.hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
-    this.swap = []; this.shipMesh.traverse((m) => { if (m.isMesh && Array.isArray(m.material)) this.swap.push({ m, orig: m.material }); });
+    this.swap = []; this.shipMesh.userData.body.traverse((m) => {
+      if (!m.isMesh) return;
+      for (let p = m; p; p = p.parent) if (/^(canopy|flap_)/.test(p.name)) return;   // hinged parts move, never cut
+      this.swap.push({ m, orig: m.material });
+    });
+    // the canopy glass turns see-through while it's up, so you can see the cabin under it
+    this.openGlass = new THREE.MeshStandardMaterial({ color: 0x0a1016, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.42, envMap: o.env, side: THREE.DoubleSide, depthWrite: false });
 
     this.buildRope(); this.buildHands(); this.buildBeam(); this.buildDom();
     this.lockers.onStow = (L) => this.stowed(L);
@@ -265,8 +271,10 @@ export class Eva {
     const ck = this.cockpit, on = ck.open > 0.001;
     if (on !== this.cabinOn) {
       this.cabinOn = on;
-      if (on) { this.shipMesh.add(this.cabin); for (const s of this.swap) s.m.material = s.orig.map((m) => (m === mats.glass ? this.hiddenMat : m === mats.shipHull ? ck.cutMat : m)); }
+      const sw = (m) => (m === mats.glass ? this.hiddenMat : m === mats.shipHull ? ck.cutMat : m);
+      if (on) { this.shipMesh.add(this.cabin); for (const s of this.swap) s.m.material = Array.isArray(s.orig) ? s.orig.map(sw) : sw(s.orig); }
       else { this.shipMesh.remove(this.cabin); for (const s of this.swap) s.m.material = s.orig; }
+      for (const g of this.shipMesh.userData.rig.glass || []) { g.material = on ? this.openGlass : mats.glass; g.renderOrder = on ? 2 : 0; }
     }
     if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
   }

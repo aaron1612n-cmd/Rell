@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Ship } from './ship.js';
 import { buildShip } from './shipMesh.js';
+import { poseShip, fadeCanopy } from './shipRig.js';
 import { loadModel, urls, mats } from './assets.js';
 import { World, SUN_DIR } from './world.js';
 import { Input, ICONS } from './input.js';
@@ -252,7 +253,7 @@ function engineFx(dt) {
   // gimbal: bells swing to help the turn (pitch/yaw from angular accel, roll as a split)
   const gk = 0.025 * (0.35 + 0.65 * main), lim = 0.12, cl = (v) => THREE.MathUtils.clamp(v, -lim, lim);
   gx = THREE.MathUtils.damp(gx, cl(-_alpha.x * gk), 7, dt); gy = THREE.MathUtils.damp(gy, cl(-_alpha.y * gk), 7, dt); gr = THREE.MathUtils.damp(gr, cl(_alpha.z * gk), 7, dt);
-  engines.forEach((en, i) => en.gimbal(gx + Math.sign(en.position.x) * gr, gy));
+  engines.forEach((en, i) => { en.gimbal(gx + Math.sign(en.position.x) * gr, gy); en.update(dt, main, boostSm, heat); });
   shipMesh.updateMatrixWorld(true);
 
   const len = main * (3.6 + 4.2 * boostSm) * flick, wid = 0.5 + 0.12 * main + 0.12 * boostSm;
@@ -380,6 +381,17 @@ function scrapeFx(dt) {
   if (slide > 8) rig.kick(0.01);
 }
 
+// moving parts: canopy on its hinge, trailing-edge vanes following the turn
+const vanes = { pitch: 0, roll: 0 };
+function partsFx(dt) {
+  const w = ship.angVel, cl = (v) => THREE.MathUtils.clamp(v, -1, 1);
+  vanes.pitch = THREE.MathUtils.damp(vanes.pitch, cl(-w.x * 0.9 - _alpha.x * 0.08), 6, dt);
+  vanes.roll = THREE.MathUtils.damp(vanes.roll, cl(w.z * 0.7 + _alpha.z * 0.06), 6, dt);
+  poseShip(shipMesh.userData.rig, cockpit.openAngle || 0, vanes);
+  if (cockpit.extRig) poseShip(cockpit.extRig, 0, vanes);
+  fadeCanopy(shipMesh.userData.rig, camera.position, eva.active);
+}
+
 function navFx(t) {
   const navs = shipMesh.userData.navs;
   navs[0].material.opacity = navs[1].material.opacity = 0.55 + 0.1 * Math.sin(t * 2);
@@ -452,6 +464,7 @@ function frame(now) {
   if (!eva.active) rig.update(dt, ship);
   ship.braking = cmd.brake; cockpit.heat = heat;
   cockpit.update(dt, ship, rig);
+  partsFx(dt);
   eva.update(dt, raw);
   if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
   world.updateVisual(time, camera.position);

@@ -37,14 +37,18 @@ def canopy(sc, dz=0):
         y0 = prof(z)[1] - .08
         out.append((z + dz, [(-cw * sc, y0), (-cw * .8 * sc, y0 + ch * .7 * sc), (-cw * .35 * sc, y0 + ch * sc), (cw * .35 * sc, y0 + ch * sc), (cw * .8 * sc, y0 + ch * .7 * sc), (cw * sc, y0)]))
     return out
-k.loft(canopy(1.0), SLATE_D, mat=GLASS, wear=0, bevel=0.012)
+# the canopy is its own object (glass, ribs, spine rail): it hinges open at runtime about its aft top edge
+kc = Kit('canopy', seed=8); kc.maxlen = 0.26
+kc.loft(canopy(1.0), SLATE_D, mat=GLASS, wear=0, bevel=0.012)
 # frame ribs
 for z in (-.62, 0.0):
     zi = {-.62: .5, 0.0: .25}[z]
     cw = 0.40 + zi * .1; y0 = prof(z)[1] - .08
-    k.loft([(z - .035, [(-cw * 1.02, y0 - .02), (-cw * .84, y0 + .27), (-cw * .36, y0 + .36), (cw * .36, y0 + .36), (cw * .84, y0 + .27), (cw * 1.02, y0 - .02)]),
+    kc.loft([(z - .035, [(-cw * 1.02, y0 - .02), (-cw * .84, y0 + .27), (-cw * .36, y0 + .36), (cw * .36, y0 + .36), (cw * .84, y0 + .27), (cw * 1.02, y0 - .02)]),
             (z + .035, [(-cw * 1.02, y0 - .02), (-cw * .84, y0 + .27), (-cw * .36, y0 + .36), (cw * .36, y0 + .36), (cw * .84, y0 + .27), (cw * 1.02, y0 - .02)])], BONE_D, bevel=.01)
-k.box((0, .80, -.32), (.05, .08, 1.0), BONE_D, bevel=.01)  # centre rail (sunk into the canopy crown)
+kc.box((0, .80, -.32), (.05, .08, 1.0), BONE_D, bevel=.01)  # centre rail (sunk into the canopy crown)
+kc.box((0, prof(-1.45)[1] + .02, -1.45), (.1, .03, .05), HAZ, bevel=.008, wear=0)  # lift tab on the canopy nose
+for sx in (-1, 1): kc.box((sx * .45, prof(-.1)[1] - .06, -.1), (.05, .06, .1), SLATE, bevel=.01)  # strut lugs on the frame sill
 # headlamp
 k.lamp((0, -.02, -2.2), (.12, .07, .05), WHITE)
 k.lamp((.30, -.12, -1.88), (.06, .05, .05), AMBER); k.lamp((-.30, -.12, -1.88), (.06, .05, .05), AMBER)
@@ -72,6 +76,7 @@ for sx in (-1, 1):
         k.cyl((x, 0, .66 + i * .1), .392, .392, .1, 'z', 14, HAZ if i % 2 == 0 else BLACK, wear=0)
     k.box((sx * .38, 0, .6), (.4, .14, 1.0), BONE_D, bevel=.02)            # pylon blend to fuselage
 
+FLAPS = []
 # ---- wings ---------------------------------------------------------------------------
 for sx in (-1, 1):
     pts = [(.5, -.4), (.5, 1.55), (2.35, 1.25), (2.35, .68)]   # root buried in the fuselage (hull is only .70 wide at z=-.4)
@@ -80,7 +85,10 @@ for sx in (-1, 1):
     # leading-edge hazard strip & rust trailing flap
     lx = [(1.0, -.12), (2.25, .62), (2.35, .68), (.8, -.4)]
     k.box((sx * 1.52, -.12, .22), (1.95, .15, .1), HAZ, rot=(0, -sx * 24, 0), bevel=.015, wear=0)
-    k.box((sx * 1.55, -.12, 1.4), (1.5, .14, .1), RUST, rot=(0, sx * 10, 0), bevel=.015)
+    # trailing-edge vane: its own object so it can swing (pivot/axis in ship.json)
+    kf = Kit('flap_' + ('l' if sx < 0 else 'r'), seed=9 + sx); kf.maxlen = .26; FLAPS.append(kf)
+    kf.box((sx * 1.55, -.12, 1.4), (1.5, .1, .14), RUST, rot=(0, sx * 10, 0), bevel=.015)
+    kf.box((sx * 1.55, -.12, 1.47), (1.3, .03, .03), HAZ, rot=(0, sx * 10, 0), wear=0)
     k.panels((sx * 1.55, -.052, .95), (1.4, .8), 3, 2, 'y', 1, gap=.05, lift=.02, color=BONE_L, bevel=.01)
     # tip RCS block + nav light
     k.box((sx * 2.3, -.09, .95), (.22, .28, .55), SLATE, bevel=.03)
@@ -136,7 +144,9 @@ k.greebles((0, .54, -.2), (.5, 1.0), 6, 'y', 1, hmax=.07, smax=.2, smin=.08)   #
 meta = {'nozzles': NOZ, 'glow': [[-.66, 0, 2.38], [.66, 0, 2.38]],
         'nav': [[-2.4, -.09, .68, 0xff3b2a], [2.4, -.09, .68, 0x3bff7a], [0, .98, 1.97, 0xffffff]]}  # on the wingtip lamps / fin trailing edge
 k.meta['x'] = 1
-bake_ao([k], rays=24, dist=.9, strength=.9)
+a = math.radians(10)
+meta['flaps'] = [{'pivot': [round(sx * 1.55 - math.sin(sx * a) * .07, 3), -.12, round(1.4 - .07 * math.cos(a), 3)], 'axis': [round(math.cos(a), 4), 0, round(-math.sin(sx * a), 4)], 'side': sx} for sx in (-1, 1)]
+bake_ao([k, kc] + FLAPS, rays=24, dist=.9, strength=.9)
 out = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'assets')
-export_glb([k], os.path.join(out, 'ship.glb'))
+export_glb([k, kc] + FLAPS, os.path.join(out, 'ship.glb'))
 json.dump(meta, open(os.path.join(out, 'ship.json'), 'w'))

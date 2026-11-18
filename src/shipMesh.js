@@ -3,16 +3,18 @@ import { NOZZLES } from './rcs.js';
 import { Plume, PALETTE } from './plume.js';
 import { Engine } from './engine.js';
 import shipData from './assets/ship.json';
+import { rigShip } from './shipRig.js';
 
 // Wraps the authored ship model (src/assets/ship.glb) and adds the live bits: engine glow, engine light, RCS flames.
 const POD_AFT = 1.69;   // z of the engine pods' aft face (tools/blender/ship.py)
 
 export function buildShip(model, coarse = false) {
   const g = new THREE.Group();
-  g.add(model.clone());
+  const body = model.clone(); g.add(body);
+  const rig = rigShip(body);   // canopy + vanes on hinges
   // engine plumes: soft shader gas jets, pointing aft (+Z)
-  // main engines: procedural bells on gimbals (src/engine.js), mounted on each pod's aft face.
-  // The plume rides on the bell's exit plane so it follows the gimbal.
+  // main engines: procedural turbine rockets on gimbals (src/engine.js), mounted on each pod's aft face.
+  // The plume rides on the nozzle's exit plane so it follows the gimbal.
   const engines = shipData.glow.map(([x, y]) => { const e = new Engine(coarse, Math.sign(x)); e.position.set(x, y, POD_AFT); e.gimbal(0, 0); g.add(e); return e; });
   const glows = engines.map((e) => { const m = new Plume(PALETTE.engine, { octaves: coarse ? 2 : 3 }); e.exit.add(m); return m; });
   const light = new THREE.PointLight(0xff6a2a, 0, 16, 1.6); light.position.set(0, 0, 3.4); g.add(light);
@@ -29,6 +31,6 @@ export function buildShip(model, coarse = false) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     sp.position.set(x, y, z); sp.scale.setScalar(0.4); g.add(sp); return sp;
   });
-  g.userData = { glows, light, nubs, navs, engines };
+  g.userData = { glows, light, nubs, navs, engines, rig, body };
   return g;
 }
