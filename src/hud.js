@@ -44,5 +44,7 @@ export class Hud {
     if (this.flashA > 0.002) { this.flash.style.opacity = this.flashA.toFixed(3); this.flashA *= Math.exp(-7 * dt); } else if (this.flash.style.opacity !== '0') this.flash.style.opacity = '0';
   }
 
+  miss() { this.reticle.classList.remove('miss'); void this.reticle.offsetWidth; this.reticle.classList.add('miss'); }
+
   hideHint() { this.hint.style.opacity = 0; }
 }

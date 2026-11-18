@@ -10,6 +10,7 @@ export class CamRig {
     this.cam = camera; this.reduced = reduced;
     this.qs = new THREE.Quaternion(); this.first = true;
     this.t = 0; this.shake = 0; this.baseFov = 66;
+    this.tow = 0; this.towSm = 0;   // length of the tow line + load: the camera backs off and rises to keep the load in frame
     this.introDur = reduced ? 0 : 4.2;
   }
 
@@ -23,8 +24,9 @@ export class CamRig {
     const speed = ship.vel.length();
     const k = this.introDur ? Math.min(1, this.t / this.introDur) : 1;
     const e = ease(k);
-    const dist = 11 + speed * 0.035 + (ship.fx.boost ? 1.6 : 0);
-    _o.set(0, 3.2, dist);
+    this.towSm = THREE.MathUtils.damp(this.towSm, this.tow, 1.6, dt);
+    const dist = 11 + speed * 0.035 + (ship.fx.boost ? 1.6 : 0) + this.towSm * 0.95;
+    _o.set(0, 3.2 + this.towSm * 0.42, dist);
     // intro: start close and off to the side, then swing round behind
     _o.multiplyScalar(0.55 + 0.45 * e);
     if (k < 1) _o.applyAxisAngle(_y, (1 - e) * 2.1);

@@ -6,6 +6,7 @@ export const ICONS = {
   brake: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5M9 6.5V9H6.5M15 6.5V9h2.5M9 17.5V15H6.5M15 17.5V15h2.5"/><circle cx="12" cy="12" r="1.6"/>',
   assist: '<path d="M12 4l8 8-8 8-8-8z"/>',
   view: '<path d="M3 18h18M5 18c0-5 3-9 7-9s7 4 7 9M12 9v4M8.5 13h7"/>',
+  grab: '<path d="M4 20L14 10"/><path d="M14 10l2-6 4 4-6 2"/><circle cx="4" cy="20" r="1.2"/>',
   impact: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle cx="12" cy="12" r="1.6"/>',
 };
 
@@ -19,6 +20,7 @@ export class Input {
     this.invertY = false;
     this.onToggleAssist = () => {};
     this.onToggleImpact = () => {};
+    this.onGrab = () => {};
     this.touchMode = matchMedia('(pointer: coarse)').matches;
     this.dragging = false;
     this.locked = false;
@@ -28,6 +30,7 @@ export class Input {
       this.keys.add(e.code);
       if (e.code === 'KeyZ' || e.code === 'KeyT') this.onToggleAssist();
       if (e.code === 'KeyB') this.onToggleImpact();
+      if (e.code === 'KeyF' || e.code === 'KeyR') this.onGrab();
       if (e.code === 'KeyI') this.invertY = !this.invertY;
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     });
@@ -107,7 +110,7 @@ export class Input {
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
       btns.appendChild(b);
     };
-    mk('boost', true); mk('up', true); mk('brake', true); mk('down', true); mk('assist', false); mk('impact', false, () => this.onToggleImpact());
+    mk('boost', true); mk('up', true); mk('brake', true); mk('down', true); mk('assist', false); mk('grab', false, () => this.onGrab());
   }
 
   k(...c) { return c.some((x) => this.keys.has(x)); }

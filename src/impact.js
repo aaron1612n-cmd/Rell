@@ -168,7 +168,7 @@ export class Impact {
       if (t1 < 0 || ax < 0 || t0 >= bt || t0 < 0.001) continue;
       _n.set(0, 0, 0).setComponent(ax, sg).applyQuaternion(o.q);
       if (_n.dot(vel) >= -MIN_SPEED * 0.5) continue;
-      bt = t0; best = { t: t0, n: _n.clone(), kind: 'obb', chunk: o.chunk, body: null };
+      bt = t0; best = { t: t0, n: _n.clone(), kind: 'obb', chunk: o.chunk, node: o.node, body: null };
     }
     // spheres: rotating ring segments, then drifting debris (solved in the target's frame)
     const sph = (pos, vl, rad, kind, body, mesh) => {
@@ -180,7 +180,7 @@ export class Impact {
       bt = t; _n.copy(_o).addScaledVector(_v, t).normalize();
       best = { t, n: _n.clone(), kind, body, mesh, rad };
     };
-    for (const s of world.statics) sph(s.pos, s.w, s.rad, 'ring', null, world.ringGroup);
+    for (const s of world.statics) sph(s.pos, s.w, s.rad, 'ring', null, s.node || world.ringGroup);
     for (const d of world.debris) sph(d.pos, d.vel, d.radius, 'debris', d, null);
     return best;
   }
@@ -190,7 +190,7 @@ export class Impact {
     const { ship, world } = this;
     const sp = ship.vel.length(); _d.copy(ship.vel).divideScalar(sp);
     let node = null;
-    if (best.kind === 'obb') node = world.chunks && world.chunks[best.chunk];
+    if (best.kind === 'obb') node = best.node || (world.chunks && world.chunks[best.chunk]);
     else if (best.kind === 'ring') node = best.mesh;
     // analytic contact point
     _p.copy(ship.pos).addScaledVector(ship.vel, best.t).addScaledVector(best.n, -ship.radius);
