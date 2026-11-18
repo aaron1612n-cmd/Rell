@@ -154,6 +154,54 @@ body.touch #dock.show{transform:translate(-50%,0)}
 #help .tut button{display:flex;align-items:center;gap:10px;background:none;border:1.5px solid var(--dim);border-radius:24px;padding:8px 18px 8px 12px;color:var(--bone);font:inherit;font-size:16px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
 #help .tut svg{width:22px;height:22px;stroke:var(--hazard);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 @media (prefers-reduced-motion:reduce){#pop i,#tut .g.pop,.mk.warn>svg,#reticle.miss,#dock button.no{animation:none}#dock{transition:none}}
+/* ---- EVA ---- */
+#exitbtn{position:absolute;right:calc(max(16px,env(safe-area-inset-right)) + 112px);top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:border-color .15s,opacity .2s;padding:0;color:inherit}
+#exitbtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#exitbtn.dim{opacity:.35}
+#exitbtn.ping{border-color:var(--hazard);box-shadow:0 0 0 0 rgba(255,90,31,.6);animation:ping 1.6s infinite}
+#exitbtn.ping svg{stroke:var(--hazard)}
+#exitbtn.deny{animation:deny .35s}
+body:not(.touch) #exitbtn::after{content:"G";position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border:1px solid var(--dim);border-radius:3px;background:var(--void);font:600 9px/14px ui-monospace,Menlo,monospace;color:var(--bone);text-align:center;opacity:0;transition:opacity .2s}
+body:not(.touch) #exitbtn.ping::after{opacity:1;border-color:var(--hazard);color:var(--hazard)}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(255,90,31,.55)}70%{box-shadow:0 0 0 14px rgba(255,90,31,0)}100%{box-shadow:0 0 0 0 rgba(255,90,31,0)}}
+@keyframes deny{0%,100%{transform:none}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+body.eva #speed,body.eva #hullwrap,body.eva #reticle,body.eva #pro,body.eva #assist,body.eva #impact,body.eva #nav{opacity:0!important;pointer-events:none}
+#evaret{position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px;opacity:0;transition:opacity .2s,width .15s,height .15s,margin .15s}
+#evaret.on{opacity:1}
+#evaret::before{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--bone);opacity:.7}
+#evaret.t{width:44px;height:44px;margin:-22px}
+#evaret.t::before{border:0;border-radius:0;opacity:1;background:
+ linear-gradient(var(--hazard),var(--hazard)) 0 0/10px 2px no-repeat,linear-gradient(var(--hazard),var(--hazard)) 0 0/2px 10px no-repeat,
+ linear-gradient(var(--hazard),var(--hazard)) 100% 0/10px 2px no-repeat,linear-gradient(var(--hazard),var(--hazard)) 100% 0/2px 10px no-repeat,
+ linear-gradient(var(--hazard),var(--hazard)) 0 100%/10px 2px no-repeat,linear-gradient(var(--hazard),var(--hazard)) 0 100%/2px 10px no-repeat,
+ linear-gradient(var(--hazard),var(--hazard)) 100% 100%/10px 2px no-repeat,linear-gradient(var(--hazard),var(--hazard)) 100% 100%/2px 10px no-repeat}
+#evaret s{position:absolute;inset:7px;border-radius:50%;opacity:0;background:conic-gradient(var(--hazard) var(--p,0%),rgba(232,224,204,.12) 0);-webkit-mask:radial-gradient(circle,transparent 61%,#000 63%);mask:radial-gradient(circle,transparent 61%,#000 63%)}
+#evaret.t s{opacity:1}
+#evause{position:absolute;left:50%;top:calc(50% + 34px);width:22px;height:30px;margin-left:-11px;border:1.5px solid var(--bone);border-radius:11px;opacity:0;transition:opacity .3s}
+#evause::before{content:"";position:absolute;left:0;top:0;width:50%;height:45%;background:var(--hazard);border-radius:9px 0 0 0;animation:eblink 1s infinite}
+#evause.on{opacity:.9}
+body.touch #evause{display:none}
+@keyframes eblink{50%{opacity:.25}}
+.emk{position:absolute;left:0;top:0;display:none;will-change:transform;pointer-events:none}
+.emk i{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border:1.5px solid var(--hazard);transform:rotate(45deg)}
+.emk b{position:absolute;left:14px;top:-7px;font:500 10px ui-monospace,Menlo,monospace;letter-spacing:.1em;color:var(--hazard)}
+.emk.home i{border-color:var(--bone);border-radius:50%;transform:none}
+.emk.home b{color:var(--bone)}
+.emk.home.hot i{border-color:var(--hazard);background:rgba(255,90,31,.25);animation:eblink .8s infinite}
+.emk.edge i{border-width:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:14px solid var(--hazard);transform:none;border-radius:0;background:none}
+.emk.home.edge i{border-bottom-color:var(--bone)}
+.emk.edge b{display:none}
+#evafade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:4}
+#evabtns{display:none}
+body.eva #btns,body.eva #hint,body.eva #tut,body.eva #dock{display:none!important}
+body.eva #evabtns{display:grid}
+.btn.big{border-color:var(--hazard)}
+.btn.big svg{stroke:var(--hazard)}
+.btn.big.down svg{stroke:var(--void)}
+/* phones held upright: a compact row so the buttons stay out of the middle of the view */
+@media (max-aspect-ratio:4/5){.btns{grid-template-columns:repeat(3,54px);gap:9px}.btn{width:54px;height:54px}.btn svg{width:22px;height:22px}}
+body.cockpit .btn:not(.down){background:rgba(7,9,13,.22);border-color:rgba(232,224,204,.3)}
+@media (prefers-reduced-motion:reduce){#exitbtn.ping,#evause::before,.emk.home.hot i{animation:none}}
 </style>
 </head>
 <body>
@@ -162,7 +210,9 @@ body.touch #dock.show{transform:translate(-50%,0)}
   <div id="reticle"></div><div id="pro"></div>
   <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
   <div id="impact" class="on"><i></i><span class="mono">Impact</span></div>
-  <button id="helpbtn" aria-label="Controls"></button><button id="viewbtn" aria-label="View"></button>
+  <button id="helpbtn" aria-label="Controls"></button><button id="viewbtn" aria-label="View"></button><button id="exitbtn" aria-label="Hatch"></button>
+  <div id="evaret"><s></s></div><div id="evause"></div>
+  <div id="evamark" class="emk"><i></i><b></b></div><div id="evahome" class="emk home"><i></i><b></b></div>
   <div id="hullwrap"><span class="mono">Hull</span><div id="hull"></div></div>
   <div id="speed"><span class="mono">m/s</span><b id="spd">000</b><div id="spdbar"><i id="spdfill"></i><s></s></div></div>
 </div>
@@ -170,10 +220,12 @@ body.touch #dock.show{transform:translate(-50%,0)}
   <div class="zone" id="zl"><div class="knob-base"></div><div class="knob"></div></div>
   <div class="zone" id="zr"></div>
   <div class="btns" id="btns"></div>
+  <div class="btns" id="evabtns"></div>
 </div>
 <div id="hint" class="mono">click to aim</div>
 <div id="help"></div>
 <div id="flash"></div>
+<div id="evafade"></div>
 <div id="veil"></div>
 <script type="module" src="/src/main.js"></script>
 </body>

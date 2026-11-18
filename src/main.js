@@ -13,6 +13,9 @@ import { Engine } from './engine.js';
 import { setupLights, Look } from './look.js';
 import { NOZZLES, solveRcs } from './rcs.js';
 import { Cockpit } from './cockpit.js';
+import { Eva } from './eva.js';
+import { Lockers } from './lockers.js';
+import { HullDamage } from './damage.js';
 import { LAYOUT } from './sites.js';
 import { Salvage } from './salvage.js';
 import { Econ } from './economy.js';
@@ -47,9 +50,9 @@ shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.se
 camera.layers.enable(1); sun.shadow.camera.layers.enable(1);
 const cockpit = new Cockpit({ renderer, camera, shipModel, env: scene.environment, sunDir: SUN_DIR, world, coarse, reduced });
 await cockpit.load();
-addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) cockpit.toggle(); });
+addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) { if (eva.active) eva.toggleView(); else cockpit.toggle(); } });
 { const vb = document.getElementById('viewbtn'); vb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.view}</svg>`;
-  vb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); cockpit.toggle(); }); }
+  vb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (eva.active) eva.toggleView(); else cockpit.toggle(); }); }
 
 const input = new Input(canvas);
 input.onToggleAssist = () => { ship.assist = !ship.assist; };
@@ -84,7 +87,7 @@ nav.onBuy = () => econ.apply(ship, salvage);
 const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced });
 if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
 help.onTutorial = () => { respawn(true); tutorial.start(); };
-input.onGrab = () => salvage.grab();
+input.onGrab = () => { if (!eva.active) salvage.grab(); };
 let depotFlash = 0;
 
 world.onSiteEvent = (e, site) => {
@@ -172,6 +175,17 @@ const engU = Engine.uniforms(coarse);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _ax = new THREE.Vector3(), _u = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion();
 const R = Math.random, rs = () => R() - 0.5;
 let fxT = 0, boostSm = 0, heat = 0, offT = 1, onT = 0, wasBoost = false, gx = 0, gy = 0, gr = 0, flashL = 0;
+// ---- EVA: bolted lockers on the wrecks, hull damage on the ship, the pilot outside ------------
+const lockers = new Lockers(scene, world, { coarse });
+const damage = new HullDamage(shipMesh, shipModel);
+const eva = new Eva({ scene, camera, world, ship, shipMesh, cockpit, input, fx, rig, coarse, reduced, lockers, damage, env: scene.environment, sunDir: SUN_DIR, hud,
+  onStow: (L) => { econ.earn(L.value); nav.pop(L.value); } });
+eva.getFxT = () => fxT;
+look.composer.insertPass(eva.pass, look.composer.passes.indexOf(cockpit.pass) + 1);
+input.onExit = () => eva.request();
+{ const xb = document.getElementById('exitbtn'); xb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.exit}</svg>`;
+  xb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); eva.request(); }); }
+const HOLD = { fwd: 0, strafe: 0, vert: 0, roll: 0, boost: false, brake: true, yawKey: 0, pitchKey: 0, dx: 0, dy: 0 };
 const E = [0, 1].map(() => ({ prev: new THREE.Vector3(), cur: new THREE.Vector3(), axis: new THREE.Vector3(), u: new THREE.Vector3(), w: new THREE.Vector3(), acc: [0, 0, 0, 0, 0], has: false }));
 
 // random point on the exit disc and a direction inside a cone around the engine axis
@@ -371,7 +385,7 @@ function onShipHit(hit, otherMass) {
   if (s > 4) cockpit.alert(Math.min(1, s / 18));
   // glancing bumps are free; real hits cost hull, scaled by what you hit
   const dmg = Math.max(0, s - 7) * 0.011 * Math.min(2, 0.7 + otherMass * 0.15) * (ship.armor ?? 1);
-  if (dmg > 0) ship.hull = Math.max(0, ship.hull - dmg);
+  if (dmg > 0) { ship.hull = Math.max(0, ship.hull - dmg); damage.add(hit.point, ship, dmg); }
   // knock: a hit tumbles you
   ship.angVel.add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(Math.min(3, s * 0.12)));
   if (ship.hull <= 0 && !respawnT) { respawnT = 1.6; salvage.releaseAll(); }
@@ -380,7 +394,7 @@ function onShipHit(hit, otherMass) {
 // back at the start for the tutorial, otherwise towed home to the depot's dock
 function respawn(start = false) {
   salvage.releaseAll();
-  ship.vel.set(0, 0, 0); ship.angVel.set(0, 0, 0); ship.hull = 1;
+  ship.vel.set(0, 0, 0); ship.angVel.set(0, 0, 0); ship.hull = 1; damage.clear();
   if (start) { ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler)); return; }
   ship.pos.copy(depot.dockPt);
   // face away from the depot, out toward the wrecks
@@ -396,7 +410,8 @@ requestAnimationFrame(() => document.getElementById('veil').classList.add('go'))
 
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
-  const cmd = input.consume();
+  const raw = input.consume();
+  const cmd = eva.holdShip ? HOLD : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
 
@@ -422,12 +437,15 @@ function frame(now) {
   impact.update(dt, time);
   world.updateDust(ship.pos, ship.vel);
   rig.tow = salvage.ropes.reduce((m, r) => Math.max(m, r.shoot < 1 ? 0 : r.rest + r.item.body.radius), 0);
-  rig.update(dt, ship);
+  if (!eva.active || (eva.state === 'out' && eva.sub < 2)) rig.update(dt, ship);
   ship.braking = cmd.brake; cockpit.heat = heat;
   cockpit.update(dt, ship, rig);
+  eva.update(dt, raw);
+  if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
   world.updateVisual(time, camera.position);
 
-  sun.position.copy(ship.pos).addScaledVector(SUN_DIR, 250); sun.target.position.copy(ship.pos);
+  const focus = eva.state === 'eva' ? eva.pilot.pos : ship.pos;
+  sun.position.copy(focus).addScaledVector(SUN_DIR, 250); sun.target.position.copy(focus);
   salvage.update(dt, time, camera);
   hud.update(dt, ship, camera, innerWidth, innerHeight);
   nav.update(dt, camera, innerWidth, innerHeight, time);
@@ -437,4 +455,4 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit };
+window.__game = { salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };

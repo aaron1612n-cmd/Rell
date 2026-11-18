@@ -7,6 +7,9 @@ export const ICONS = {
   assist: '<path d="M12 4l8 8-8 8-8-8z"/>',
   view: '<path d="M3 18h18M5 18c0-5 3-9 7-9s7 4 7 9M12 9v4M8.5 13h7"/>',
   grab: '<path d="M4 20L14 10"/><path d="M14 10l2-6 4 4-6 2"/><circle cx="4" cy="20" r="1.2"/>',
+  exit: '<path d="M4 19h16M6 19c0-4 2.7-7 6-7s6 3 6 7"/><path d="M12 10V3M9 6l3-3 3 3"/>',
+  tool: '<path d="M4 20l7-7M13 11l2-2M15 4l1.5 3.5L20 9l-3.5 1.5L15 14l-1.5-3.5L10 9l3.5-1.5z"/>',
+  reel: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 5V2M19 12h3"/>',
   impact: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle cx="12" cy="12" r="1.6"/>',
 };
 
@@ -16,7 +19,9 @@ export class Input {
     this.keys = new Set();
     this.lookDX = 0; this.lookDY = 0;
     this.stick = { x: 0, y: 0 };
-    this.t = { up: false, down: false, boost: false, brake: false };
+    this.t = { up: false, down: false, boost: false, brake: false, tool: false, reel: false };
+    this.mouseFire = false;
+    this.onExit = () => {};
     this.invertY = false;
     this.onToggleAssist = () => {};
     this.onToggleImpact = () => {};
@@ -32,6 +37,7 @@ export class Input {
       if (e.code === 'KeyB') this.onToggleImpact();
       if (e.code === 'KeyF' || e.code === 'KeyR') this.onGrab();
       if (e.code === 'KeyI') this.invertY = !this.invertY;
+      if (e.code === 'KeyG') this.onExit();
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -55,9 +61,10 @@ export class Input {
       if (!this.locked && canvas.requestPointerLock) {
         try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch {}
       }
+      else if (e.button === 0) this.mouseFire = true;
       this.dragging = true;
     });
-    addEventListener('pointerup', () => { this.dragging = false; });
+    addEventListener('pointerup', (e) => { this.dragging = false; if (e.pointerType !== 'touch' && e.button === 0) this.mouseFire = false; });
     addEventListener('pointermove', (e) => {
       if (e.pointerType === 'touch') return;
       if (this.locked || this.dragging) { this.lookDX += e.movementX || 0; this.lookDY += e.movementY || 0; }
@@ -100,7 +107,7 @@ export class Input {
     const endLook = (e) => { if (e.pointerId === lid) lid = null; };
     zr.addEventListener('pointerup', endLook); zr.addEventListener('pointercancel', endLook);
 
-    const btns = document.getElementById('btns');
+    let btns = document.getElementById('btns');
     const mk = (name, hold, fn = () => this.onToggleAssist()) => {
       const b = document.createElement('div'); b.className = 'btn';
       b.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[name]}</svg>`;
@@ -108,9 +115,12 @@ export class Input {
       b.addEventListener('pointerdown', (e) => { e.stopPropagation(); b.setPointerCapture(e.pointerId); set(true); if (!hold) { fn(); setTimeout(() => set(false), 120); } });
       const up = (e) => { e.stopPropagation(); if (hold) set(false); };
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
-      btns.appendChild(b);
+      btns.appendChild(b); return b;
     };
     mk('boost', true); mk('up', true); mk('brake', true); mk('down', true); mk('assist', false); mk('grab', false, () => this.onGrab());
+    // EVA set: the tool is the big one, under the right thumb
+    btns = document.getElementById('evabtns');
+    mk('reel', true); mk('up', true); mk('boost', true); mk('down', true); mk('brake', true); mk('tool', true).classList.add('big');
   }
 
   k(...c) { return c.some((x) => this.keys.has(x)); }
@@ -125,6 +135,8 @@ export class Input {
       roll: (k('KeyE') ? 1 : 0) - (k('KeyQ') ? 1 : 0),
       boost: k('ShiftLeft', 'ShiftRight') || this.t.boost,
       brake: k('KeyX') || this.t.brake,
+      fire: this.mouseFire || this.t.tool,
+      reel: k('KeyR') || this.t.reel,
       yawKey: (k('ArrowRight') ? 1 : 0) - (k('ArrowLeft') ? 1 : 0),
       pitchKey: (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0),
       dx: this.lookDX, dy: this.lookDY * (this.invertY ? -1 : 1),
