@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Ship } from './ship.js';
 import { buildShip } from './shipMesh.js';
 import { poseShip, fadeCanopy } from './shipRig.js';
+import { WorldAnim, DebrisSparks } from './worldAnim.js';
 import { loadModel, urls, mats } from './assets.js';
 import { World, SUN_DIR } from './world.js';
 import { Input, ICONS } from './input.js';
@@ -179,6 +180,7 @@ const quality = new Quality({ renderer, look, sun, hazePass, world, coarse, onRe
 // Quality tier: phones get fewer particles, no heat haze and no bloom (particles add their own halo there).
 const Q = coarse ? 0.45 : 1;
 const fx = new GpuParticles(coarse ? 2400 : 7000, 'add', { glow: coarse ? 1 : 0 }); scene.add(fx.mesh);
+const worldAnim = new WorldAnim(world), debrisSparks = new DebrisSparks(fx, K);
 const smoke = new GpuParticles(coarse ? 260 : 700, 'smoke'); scene.add(smoke.mesh);
 const haze = coarse ? null : new GpuParticles(500, 'haze'); if (haze) hazeScene.add(haze.mesh);
 const engU = Engine.uniforms(coarse);
@@ -386,6 +388,7 @@ const vanes = { pitch: 0, roll: 0 };
 function partsFx(dt) {
   const w = ship.angVel, cl = (v) => THREE.MathUtils.clamp(v, -1, 1);
   vanes.pitch = THREE.MathUtils.damp(vanes.pitch, cl(-w.x * 0.9 - _alpha.x * 0.08), 6, dt);
+  vanes.t = time;
   vanes.roll = THREE.MathUtils.damp(vanes.roll, cl(w.z * 0.7 + _alpha.z * 0.06), 6, dt);
   poseShip(shipMesh.userData.rig, cockpit.openAngle || 0, vanes);
   if (cockpit.extRig) poseShip(cockpit.extRig, 0, vanes);
@@ -396,6 +399,11 @@ function navFx(t) {
   const navs = shipMesh.userData.navs;
   navs[0].material.opacity = navs[1].material.opacity = 0.55 + 0.1 * Math.sin(t * 2);
   navs[2].material.opacity = (t % 1.6) < 0.09 ? 1 : 0.05;    // short white strobe every 1.6s
+  const L = shipMesh.userData.lights;
+  // mast beacon: double blink; leading-edge lights chase outboard; pod beacons breathe, faster while boosting
+  const b = t % 2.2; L.beacon.material.opacity = (b < 0.07 || (b > 0.22 && b < 0.29)) ? 1 : 0.04;
+  for (const c of L.chase) { const ph = ((t * 1.6 - c.i * 0.16) % 1 + 1) % 1; c.sp.material.opacity = 0.08 + 0.92 * Math.max(0, 1 - ph * 6); }
+  const pp = 0.5 + 0.5 * Math.sin(t * (2 + 5 * boostSm)); for (const s of L.pods) s.material.opacity = 0.15 + 0.7 * pp * pp;
 }
 
 let respawnT = 0;
@@ -468,6 +476,8 @@ function frame(now) {
   eva.update(dt, raw);
   if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
   world.updateVisual(time, camera.position);
+  worldAnim.update(dt, time);
+  debrisSparks.update(dt, fxT, world.debris, camera.position, ship.vel);
 
   const focus = eva.state === 'eva' ? eva.pilot.pos : ship.pos;
   sun.position.copy(focus).addScaledVector(SUN_DIR, 250); sun.target.position.copy(focus);
@@ -482,4 +492,4 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };

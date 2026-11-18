@@ -31,6 +31,15 @@ export function buildShip(model, coarse = false) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     sp.position.set(x, y, z); sp.scale.setScalar(0.4); g.add(sp); return sp;
   });
-  g.userData = { glows, light, nubs, navs, engines, rig, body };
+  // extra running lights: mast beacon, leading-edge chasers, pod warning beacons (timed in main.js navFx)
+  const spr = (x, y, z, col, s) => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); sp.position.set(x, y, z); sp.scale.setScalar(s); g.add(sp); return sp; };
+  const beacon = spr(0.32, 1.02, 0.1, 0xff3b2a, 0.3);
+  const chase = [];
+  for (const sx of [-1, 1]) for (let i = 0; i < 6; i++) {
+    const x = 0.95 + i * 0.25, z = -0.4 + (x - 0.5) * (1.08 / 1.85) - 0.06;
+    chase.push({ sp: spr(sx * x, -0.1, z, 0xffb347, 0.13), i });
+  }
+  const pods = [-1, 1].map((sx) => spr(sx * 0.66, 0.4, 1.15, 0xff5a1f, 0.22));
+  g.userData = { glows, light, nubs, navs, engines, rig, body, lights: { beacon, chase, pods } };
   return g;
 }

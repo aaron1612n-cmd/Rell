@@ -60,7 +60,12 @@ for x in (-.22, .22): k.box((x, .70, 1.45), (.12, .34, .14), SLATE, bevel=.015)
 k.stripes((0, .595, .35), (.34, .14), 6, 'y', thick=.012)  # lies on the spine panel
 # mast + dish
 k.cyl((.0, 1.18, 1.55), .02, .02, .78, 'y', 6, SLATE_L)
-k.sphere((0, 1.55, 1.55), .12, (1, .5, 1), SLATE_L, 10, 6, half=True, rot=(-90, 0, 0))
+# the dish is its own object: it scans back and forth on the mast (pivot: the mast axis)
+kd = Kit('dish', seed=11); kd.maxlen = .26
+kd.sphere((0, 1.55, 1.55), .12, (1, .5, 1), SLATE_L, 10, 6, half=True, rot=(-90, 0, 0))
+kd.cyl((0, 1.55, 1.49), .008, .008, .14, 'z', 6, SLATE)        # feed horn
+kd.box((0, 1.55, 1.42), (.025, .025, .025), HAZ, wear=0)
+kd.cyl((0, 1.55, 1.6), .03, .03, .08, 'z', 8, SLATE_D)         # gimbal hub
 k.cyl((.32, .72, .1), .02, .02, .5, 'y', 6, SLATE_L); k.lamp((.32, 1.0, .1), (.06, .06, .06), RED)
 
 # ---- engine pods ---------------------------------------------------------------------
@@ -146,7 +151,7 @@ meta = {'nozzles': NOZ, 'glow': [[-.66, 0, 2.38], [.66, 0, 2.38]],
 k.meta['x'] = 1
 a = math.radians(10)
 meta['flaps'] = [{'pivot': [round(sx * 1.55 - math.sin(sx * a) * .07, 3), -.12, round(1.4 - .07 * math.cos(a), 3)], 'axis': [round(math.cos(a), 4), 0, round(-math.sin(sx * a), 4)], 'side': sx} for sx in (-1, 1)]
-bake_ao([k, kc] + FLAPS, rays=24, dist=.9, strength=.9)
+bake_ao([k, kc, kd] + FLAPS, rays=24, dist=.9, strength=.9)
 out = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'assets')
-export_glb([k, kc] + FLAPS, os.path.join(out, 'ship.glb'))
+export_glb([k, kc, kd] + FLAPS, os.path.join(out, 'ship.glb'))
 json.dump(meta, open(os.path.join(out, 'ship.json'), 'w'))

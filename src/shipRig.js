@@ -41,6 +41,8 @@ export function rigShip(root, { struts = true } = {}) {
     h.userData.axis = new THREE.Vector3(...f.axis).normalize(); h.userData.side = f.side;
     rig.flaps.push(h);
   }
+  const dish = find('dish');
+  if (dish) rig.dish = hingeAt(root, dish, new THREE.Vector3(0, 1.55, 1.55));
   if (struts && rig.canopy) {
     const body = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.45, metalness: 0.8 });
     const rod = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.2, metalness: 1 });
@@ -68,6 +70,11 @@ export function poseShip(rig, angle, vanes) {
       s.b.position.copy(s.A); s.b.quaternion.copy(_q); s.b.scale.set(1, 1, s.L0 * 0.62);
       s.r.position.copy(s.A); s.r.quaternion.copy(_q); s.r.scale.set(1, 1, len);
     }
+  }
+  if (rig.dish && vanes) {
+    // the dish sweeps slowly, with the odd pause and a nod, like it's hunting for a signal
+    const t = vanes.t || 0, s = Math.sin(t * 0.45) + 0.35 * Math.sin(t * 1.3 + 1);
+    rig.dish.rotation.set(0.18 * Math.sin(t * 0.7), s * 1.2, 0, 'YXZ');
   }
   if (vanes) for (const h of rig.flaps) {
     // trailing-edge vanes: down on the rising side for roll, together for pitch
