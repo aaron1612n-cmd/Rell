@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { suitMaterials, buildAstronaut, poseAstronaut, buildArm, poseFirstPerson, driveJets, SUIT } from './astronaut.js';
+import { suitMaterials, buildAstronaut, buildArm, poseFirstPerson, driveJets, heatTool, SuitAnim, Spring, SUIT } from './astronaut.js';
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
 import { Hatch } from './hatch.js';
@@ -23,7 +23,27 @@ const SEAT_IN = new THREE.Vector3(0, 1.05, 0.05);          // where you hang to 
 // rough ship hull as spheres (ship space) so you bump it rather than pass through
 const HULL = [[0, 0.22, -1.65, 0.5], [0, 0.18, -0.55, 0.62], [0, 0.15, 0.75, 0.75], [1.35, 0, 0.85, 0.55], [-1.35, 0, 0.85, 0.55], [2.1, -0.05, 1.0, 0.32], [-2.1, -0.05, 1.0, 0.32]];
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler();
-const _x = new THREE.Vector3(1, 0, 0), _y = new THREE.Vector3(0, 1, 0), _z = new THREE.Vector3(0, 0, 1);
+// The cutter goes away on its own when you've had nothing to work on for a while, and comes out when you aim
+// at something you can cut (or pull the trigger). The hand dips to the hip holster; halfway through, the tool
+// changes hands with the holster, then the hand comes back up.
+class Holster {
+  constructor() { this.inHand = true; this.goal = true; this.t = 0; this.active = false; this.swapped = false; this.changed = false; this.dur = 0.8; }
+  want(v) { this.goal = v; }
+  snap(v) { this.goal = this.inHand = v; this.active = false; this.changed = true; }
+  get drop() { return this.active ? Math.sin(Math.PI * this.t) : 0; }
+  get ready() { return this.inHand && (!this.active || this.swapped); }
+  update(dt) {
+    this.changed = false;
+    if (!this.active && this.goal !== this.inHand) { this.active = true; this.t = 0; this.swapped = false; }
+    if (!this.active) return;
+    if (!this.swapped && this.goal === this.inHand) { this.t = 1 - this.t; this.swapped = true; }   // changed its mind: go back up
+    this.t += dt / this.dur;
+    if (!this.swapped && this.t >= 0.5) { this.inHand = this.goal; this.swapped = true; this.changed = true; }
+    if (this.t >= 1) this.active = false;
+  }
+}
+
+const _zero3 = new THREE.Vector3(), _x = new THREE.Vector3(1, 0, 0), _y = new THREE.Vector3(0, 1, 0), _z = new THREE.Vector3(0, 0, 1);
 
 // ---- visor: helmet rim, condensation, the wordless suit HUD ------------------------------
 const VISOR_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
@@ -124,6 +144,12 @@ export class Eva {
     this.buildRope(); this.buildHands(); this.buildBeam(); this.buildDom();
     this.lockers.onStow = (L) => this.stowed(L);
     this.hatch = new Hatch(this); this.unclip = 0;
+    // motion: the third-person suit's springs, the cutter (holster, heat, recoil), body-space acceleration
+    this.anim = new SuitAnim(this.body);
+    this.holster = new Holster(); this.idleT = 0;
+    this.heat = 0; this.vent = 0; this.recoil = new Spring(260, 0.32); this.pulse = 0; this.wasFiring = false;
+    this.accB = new THREE.Vector3(); this.spinB = new THREE.Vector3(); this.prevRel = new THREE.Vector3();
+    this.ropeDir = new THREE.Vector3(0, 0, 1); this.lookB = new THREE.Vector3();
   }
 
   get active() { return this.state !== 'off'; }
@@ -196,6 +222,8 @@ export class Eva {
       this.hintUsed = true; this.el.btn.classList.remove('ping');
     } else if (this.state === 'eva' && this.canBoard) {
       this.state = 'in'; this.unclip = 0;
+      if (!this.holster.inHand || this.holster.active) { this.holster.snap(true); this.body.userData.stowTool(false); this.tool.visible = true; }
+      this.firing = false; this.beam.visible = false;
       this.hatch.startEntry();
     }
   }
@@ -207,6 +235,7 @@ export class Eva {
     const p = this.pilot;
     p.roll = 0; p.vel.copy(this.ship.vel).addScaledVector(_v.set(0, 0.05, -0.18).applyQuaternion(this.ship.quat), 1);
     this.state = 'eva'; this.t = 0;
+    this.prevRel.copy(p.vel).sub(this.ship.vel); this.accB.set(0, 0, 0); this.anim.reset(); this.idleT = 0;
     this.ropeLen = 2; this.ropeReset = true; this.unclip = 0;
     this.visorU.uOn.value = 1;
     if (this.view === 1) { this.tpInit = true; this.camPos.copy(this.camera.position); }
@@ -370,6 +399,14 @@ export class Eva {
     }
     this.el.fade.style.opacity = (this.blackout || 0).toFixed(3);
 
+    // what the body actually felt this frame (thrust, brake, bumps, the tether snapping taut), body space,
+    // in units of full thrust: it drives the suit's lean and how the arms and legs swing
+    _v.copy(p.vel).sub(ship.vel); _v2.subVectors(_v, this.prevRel).divideScalar(Math.max(dt, 1e-4) * CFG.acc); this.prevRel.copy(_v);
+    _v2.applyQuaternion(_q2.copy(p.quat).invert()); if (_v2.lengthSq() > 16) _v2.setLength(4);
+    this.accB.lerp(_v2, 1 - Math.exp(-30 * dt));
+    this.spinB.set(pitch, yaw, p.roll * dt).divideScalar(Math.max(dt, 1e-4));
+    if (this.spinB.lengthSq() > 36) this.spinB.setLength(6);
+
   }
 
   // the plumes are driven in place() once the body is posed; here the gas: a thin stream of frost off every open
@@ -443,8 +480,15 @@ export class Eva {
     let T = this.lockers.pick(o, d, reach);
     const W = this.damage.pick(o, d, reach, this.ship); if (W && (!T || W.dist < T.dist)) T = W;
     this.target = T;
-    const fire = cmd.fire && T;
+    // holster: out when there's something to cut (or the trigger's pulled), away after a while with nothing
+    const H = this.holster;
+    if (cmd.fire || (T && T.kind !== 'core')) { H.want(true); this.idleT = 0; }
+    else if ((this.idleT += dt) > 5) H.want(false);
+    H.update(dt);
+    if (H.changed) { this.body.userData.stowTool(!H.inHand); this.tool.visible = H.inHand; }
+    const fire = cmd.fire && T && (T.kind === 'core' || H.ready);
     this.firing = !!fire;
+    this.cutterFx(dt, fire && T.kind !== 'core');
     this.beam.visible = false; this.toolLight.intensity = 0;
     this.useT = fire ? (this.useT || 0) + dt : 0;
     if (!fire) { this.reachL = Math.max(0, this.reachL - dt * 3); return; }
@@ -482,6 +526,35 @@ export class Eva {
     if (ev === 'tag') this.hud.pulse(0.05);
   }
 
+  // the cutter's own life: it heats while cutting (the barrel glows), kicks on every pulse of the arc, spits a few
+  // sparks at the nozzle, and dumps its heat out of the cheek vents in a puff of gas when you let go
+  cutterFx(dt, cutting) {
+    this.heat = cutting ? Math.min(1, this.heat + dt * 0.3) : Math.max(0, this.heat - dt * (this.vent > 0 ? 0.32 : 0.07));
+    if (cutting && !this.wasFiring) this.recoil.v.add(_v.set(1.1, 0.14, 0.5));
+    if (cutting) { this.pulse += dt * 9; while (this.pulse > 1) { this.pulse--; this.recoil.v.add(_v.set(0.22 + Math.random() * 0.16, 0.025, 0.1)); } }
+    if (!cutting && this.wasFiring && this.heat > 0.15) this.vent = 0.45 + this.heat * 1.1;
+    this.wasFiring = cutting;
+    this.recoil.step(_zero3, dt);
+    this.trig = THREE.MathUtils.damp(this.trig || 0, cutting ? 1 : 0, 18, dt);
+    const tool = this.view === 0 ? this.tool : this.body.userData.tool, u = tool.userData, m = tool.matrixWorld, pv = this.pilot.vel;
+    if (this.vent > 0) {
+      this.vent -= dt;
+      this.ventAcc = (this.ventAcc || 0) + dt * (this.coarse ? 30 : 60) * Math.min(1, this.vent * 1.5);
+      while (this.ventAcc > 1) {
+        this.ventAcc--;
+        const vt = u.vents[(Math.random() * u.vents.length) | 0];
+        const o = _v2.copy(vt.p).applyMatrix4(m), d = _v3.copy(vt.d).transformDirection(m).multiplyScalar(0.6 + Math.random() * 0.6);
+        d.x += (Math.random() - 0.5) * 0.25; d.y += 0.1 + Math.random() * 0.2; d.z += (Math.random() - 0.5) * 0.25; d.add(pv);
+        this.fx.emit(o, d, this.fxT(), 0.5 + Math.random() * 0.5, 0.008, 0.05 + Math.random() * 0.03, K.RCS, 2.2, 0);
+      }
+    }
+    if (cutting && Math.random() < dt * 22) {
+      const o = _v2.set(0, 0, 0).applyMatrix4(u.tip.matrixWorld), d = _v3.set(0, 0, -1).transformDirection(m).multiplyScalar(0.6 + Math.random());
+      d.add(_v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(1.4)).add(pv);
+      this.fx.emit(o, d, this.fxT(), 0.15 + Math.random() * 0.25, 0.006, 0.004, Math.random() < 0.5 ? K.EMBER : K.SPARK, 0.8, 0.02);
+    }
+  }
+
   stowed(L) {
     this.cargo += L.value;
     if (this.onStow) this.onStow(L);
@@ -498,7 +571,9 @@ export class Eva {
       this.body.visible = false;
     } else {
       // over the shoulder, a little lag
-      const want = _v2.set(0.8, 0.55, 2.35).applyQuaternion(p.quat).add(p.pos);
+      // on a tall phone screen there's no room off to the side: swing in behind and back off a little
+      const k = THREE.MathUtils.clamp((cam.aspect - 0.55) / 0.9, 0, 1);
+      const want = _v2.set(THREE.MathUtils.lerp(0.16, 0.8, k), THREE.MathUtils.lerp(0.5, 0.55, k), THREE.MathUtils.lerp(3.2, 2.35, k)).applyQuaternion(p.quat).add(p.pos);
       if (!this.tpInit) { this.camPos.copy(want); this.tpInit = true; }
       this.camPos.lerp(want, 1 - Math.exp(-8 * dt));
       cam.position.copy(this.camPos); cam.quaternion.slerp(p.quat, 1 - Math.exp(-10 * dt));
@@ -512,14 +587,24 @@ export class Eva {
 
     // third-person body
     const b = this.body; b.position.copy(p.pos); b.quaternion.copy(p.quat);
-    poseAstronaut(b, this.t, this.thrSm, this.firing ? 1 : 0.2);
+    const H = this.holster, T = this.target, kind = T ? T.kind : null;
+    _q.copy(p.quat).invert();
+    const look = T ? this.lookB.copy(T.point).sub(p.pos).applyQuaternion(_q).normalize() : null;
+    const r = this.rope; this.ropeDir.copy(r[r.length - 3].p).sub(r[r.length - 1].p).applyQuaternion(_q);
+    if (this.ropeDir.lengthSq() > 1e-6) this.ropeDir.normalize(); else this.ropeDir.set(0, 0, 1);
+    this.anim.update(dt, {
+      acc: this.accB, spin: this.spinB, boost: this.boosting, o2: this.o2,
+      aim: !H.inHand ? 0 : this.firing || (T && kind !== 'core') ? 1 : 0.2, firing: this.firing, kind,
+      reel: this.reeling, rope: this.ropeDir, look, recoil: this.recoil.x, trig: this.trig, drop: H.drop, empty: !H.inHand,
+    });
     // jets: drive the valves from what the pack is doing, carry the plume group on the posed body (it shows in
     // first person too, where the suit is hidden), then puff gas from the open nozzles
     b.updateMatrixWorld(true);
     driveJets(b, this.jetF, this.jetW, this.t, dt, this.boosting ? 1 : 0);
     this.jets.matrix.copy(b.userData.body.matrixWorld); this.jets.matrixWorldNeedsUpdate = true;
     this.jetFx(dt);
-    b.userData.tool.userData.emitter.material.color.setRGB(this.firing ? 6 : 1.2, this.firing ? 2.4 : 0.4, this.firing ? 0.8 : 0.1);
+    const arc = this.firing && kind !== 'core' ? 1 : 0;
+    heatTool(b.userData.tool, this.heat, arc, this.t);
 
     // first-person hands: sway with turning and thrust, the left hand reaches to clamp tags
     const hands = this.pass.enabled = this.view === 0;
@@ -528,12 +613,23 @@ export class Eva {
       this.handCam.fov = cam.fov; this.handCam.aspect = cam.aspect; this.handCam.updateProjectionMatrix(); this.handCam.updateMatrixWorld();
       const tgt = _v.set(THREE.MathUtils.clamp(cmd.dx * 0.0004, -0.03, 0.03), THREE.MathUtils.clamp(-cmd.dy * 0.0004, -0.03, 0.03), 0).addScaledVector(this.thrSm, -0.012);
       this.swayV.addScaledVector(_v2.copy(tgt).sub(this.sway), 90 * dt).multiplyScalar(Math.exp(-12 * dt)); this.sway.addScaledVector(this.swayV, dt);
-      const bob = Math.sin(this.t * 1.1) * 0.003;
-      const kick = this.firing ? (Math.random() - 0.5) * 0.003 : 0;
-      poseFirstPerson(this.armR, this.armL, { narrow: Math.min(1, cam.aspect * 1.3), sway: this.sway, bob, kick, firing: this.firing, reach: this.reachL });
-      this.gloveL.setCurl(0.25 + this.reachL * 0.6 + 0.05 * Math.sin(this.t));
-      this.tool.userData.emitter.material.color.setRGB(this.firing ? 7 : 1.3 + 0.3 * Math.sin(this.t * 3), this.firing ? 2.8 : 0.42, this.firing ? 0.9 : 0.1);
-      this.hTool.position.copy(this.tool.userData.tip.getWorldPosition(_v2)); this.hTool.intensity = this.firing ? 0.8 + Math.random() * 0.6 : 0.04;
+      const bob = this.anim.P.breath * 0.0035;
+      const kick = this.firing ? (Math.random() - 0.5) * 0.002 : 0;
+      this.supFP = THREE.MathUtils.damp(this.supFP || 0, arc && H.inHand ? 1 : 0, 6, dt);
+      this.reelFP = THREE.MathUtils.damp(this.reelFP || 0, this.reeling ? 1 : 0, 6, dt);
+      const reelPh = this.anim.P.reelPh;
+      poseFirstPerson(this.armR, this.armL, {
+        narrow: Math.min(1, cam.aspect * 1.3), sway: this.sway, bob, kick, firing: this.firing, reach: this.reachL,
+        recoil: this.recoil.x, drop: H.drop, empty: !H.inHand, support: this.supFP, reel: this.reelFP, reelPh,
+      });
+      const ph = reelPh % 1;
+      let cL = 0.25 + this.reachL * 0.6 + 0.05 * Math.sin(this.t) + this.anim.P.fidget;
+      cL = THREE.MathUtils.lerp(cL, ph < 0.6 ? 0.95 : 0.35, this.reelFP); cL = THREE.MathUtils.lerp(cL, 0.6, this.supFP);
+      this.gloveL.setCurl(cL, 0.3 * (1 - this.supFP));
+      if (H.inHand) this.armR.glove.setCurl(0.9 + 0.06 * this.trig, 0, 0.72 + 0.28 * this.trig);
+      else this.armR.glove.setCurl(0.3 + 0.05 * Math.cos(this.t * 0.8) + H.drop * 0.5, 0.3);
+      heatTool(this.tool, this.heat, arc, this.t);
+      this.hTool.position.copy(this.tool.userData.tip.getWorldPosition(_v2)); this.hTool.intensity = (arc ? 0.8 + Math.random() * 0.6 : 0.04) + this.heat * 0.25;
       this.hSun.position.copy(cam.position).addScaledVector(this.sunDir, 5); this.hSun.target.position.copy(cam.position);
       // visor fills the view
       this.fitVisor(cam);
