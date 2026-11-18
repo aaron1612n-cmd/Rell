@@ -449,7 +449,7 @@ function frame(now) {
   impact.update(dt, time);
   world.updateDust(ship.pos, ship.vel);
   rig.tow = salvage.ropes.reduce((m, r) => Math.max(m, r.shoot < 1 ? 0 : r.rest + r.item.body.radius), 0);
-  if (!eva.active || (eva.state === 'out' && eva.sub < 2)) rig.update(dt, ship);
+  if (!eva.active) rig.update(dt, ship);
   ship.braking = cmd.brake; cockpit.heat = heat;
   cockpit.update(dt, ship, rig);
   eva.update(dt, raw);

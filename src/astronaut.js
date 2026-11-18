@@ -230,16 +230,26 @@ export function poseAstronaut(a, t, thrust, reach = 0) {
 // First person, in body space (the camera sits at SUIT.eye looking -Z). The view-model cheat every
 // first-person game makes: the shoulders sit lower and wider than the suit's, so the forearms rise into
 // view from the bottom corners and you see the backs of the gloves rather than down the sleeves.
-const FP_SHOULDER = new THREE.Vector3().copy(SUIT.eye).add(new THREE.Vector3(0.28, -0.52, -0.12)), _zero = new THREE.Vector3();
-const _fw = new THREE.Vector3(), _ff = new THREE.Vector3(), _ft = new THREE.Vector3(), _fp = new THREE.Vector3(), _fq = new THREE.Quaternion();
-export function poseFirstPerson(armR, armL, o = {}) {
+export const FP_SHOULDER = new THREE.Vector3().copy(SUIT.eye).add(new THREE.Vector3(0.28, -0.52, -0.12));
+const _zero = new THREE.Vector3();
+const _ff = new THREE.Vector3(), _ft = new THREE.Vector3();
+const FPT = ['R', 'L'].reduce((o, k) => (o[k] = { S: FP_SHOULDER, W: new THREE.Vector3(), P: new THREE.Vector3(0.5, -1, 0.3), Q: new THREE.Quaternion() }, o), {});
+// the first-person arm targets (arm space; left in its mirrored space), so transitions can blend into them
+export function fpTargets(o = {}) {
   const E = SUIT.eye, nar = o.narrow ?? 1, sw = o.sway || _zero, bob = o.bob || 0, r = o.reach || 0;
   // right: tool hand low right, barrel converging on the reticle far out
-  _fw.set(E.x + 0.17 * nar + (o.kick || 0), E.y - 0.22 + bob + sw.y, E.z - 0.44 + (o.firing ? 0.012 : 0) + sw.z); _fw.x += sw.x;
-  _ff.set(E.x + 0.04, E.y + 0.12, E.z - 9).sub(_fw).normalize(); _ff.y += Math.sin(TOOL_RAKE); _ft.set(-0.45, 1, 0.5);
-  solveArm(armR, FP_SHOULDER, _fw, _fp.set(0.5, -1, 0.3), handBasis(_ff, _ft, _fq));
+  const R = FPT.R, L = FPT.L;
+  R.W.set(E.x + 0.17 * nar + (o.kick || 0), E.y - 0.22 + bob + sw.y, E.z - 0.44 + (o.firing ? 0.012 : 0) + sw.z); R.W.x += sw.x;
+  _ff.set(E.x + 0.04, E.y + 0.12, E.z - 9).sub(R.W).normalize(); _ff.y += Math.sin(TOOL_RAKE); _ft.set(-0.45, 1, 0.5);
+  handBasis(_ff, _ft, R.Q);
   // left (mirrored space, +x is outward): open hand low left, palm down; reaches forward and in to clamp tags
-  _fw.set(E.x + (0.19 - 0.07 * r) * nar - sw.x, E.y - 0.24 + 0.08 * r - bob + sw.y, E.z - 0.42 - 0.1 * r + sw.z);
+  L.W.set(E.x + (0.19 - 0.07 * r) * nar - sw.x, E.y - 0.24 + 0.08 * r - bob + sw.y, E.z - 0.42 - 0.1 * r + sw.z);
   _ff.set(-0.12 - 0.2 * r, 0.5 + 0.1 * r, -1); _ft.set(-1, 0.2, -0.15);
-  solveArm(armL, FP_SHOULDER, _fw, _fp.set(0.5, -1, 0.3), handBasis(_ff, _ft, _fq));
+  handBasis(_ff, _ft, L.Q);
+  return FPT;
+}
+export function poseFirstPerson(armR, armL, o = {}) {
+  const T = fpTargets(o);
+  solveArm(armR, T.R.S, T.R.W, T.R.P, T.R.Q);
+  solveArm(armL, T.L.S, T.L.W, T.L.P, T.L.Q);
 }

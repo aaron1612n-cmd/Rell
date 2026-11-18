@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { EYE, PITCH } from './cockpit.js';
 import { suitMaterials, buildAstronaut, poseAstronaut, buildArm, poseFirstPerson, SUIT } from './astronaut.js';
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
+import { Hatch } from './hatch.js';
 
 // EVA: open the canopy, float out, fly a jetpack on a tether, work salvage and your own hull by hand,
 // then fly back into the seat. States: off (flying) -> out (canopy opens, you rise out) -> eva -> in (back
@@ -24,12 +24,11 @@ const SEAT_IN = new THREE.Vector3(0, 1.05, 0.05);          // where you hang to 
 const HULL = [[0, 0.22, -1.65, 0.5], [0, 0.18, -0.55, 0.62], [0, 0.15, 0.75, 0.75], [1.35, 0, 0.85, 0.55], [-1.35, 0, 0.85, 0.55], [2.1, -0.05, 1.0, 0.32], [-2.1, -0.05, 1.0, 0.32]];
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler();
 const _x = new THREE.Vector3(1, 0, 0), _y = new THREE.Vector3(0, 1, 0), _z = new THREE.Vector3(0, 0, 1);
-const ease = (k) => k * k * (3 - 2 * k);
 
 // ---- visor: helmet rim, condensation, the wordless suit HUD ------------------------------
 const VISOR_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
 const VISOR_FS = `varying vec2 vUv;
-uniform vec2 uAsp; uniform float uTan, uO2, uFuel, uTeth, uFog, uTime, uBreath, uWarn, uSun, uLook;
+uniform vec2 uAsp; uniform float uOn, uTan, uO2, uFuel, uTeth, uFog, uTime, uBreath, uWarn, uSun, uLook;
 float h(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + 1.), f.x), f.y); }
 float fbm(vec2 p){ float s = 0., a = .5; for (int i = 0; i < 4; i++){ s += a * n(p); p *= 2.07; a *= .5; } return s; }
@@ -93,7 +92,7 @@ void main(){
   float tl = step(tp.x + .07, uTeth * .14);
   float tw = uWarn * (.5 + .5 * step(.5, fract(uTime * 4.)));
   col += mix(amber * (tl * 1.1 + .15), hot * 1.4, tw) * bar; a = max(a, bar * (.25 + tl * .6));
-  gl_FragColor = vec4(col, clamp(a, 0., 1.));
+  gl_FragColor = vec4(col, clamp(a, 0., 1.) * uOn);
 }`;
 
 export class Eva {
@@ -104,7 +103,6 @@ export class Eva {
     this.pilot = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), quat: new THREE.Quaternion(), roll: 0, radius: CFG.radius, mass: 0.15, contact: null };
     this.thrust = new THREE.Vector3(); this.thrSm = new THREE.Vector3();
     this.camPos = new THREE.Vector3(); this.camQuat = new THREE.Quaternion();
-    this.from = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
     this.M = suitMaterials(o.env);
 
     // the suited pilot (third person) in the world
@@ -117,6 +115,7 @@ export class Eva {
 
     this.buildRope(); this.buildHands(); this.buildBeam(); this.buildDom();
     this.lockers.onStow = (L) => this.stowed(L);
+    this.hatch = new Hatch(this); this.unclip = 0;
   }
 
   get active() { return this.state !== 'off'; }
@@ -157,7 +156,7 @@ export class Eva {
     this.sway = new THREE.Vector3(); this.swayV = new THREE.Vector3(); this.reachL = 0;
     // visor overlay
     this.visorU = {
-      uAsp: { value: new THREE.Vector2(1, 1) }, uO2: { value: 1 }, uFuel: { value: 1 }, uTeth: { value: 0 }, uFog: { value: 0 },
+      uAsp: { value: new THREE.Vector2(1, 1) }, uOn: { value: 1 }, uO2: { value: 1 }, uFuel: { value: 1 }, uTeth: { value: 0 }, uFog: { value: 0 },
       uTan: { value: 0.75 }, uTime: { value: 0 }, uBreath: { value: 0 }, uWarn: { value: 0 }, uSun: { value: 1 }, uLook: { value: 0 },
     };
     this.visor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ vertexShader: VISOR_VS, fragmentShader: VISOR_FS, uniforms: this.visorU, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
@@ -181,26 +180,31 @@ export class Eva {
   request() {
     if (this.state === 'off') {
       if (this.ship.vel.length() > 6 || this.ship.hull <= 0) { this.el.btn.classList.remove('deny'); void this.el.btn.offsetWidth; this.el.btn.classList.add('deny'); return; }
-      this.state = 'out'; this.phase = 0; this.sub = 0;
-      if (this.cockpit.target !== 1) this.cockpit.toggle();
+      // the view you're in picks how you watch it: cockpit -> your own eyes, chase -> from outside
+      const ck = this.cockpit, fp = ck.target === 1;
+      this.state = 'out'; this.waitSeat = fp && ck.blend < 1;
+      if (!this.waitSeat) this.hatch.startExit(fp);
       this.damage.ensure(this.ship);
       this.hintUsed = true; this.el.btn.classList.remove('ping');
     } else if (this.state === 'eva' && this.canBoard) {
-      this.state = 'in'; this.phase = 0;
-      this.from.p.copy(this.pilot.pos); this.from.q.copy(this.pilot.quat);
-      this.view = 0;
+      this.state = 'in'; this.unclip = 0;
+      this.hatch.startEntry();
     }
   }
 
   toggleView() { if (this.state === 'eva') this.view = this.view ? 0 : 1; }
 
   enterEva() {
+    // the hatch animation leaves the pilot floating clear of the nose; drift on a little from there
     const p = this.pilot;
-    p.pos.copy(this.camera.position); p.quat.copy(this.camera.quaternion); p.roll = 0;
-    p.vel.copy(this.ship.vel).addScaledVector(_v.set(0, 1, 0).applyQuaternion(this.ship.quat), 0.35);
+    p.roll = 0; p.vel.copy(this.ship.vel).addScaledVector(_v.set(0, 0.05, -0.18).applyQuaternion(this.ship.quat), 1);
     this.state = 'eva'; this.t = 0;
-    this.ropeLen = 2; this.ropeReset = true;
+    this.ropeLen = 2; this.ropeReset = true; this.unclip = 0;
+    this.visorU.uOn.value = 1;
+    if (this.view === 1) { this.tpInit = true; this.camPos.copy(this.camera.position); }
   }
+
+  fitVisor(cam) { const hgt = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * 0.05; this.visor.scale.set(hgt * cam.aspect * 1.002, hgt * 1.002, 1); this.visorU.uAsp.value.set(cam.aspect, 1); this.visorU.uTan.value = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2); }
 
   shipPoint(local, out) { return out.copy(local).applyQuaternion(this.ship.quat).add(this.ship.pos); }
 
@@ -213,6 +217,7 @@ export class Eva {
     this.damage.update(dt);
 
     if (this.state === 'off') {
+      if (this.body.visible && !this.rig.bf) this.body.visible = false;
       // refill in the seat; hint at the hatch when parked near something worth taking
       this.o2 = Math.min(1, this.o2 + dt * 0.3); this.fuel = Math.min(1, this.fuel + dt * 0.25);
       const near = this.lockers.nearest(ship.pos), slow = ship.vel.length() < 3;
@@ -222,42 +227,26 @@ export class Eva {
       this.setHud(false);
       return;
     }
-    document.body.classList.toggle('eva', this.state === 'eva' || this.state === 'in');
+    document.body.classList.add('eva');
+    document.body.classList.toggle('evx', this.state !== 'eva');
 
     if (this.state === 'out') {
       this.setHud(false);
-      // 0: swoop into the seat, 1: canopy opens, 2: rise out
-      if (this.sub === 0 && ck.blend >= 1) { ck.setCanopy(true); this.sub = 1; }
-      else if (this.sub === 1 && ck.open >= 1) {
-        this.sub = 2; this.phase = 0;
-        this.from.p.copy(this.camera.position); this.from.q.copy(this.camera.quaternion);
-        ck.target = 0; ck.blend = 0;     // hand the view to the outside world (the cabin copy is in it)
-      } else if (this.sub === 2) {
-        this.phase += dt / (this.reduced ? 0.3 : 1.25);
-        const k = ease(Math.min(1, this.phase));
-        const to = this.shipPoint(_v2.set(0, 1.25, -0.75), new THREE.Vector3());
-        _q.copy(ship.quat).multiply(_q2.setFromEuler(_e.set(-0.22, 0, 0)));
-        this.camera.position.lerpVectors(this.from.p, to, k);
-        // look up through the open canopy as you rise, then level out
-        this.camera.quaternion.slerpQuaternions(this.from.q, _q, k).multiply(_q2.setFromAxisAngle(_x, Math.sin(k * Math.PI) * 0.35));
-        this.camFov(72, dt);
-        if (this.phase >= 1) this.enterEva();
-      }
+      if (this.waitSeat) { if (ck.blend >= 1) { this.waitSeat = false; this.hatch.startExit(true); } else return; }
+      if (this.hatch.update(dt)) { this.enterEva(); document.body.classList.remove('evx'); }
       return;
     }
 
     if (this.state === 'in') {
-      this.phase += dt / (this.reduced ? 0.3 : 1.2);
-      const k = ease(Math.min(1, this.phase));
-      const eye = this.shipPoint(EYE, new THREE.Vector3());
-      _q.copy(ship.quat).multiply(_q2.setFromEuler(_e.set(PITCH, 0, 0)));
-      this.camera.position.lerpVectors(this.from.p, eye, k); this.camera.quaternion.slerpQuaternions(this.from.q, _q, k);
-      this.camFov(72, dt);
-      this.body.visible = false; this.ropeMesh.visible = false; this.beam.visible = false; this.pass.enabled = false;
-      this.camera.updateMatrixWorld();
-      if (this.phase >= 1) {
-        ck.target = 1; ck.blend = 1; ck.setCanopy(false);
-        this.state = 'off'; document.body.classList.remove('eva'); this.el.fade.style.opacity = 0;
+      this.setHud(false);
+      this.beam.visible = false; this.toolLight.intensity = 0;
+      const done = this.hatch.update(dt);
+      if (this.unclip < 1) this.stepRope(dt, { reel: true }); else this.ropeMesh.visible = false;
+      if (done) {
+        this.ropeMesh.visible = false; this.pass.enabled = false; this.visorU.uOn.value = 1;
+        if (this.view === 0) { ck.target = 1; ck.blend = 1; }
+        else { ck.target = 0; ck.blend = 0; this.rig.blendFrom(this.camera, 1.5); }
+        this.state = 'off'; this.blackout = 0; document.body.classList.remove('eva', 'evx'); this.el.fade.style.opacity = 0;
       }
       return;
     }
@@ -385,6 +374,7 @@ export class Eva {
   stepRope(dt, cmd) {
     const r = this.rope, N = r.length, anc = this.shipPoint(ANCHOR, _v3), p = this.pilot;
     const hip = _v2.set(-0.27, -0.16, 0).applyQuaternion(p.quat).add(p.pos);
+    if (this.unclip > 0) hip.lerp(anc, this.unclip * this.unclip);
     const dist = anc.distanceTo(hip);
     if (this.ropeReset) { for (let i = 0; i < N; i++) { r[i].p.lerpVectors(anc, hip, i / (N - 1)); r[i].o.copy(r[i].p); } this.ropeReset = false; }
     // paying out is quick, taking up slack is slow (a spring winch), the reel takes up fast
@@ -519,9 +509,9 @@ export class Eva {
       this.hTool.position.copy(this.tool.userData.tip.getWorldPosition(_v2)); this.hTool.intensity = this.firing ? 0.8 + Math.random() * 0.6 : 0.04;
       this.hSun.position.copy(cam.position).addScaledVector(this.sunDir, 5); this.hSun.target.position.copy(cam.position);
       // visor fills the view
-      const hgt = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * 0.05; this.visor.scale.set(hgt * cam.aspect * 1.002, hgt * 1.002, 1);
-      const u = this.visorU; u.uAsp.value.set(cam.aspect, 1); u.uO2.value = this.o2; u.uFuel.value = this.fuel; u.uTeth.value = Math.min(1, (this.tethDist || 0) / CFG.tether);
-      u.uTan.value = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2); u.uTime.value = this.t; u.uFog.value = THREE.MathUtils.clamp((0.35 - this.o2) / 0.35, 0, 1); u.uBreath.value = 0.5 + 0.5 * Math.sin(this.t * (this.o2 < 0.25 ? 5 : 1.6));
+      this.fitVisor(cam);
+      const u = this.visorU; u.uO2.value = this.o2; u.uFuel.value = this.fuel; u.uTeth.value = Math.min(1, (this.tethDist || 0) / CFG.tether);
+      u.uTime.value = this.t; u.uFog.value = THREE.MathUtils.clamp((0.35 - this.o2) / 0.35, 0, 1); u.uBreath.value = 0.5 + 0.5 * Math.sin(this.t * (this.o2 < 0.25 ? 5 : 1.6));
       u.uWarn.value = this.taut > 0.1 || (this.tethDist || 0) > CFG.tether * 0.92 ? 1 : 0;
       _v.set(0, 0, -1).applyQuaternion(cam.quaternion); u.uLook.value = Math.atan2(_v.x, -_v.z) * 0.3 % 1;
     }
