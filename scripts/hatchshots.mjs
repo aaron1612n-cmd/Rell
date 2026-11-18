@@ -9,6 +9,7 @@ const fs = await import('node:fs'); fs.mkdirSync(out, { recursive: true });
 const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const mobile = +w < 600;
 const p = await b.newPage({ viewport: { width: +w, height: +h }, deviceScaleFactor: 1, hasTouch: mobile, isMobile: mobile });
+if (process.env.REDUCED) await p.emulateMedia({ reducedMotion: 'reduce' });
 p.on('console', (m) => { if (m.type() === 'error' || m.text().startsWith('[hatch]')) console.log('console:', m.text()); });
 p.on('pageerror', (e) => console.log('pageerror:', e.message));
 await p.goto('http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 90000 });
@@ -17,7 +18,8 @@ await p.evaluate((v) => { const g = window.__game; g.rig.introDur = 0; g.ship.ve
 await p.waitForTimeout(view === 'fp' ? 2500 : 800);
 const at = async (state, t, name) => {
   await p.waitForFunction(([s, t]) => { const e = window.__game.eva; return e.state !== s || e.hatch.t >= t; }, [state, t], { timeout: 300000, polling: 16 });
-  await p.screenshot({ path: `${out}/${name}.png` }); console.log('shot', name);
+  await p.screenshot({ path: `${out}/${name}.png` });
+  console.log('shot', name, await p.evaluate(() => { const g = window.__game, e = g.eva, q = g.ship.quat.clone().invert(), f = (v) => v.toArray().map((x) => x.toFixed(2)).join(','); return `t ${e.hatch.t.toFixed(2)} cam ${f(g.camera.position.clone().sub(g.ship.pos).applyQuaternion(q))} torso ${f(e.hatch.torso)} open ${g.cockpit.open.toFixed(2)} mode ${g.cockpit.mode}`; }));
 };
 const exitT = (process.env.EXIT || '0.3,0.9,1.5,2.0,2.5,2.9,3.25').split(',').map(Number);
 await p.evaluate(() => window.__game.eva.request());

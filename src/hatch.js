@@ -121,7 +121,7 @@ export class Hatch {
     // third person: swing round to the side to watch, then settle over your shoulder
     if (!fp) {
       const c = this.cam, k = smr(0, 1.35, t), d = sm(1.35, 2.6, t), j = smr(2.5, 3.3, t);
-      this.orbit(this.camFrom, { yaw: -1.75 - 0.2 * d, pitch: 0.28 + 0.03 * d, dist: 4.4 - 0.4 * d }, k, -1, c);
+      this.orbit(this.camFrom, { yaw: -1.75 - 0.2 * d, pitch: 0.28 + 0.03 * d, dist: (4.4 - 0.4 * d) * this.far() }, k, -1, c);
       c.pivot.copy(this.camFrom.pivot);
       this.shoulderShot(c, j);
     }
@@ -155,13 +155,14 @@ export class Hatch {
     e.unclip = this.unclip;
 
     if (this.step === 0 && t > Ah + 1.5) { ck.setCanopy(false); this.step = 1; }
-    if (fp && !this.handedOff && t > Ah + 1.8) {
-      // seated: the eye is exactly the cockpit eye, so the cockpit view takes over and you watch the canopy close from inside
-      ck.target = 1; ck.blend = 1; ck.fovSm = e.camera.fov; this.handedOff = true; e.pass.enabled = false;
+    if (fp && !this.handedOff && t > Ah + 0.75) {
+      // once your eye drops below the sill the cockpit view (its own lights, live screens) draws the cabin; the
+      // camera stays yours until you're settled, at exactly the cockpit eye, then it's the cockpit's
+      ck.target = 1; ck.blend = 1; ck.fovSm = e.camera.fov; this.handedOff = true;
     }
     if (!fp) {
       const c = this.cam, k = smr(0, Ah + 0.3, t), d = sm(Ah, Ah + 3, t);
-      this.orbit(this.camFrom, { yaw: 1.8 - 0.15 * d, pitch: 0.3, dist: 4.4 - 0.35 * d }, k, 0, c);
+      this.orbit(this.camFrom, { yaw: 1.8 - 0.15 * d, pitch: 0.3, dist: (4.4 - 0.35 * d) * this.far() }, k, 0, c);
       c.pivot.copy(this.camFrom.pivot);
       this.orbitPose(c, 1);
     }
@@ -172,6 +173,9 @@ export class Hatch {
     }
     return false;
   }
+
+  // narrow (portrait) screens stand the side shots further back so the whole ship and pilot fit
+  far() { const a = this.eva.camera.aspect; return a < 1 ? Math.min(1.9, 1.25 / Math.max(0.4, a)) : 1; }
 
   cockpitPitch() { return this.eva.camera.aspect < 0.8 ? PITCH * 0.3 : PITCH; }
 
@@ -188,7 +192,8 @@ export class Hatch {
     // the EVA state follows along (rope, markers)
     e.pilot.pos.copy(g.position); e.pilot.quat.copy(o.quat);
 
-    if (fp && !(this.dir === 'in' && this.handedOff)) {
+    const settled = this.dir === 'in' && this.t > this.A + 1.9;
+    if (fp && !settled) {
       // eye: on the torso (ignoring the lean, as the EVA view does), looking where the head turns
       cam.position.copy(SUIT.eye).applyQuaternion(o.quat).add(g.position);
       _e.set(o.pitch, o.yaw, 0); cam.quaternion.copy(o.quat).multiply(_q.setFromEuler(_e));
@@ -200,7 +205,7 @@ export class Hatch {
     }
     if (fp) {
       e.body.visible = false;
-      const on = !this.handedOff || this.dir === 'out';
+      const on = this.dir === 'out' || this.t < this.A + 1.75;
       e.pass.enabled = on;
       if (on) {
         e.handCam.position.copy(cam.position); e.handCam.quaternion.copy(cam.quaternion);
