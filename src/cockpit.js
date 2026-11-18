@@ -123,7 +123,7 @@ void main(){
   float cosA = sqrt(max(0., 1. - uPlanetR * uPlanetR / (dP * dP)));
   float onP = smoothstep(cosA - .004, cosA + .004, dot(R, pc));
   vec3 hitN = normalize(R * (dP * dot(R, pc)) - toP);
-  env = mix(env, vec3(.05, .08, .1) * (.2 + .9 * max(dot(-hitN, L), 0.)) + vec3(.1, .14, .18) * pow(1. - abs(dot(R, pc) - cosA) * 30., 8.) * step(0., 1. - abs(dot(R, pc) - cosA) * 30.), onP);
+  env = mix(env, vec3(.05, .08, .1) * (.2 + .9 * max(dot(-hitN, L), 0.)) + vec3(.1, .14, .18) * pow(max(0., 1. - abs(dot(R, pc) - cosA) * 30.), 8.), onP);
   float sR = max(dot(R, L), 0.);
   env += uSunCol * uSunVis * (pow(sR, 4000.) * 60. + pow(sR, 120.) * .25);
 
@@ -154,7 +154,7 @@ void main(){
   vec3 Tu = r1 * dux.x + r2 * duy.x, Tv = r1 * dux.y + r2 * duy.y;
   vec3 H = normalize(L + V);
   vec3 T1 = normalize(Tu * cos(a1) + Tv * sin(a1) + 1e-6), T2 = normalize(Tu * cos(a2) + Tv * sin(a2) + 1e-6);
-  float g1 = exp(-pow(dot(H, T1) / .1, 2.)), g2 = exp(-pow(dot(H, T2) / .1, 2.));
+  float q1 = dot(H, T1) / .1, q2 = dot(H, T2) / .1, g1 = exp(-q1 * q1), g2 = exp(-q2 * q2);
   float glint = (s1 * g1 + s2 * g2 * .7) * uSunVis * (.12 + 2.2 * pow(fwd, 4.)) + (s1 + s2) * .002;
   vec3 scratchCol = uSunCol * glint * .6;
 
@@ -220,7 +220,7 @@ void main(){
   float sym = 0.;
   if (t.x > 0. && t.x < 1. && t.y > 0. && t.y < 1.) sym = texture2D(uAtlas, vec2(uRect.x + t.x * uRect.z, uRect.y + (1. - t.y) * uRect.w)).r;
   vec3 V = normalize(cameraPosition - vW), N = normalize(vN); if (dot(N, V) < 0.) N = -N;
-  float F = .04 + .96 * pow(1. - abs(dot(N, V)), 5.);
+  float F = .04 + .96 * pow(max(0., 1. - abs(dot(N, V))), 5.);
   float e = min(min(vUv.x, 1. - vUv.x), min(vUv.y, 1. - vUv.y));
   float rim = smoothstep(.012, .0, e) * .35;
   vec3 col = vec3(1., .62, .3) * sym * uGain + vec3(.12, .14, .1) * F + rim * vec3(.25, .3, .28) * (.2 + uSunVis * pow(max(dot(reflect(-V, N), uSun), 0.), 8.) * 2.);

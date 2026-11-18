@@ -190,7 +190,7 @@ function build(coarse) {
         void main(){
           float ang = atan(vA.y, vA.x);
           float n = vn(vec2(ang*5., vT*7. - uTime*16.)) * .6 + vn(vec2(ang*11., vT*15. - uTime*27.)) * .4;
-          float hot = uPower * pow(1.-vT, 1.6) * (.75 + .5*n);
+          float hot = uPower * pow(max(1.-vT, 0.), 1.6) * (.75 + .5*n);
           vec3 c = mix(vec3(1.4,.3,.05), vec3(4.6,2.6,1.1), smoothstep(.15,.65,hot));
           c = mix(c, mix(vec3(6.,5.2,4.2), vec3(4.2,4.8,6.4), uBoost), smoothstep(.6,1.,hot));
           vec3 col = c * hot * 1.9;

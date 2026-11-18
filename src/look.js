@@ -103,7 +103,13 @@ export class Look {
     // bloom only picks up HDR values (exhaust, lamps, sun) so the hull never washes out.
     // Phones skip it: their exhaust particles carry their own halo.
     this.bloom = coarse ? null : new UnrealBloomPass(new THREE.Vector2(512, 512), 0.45, 0.3, 1.0);
-    if (this.bloom) c.addPass(this.bloom);
+    if (this.bloom) {
+      // belt and braces: one NaN/Inf pixel fed into the blur chain spreads into a black hole, so scrub them here
+      const hp = this.bloom.materialHighPassFilter;
+      hp.fragmentShader = hp.fragmentShader.replace('vec4 texel = texture2D( tDiffuse, vUv );',
+        'vec4 texel = texture2D( tDiffuse, vUv ); if (any(isnan(texel)) || any(isinf(texel))) texel = vec4(0.); texel = min(texel, vec4(64.));');
+      c.addPass(this.bloom);
+    }
     c.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.grade.uniforms.uFull.value = coarse ? 0 : 1;

@@ -58,7 +58,7 @@ void main(){
   // glass: faint cool tint toward the edges and a soft sky reflection streak that slides as you look
   float edge = smoothstep(.55, .95, rim);
   col += vec3(.012, .02, .03) * edge; a = max(a, edge * .12);
-  float streak = exp(-pow((e.x * .55 + e.y * .2 - uLook) * 3.2, 2.)) * smoothstep(.2, .8, e.y + .2) * .05;
+  float sk = (e.x * .55 + e.y * .2 - uLook) * 3.2, streak = exp(-sk * sk) * smoothstep(.2, .8, e.y + .2) * .05;
   col += vec3(.5, .6, .7) * streak; a = max(a, streak * .5);
   // condensation: creeps in from the bottom and the edges as air runs low, pulses with breathing
   float fogN = fbm(q * 9. + vec2(0., uTime * .03));

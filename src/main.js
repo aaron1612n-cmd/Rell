@@ -11,6 +11,7 @@ import { Help } from './help.js';
 import { GpuParticles, HeatHazePass, K } from './gpufx.js';
 import { Engine } from './engine.js';
 import { setupLights, Look } from './look.js';
+import { bakeSky, bakePlanet } from './sky.js';
 import { NOZZLES, solveRcs } from './rcs.js';
 import { Cockpit } from './cockpit.js';
 import { Eva } from './eva.js';
@@ -21,13 +22,15 @@ import { Salvage } from './salvage.js';
 import { Econ } from './economy.js';
 import { Nav, NAV_ICONS } from './nav.js';
 import { Tutorial } from './tutorial.js';
+import { Quality } from './quality.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const coarse = matchMedia('(pointer: coarse)').matches;
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2));
+// the frame is drawn into the composer's own (multisampled) target, so the canvas itself needs no MSAA
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 1.5));
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
@@ -41,6 +44,9 @@ const [shipModel, stationModel, debrisModel, depotModel, freighterModel, salvage
 const world = new World(scene, { station: stationModel, stationB: stationModel.clone(true), debris: debrisModel, depot: depotModel, freighter: freighterModel, salvage: salvageModel }, { coarse });
 const depot = world.site.depot;
 scene.add(world.sky);
+// dark glass (station domes, ports) mirrors black space and reads as a hole: let it pick up more of the planet glow
+scene.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && m.metalness > 0.6 && m.roughness < 0.2 && m.color.getHSL({}).l < 0.1) m.envMapIntensity = 2.6; });
+bakeSky(renderer, world.sky); bakePlanet(renderer, world.planet, coarse ? 768 : 1024);   // static sky and planet layers baked to cube maps once (sky.js)
 
 const ship = new Ship();
 ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler));
@@ -110,7 +116,7 @@ const shockMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   uniforms: { uA: { value: 0 } },
   vertexShader: 'varying vec3 vN, vV; void main(){ vec4 w = modelMatrix * vec4(position,1.); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }',
-  fragmentShader: 'uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(1. - abs(dot(vN, vV)), 3.); gl_FragColor = vec4(vec3(1.4,.62,.3) * f * uA, 1.); }',
+  fragmentShader: 'uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(max(0., 1. - abs(dot(vN, vV))), 3.); gl_FragColor = vec4(vec3(1.4,.62,.3) * f * uA, 1.); }',
 });
 const shockMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), shockMat); shockMesh.visible = false; shockMesh.frustumCulled = false; scene.add(shockMesh);
 let shockT = -1;
@@ -164,6 +170,8 @@ function resize() {
   world.stars.material.uniforms.uPR.value = renderer.getPixelRatio();
 }
 addEventListener('resize', resize); resize();
+// adaptive quality (quality.js): render scale, MSAA, shadow map size, bloom/haze step with frame time
+const quality = new Quality({ renderer, look, sun, hazePass, world, coarse, onResize: resize });
 
 // ---- effects ----------------------------------------------------------------------------
 // Quality tier: phones get fewer particles, no heat haze and no bloom (particles add their own halo there).
@@ -406,10 +414,13 @@ const _m4 = new THREE.Matrix4();
 const STEP = 1 / 120;
 const _sunW = new THREE.Vector3();
 let acc = 0, last = performance.now(), time = 0, started = false;
+// compile every shader up front (in parallel where the driver allows) so the first seconds of flight don't hitch
+try { await Promise.all([renderer.compileAsync(scene, camera), cockpit.scene && renderer.compileAsync(cockpit.scene, cockpit.cam)]); } catch {}
 requestAnimationFrame(() => document.getElementById('veil').classList.add('go'));
 
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+  const rawDt = (now - last) / 1000, dt = Math.min(0.05, rawDt); last = now; time += dt;
+  quality.tick(rawDt);
   const raw = input.consume();
   const cmd = eva.holdShip ? HOLD : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
@@ -450,9 +461,11 @@ function frame(now) {
   hud.update(dt, ship, camera, innerWidth, innerHeight);
   nav.update(dt, camera, innerWidth, innerHeight, time);
   tutorial.update(dt, time, camera, innerWidth, innerHeight);
+  quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
+  quality.end();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-window.__game = { salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
