@@ -24,6 +24,10 @@ canvas#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-ac
 #assist i{width:10px;height:10px;border:1.5px solid var(--dim);transform:rotate(45deg);transition:.15s}
 #assist.on i{background:var(--hazard);border-color:var(--hazard);box-shadow:0 0 10px var(--hazard)}
 #assist.on span{color:var(--bone)}
+#impact{position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 34px);display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;padding:8px 0;touch-action:none}
+#impact i{position:relative;width:10px;height:10px;border:1.5px solid var(--dim);border-radius:1px;transition:.15s}
+#impact.on i{border-color:var(--hazard);box-shadow:0 0 10px var(--hazard)}
+#impact.on span{color:var(--bone)}
 #hullwrap{position:absolute;right:max(16px,env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;gap:10px}
 #hullwrap .mono{writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;order:2}
 #hull{display:flex;flex-direction:column-reverse;gap:4px;padding:6px 0;border-right:1px solid rgba(232,224,204,.18);padding-right:6px}
@@ -80,6 +84,7 @@ body.touch #hint{display:none}
 <div id="hud">
   <div id="reticle"></div><div id="pro"></div>
   <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
+  <div id="impact" class="on"><i></i><span class="mono">Impact</span></div>
   <button id="helpbtn" aria-label="Controls"></button>
   <div id="hullwrap"><span class="mono">Hull</span><div id="hull"></div></div>
   <div id="speed"><span class="mono">m/s</span><b id="spd">000</b><div id="spdbar"><i id="spdfill"></i><s></s></div></div>

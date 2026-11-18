@@ -6,6 +6,7 @@ import { World, SUN_DIR } from './world.js';
 import { Input } from './input.js';
 import { CamRig } from './camera.js';
 import { Hud } from './hud.js';
+import { Impact } from './impact.js';
 import { Help } from './help.js';
 import { GpuParticles, HeatHazePass, K } from './gpufx.js';
 import { Engine } from './engine.js';
@@ -36,6 +37,15 @@ const shipMesh = buildShip(shipModel, coarse); scene.add(shipMesh);
 
 const input = new Input(canvas);
 input.onToggleAssist = () => { ship.assist = !ship.assist; };
+const impact = new Impact(scene, world, ship, { reduced, coarse });
+{
+  const el = document.getElementById('impact');
+  let on = true; try { on = localStorage.getItem('rell.impact') !== '0'; } catch {}
+  const set = (v) => { on = v; impact.setEnabled(v); el.classList.toggle('on', v); try { localStorage.setItem('rell.impact', v ? '1' : '0'); } catch {} };
+  set(on);
+  input.onToggleImpact = () => set(!on);
+  el.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); set(!on); });
+}
 const rig = new CamRig(camera, reduced);
 const hud = new Hud();
 new Help(input);
@@ -300,6 +310,7 @@ function frame(now) {
   scrapeFx(dt);
   navFx(time);
   fx.update(fxT); smoke.update(fxT); if (haze) haze.update(fxT);
+  impact.update(dt, time);
   world.updateDust(ship.pos, ship.vel);
   rig.update(dt, ship);
   world.updateVisual(time, camera.position);
@@ -311,4 +322,4 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer };
+window.__game = { impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer };
