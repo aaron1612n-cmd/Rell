@@ -24,7 +24,7 @@ if (want('hint')) await shot('0-hint');
 await p.evaluate(() => window.__game.eva.request());
 await p.waitForFunction(() => window.__game.cockpit.open > 0.45, null, { timeout: 300000 });
 if (want('canopy')) await shot('1-canopy-opening');
-await p.waitForFunction(() => window.__game.eva.sub === 2 && window.__game.eva.phase > 0.5, null, { timeout: 300000 });
+await p.waitForFunction(() => window.__game.eva.state !== 'off' && window.__game.eva.hatch && window.__game.cockpit.open > 0.9, null, { timeout: 300000 });
 if (want('rising')) await shot('2-rising');
 await p.waitForFunction(() => window.__game.eva.state === 'eva', null, { timeout: 300000 });
 await wait(800);
