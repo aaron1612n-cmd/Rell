@@ -10,11 +10,13 @@ await p.addInitScript(() => {
   const o = WebGL2RenderingContext.prototype.shaderSource;
   const N = 'uintBitsToFloat(0x7fc00000u)';
   const fns = ['float','vec2','vec3','vec4'].map(t => `${t} _pw(${t} a, ${t} b){ return any(lessThan(${t}(a) * ${t}(1.), ${t}(0.))) ? ${t}(${N}) : pow(a, b); }`).join('\n').replace(/any\(lessThan\(float\(a\) \* float\(1\.\), float\(0\.\)\)\)/, 'a < 0.')
-    + '\n' + ['vec2','vec3','vec4'].map(t => `${t} _nz(${t} a){ return dot(a, a) == 0. ? ${t}(${N}) : normalize(a); }`).join('\n') + '\nfloat _nz(float a){ return a == 0. ? ' + N + ' : sign(a); }';
+    + '\n' + ['vec2','vec3','vec4'].map(t => `${t} _nz(${t} a){ return dot(a, a) == 0. ? ${t}(${N}) : normalize(a); }`).join('\n') + '\nfloat _nz(float a){ return a == 0. ? ' + N + ' : sign(a); }'
+    + '\n' + ['float','vec2','vec3','vec4'].map(t => `${t} _sq(${t} a){ return any(lessThan(${t}(a)*${t}(1.), ${t}(0.))) ? ${t}(${N}) : sqrt(a); }\n${t} _lg(${t} a){ return any(lessThanEqual(${t}(a)*${t}(1.), ${t}(0.))) ? ${t}(${N}) : log(a); }\n${t} _is(${t} a){ return any(lessThanEqual(${t}(a)*${t}(1.), ${t}(0.))) ? ${t}(${N}) : inversesqrt(a); }`).join('\n').replace(/any\((lessThan|lessThanEqual)\(float\(a\)\*float\(1\.\), float\(0\.\)\)\)/g, (m, f) => f === 'lessThan' ? 'a < 0.' : 'a <= 0.')
+    + '\n' + ['float','vec2','vec3','vec4'].flatMap(t => [[t,t],['float',t]].map(([e,x]) => `${x} _ss(${e} a, ${e} b, ${x} x){ ${x} t = (x - ${x}(a)) / ${x}(b - a); return clamp(t, 0., 1.) * clamp(t, 0., 1.) * (3. - 2. * clamp(t, 0., 1.)) + ${x}(0.) * t; }`)).filter((v, i, A) => A.indexOf(v) === i).join('\n');
   WebGL2RenderingContext.prototype.shaderSource = function (sh, src) {
     if (/#version 300 es/.test(src)) {
       const lines = src.split('\n'); let i = 0; lines.forEach((l, k) => { if (/^\s*precision /.test(l)) i = k + 1; });
-      if (i) { lines.splice(i, 0, fns, '#define pow _pw', '#define normalize _nz'); src = lines.join('\n'); }
+      if (i) { lines.splice(i, 0, fns, '#define pow _pw', '#define normalize _nz', '#define sqrt _sq', '#define log _lg', '#define inversesqrt _is', '#define smoothstep _ss'); src = lines.join('\n'); }
     }
     return o.call(this, sh, src);
   };
@@ -23,6 +25,8 @@ p.on('console', (m) => { if (m.type() === 'error') console.log('console:', m.tex
 p.on('pageerror', (e) => console.log('pageerror:', e.message));
 await p.goto('http://127.0.0.1:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 90000 });
 await p.waitForTimeout(4000);
+if (process.env.Q) await p.evaluate((q) => { window.__quality.set(+q); window.__quality.tick = () => {}; }, process.env.Q);
+await p.evaluate(() => { let n = 0; const g = window.__game; window.__patched = 0; });
 const scan = (label) => p.evaluate((label) => {
   const g = window.__game, R = g.renderer, c = g.look.composer, rp = c.passes[0];
   return new Promise((res) => {
@@ -41,4 +45,7 @@ await p.keyboard.press('KeyV'); await p.waitForTimeout(2500); console.log(JSON.s
 await p.keyboard.press('KeyV'); await p.waitForTimeout(1500);
 await p.evaluate(() => { const g = window.__game; g.ship.quat.setFromAxisAngle(new g.THREE.Vector3(1,0,0), 1.4); });
 await p.waitForTimeout(2000); console.log(JSON.stringify(await scan('down'))); await p.screenshot({ path: '/tmp/claude-0/diag/ns-down.png' });
+await p.keyboard.down('KeyW'); await p.keyboard.down('ShiftLeft'); await p.waitForTimeout(2500); console.log(JSON.stringify(await scan('boost'))); await p.screenshot({ path: '/tmp/claude-0/diag/ns-boost.png' });
+await p.keyboard.up('ShiftLeft'); await p.keyboard.up('KeyW'); await p.keyboard.down('KeyS'); await p.waitForTimeout(1500); console.log(JSON.stringify(await scan('brake'))); await p.keyboard.up('KeyS');
+for (let i = 0; i < 6; i++) { await p.evaluate((i) => { const g = window.__game; g.ship.quat.setFromAxisAngle(new g.THREE.Vector3(0,1,0), i * 1.05); }, i); await p.waitForTimeout(1200); console.log(JSON.stringify(await scan('yaw' + i))); }
 await b.close();

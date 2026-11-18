@@ -27,12 +27,12 @@ void main(){
   float s = mix(aT.z, aT.w, 1. - (1.-a)*(1.-a));
   vec4 mv = viewMatrix * vec4(p, 1.);
   vec3 vv = (viewMatrix * vec4(vel, 0.)).xyz;
-  vec2 dir = vv.xy - mv.xy * (vv.z / mv.z);
+  vec2 dir = vv.xy - mv.xy * (vv.z / min(mv.z, -1e-3));
   float L = length(dir);
   float sp = vSeed * 6.2832 + age * (vSeed - .5) * 3.;
   vec2 ax = (aX.y > 0. && L > 1e-3) ? dir / L : vec2(cos(sp), sin(sp));
   float st = min(aX.y * L, s * 14.);
-  vStr = st / (s + st);
+  vStr = st / max(s + st, 1e-6);
   vec2 side = vec2(-ax.y, ax.x);
   mv.xy += ax * position.x * (s + st) + side * position.y * s;
   gl_Position = projectionMatrix * mv;

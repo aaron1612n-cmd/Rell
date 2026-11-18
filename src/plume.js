@@ -40,7 +40,7 @@ void main(){
   float core = (1.-smoothstep(0., R*.55, r)) * pow(max(1.-v, 0.), 2.2);
   // shock diamonds on boost: a train of bright lozenges on the axis, fading downstream
   float dz = v / .55, seg = fract(dz * 5.), di = floor(dz * 5.);
-  float dw = .26 * (1. - abs(seg * 2. - 1.)) * (1. - di * .14);
+  float dw = max(.26 * (1. - abs(seg * 2. - 1.)) * (1. - di * .14), 1e-3);
   float dia = (1. - smoothstep(dw * .55, dw, abs(u))) * step(dz, 1.) * (1. - dz * .6) * uBoost;
   dia *= .75 + .25 * sin(uTime * 40. + di * 2.);
   float d = body*fadeV*(.9+.7*n)*1.05 + dia*1.6;
