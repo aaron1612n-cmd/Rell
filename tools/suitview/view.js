@@ -1,7 +1,7 @@
 // Dev-only turntable for the EVA suit, lit by the game's own light rig. /tools/suitview/?yaw=30&pitch=10&dist=2.6&y=0&reach=0&part=
 import * as THREE from 'three';
 import { setupLights } from '../../src/look.js';
-import { loadSuit, suitMaterials, buildAstronaut, poseAstronaut, poseFirstPerson, buildGlove, buildTool, driveJets, SUIT } from '../../src/astronaut.js';
+import { loadSuit, suitMaterials, buildAstronaut, poseAstronaut, poseBody, restPose, poseFirstPerson, heatTool, buildGlove, buildTool, driveJets, SUIT } from '../../src/astronaut.js';
 const q = new URLSearchParams(location.search), n = (k, d) => (q.has(k) ? +q.get(k) : d);
 const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; document.body.appendChild(renderer.domElement);
@@ -22,8 +22,19 @@ if (partName) {
   scene.add(o); const bb = new THREE.Box3().setFromObject(o), c = bb.getCenter(new THREE.Vector3()); o.position.sub(c);
 } else scene.add(a);
 poseAstronaut(a, n('t', 0), new THREE.Vector3(), n('reach', 0));
+// pose=1: the animated pose record. lean=x,y,z legs=x,y,z support= reel= reelph= grab= drop= empty=1 stream= heat= arc=
+const v3q = (k) => new THREE.Vector3(...(q.get(k) || '0,0,0').split(',').map(Number));
+if (q.has('pose')) {
+  const P = restPose(); P.t = n('t', 0); P.reach = n('reach', 0.2); P.lean.copy(v3q('lean')); P.legR.copy(v3q('legs')); P.legL.copy(P.legR);
+  P.support = n('support', 0); P.reel = n('reel', 0); P.reelPh = n('reelph', 0); P.grab = n('grab', 0); P.drop = n('drop', 0); P.empty = !!n('empty', 0);
+  P.stream = n('stream', 0); P.recoil.copy(v3q('recoil')); P.trig = n('trig', 0); P.rope.set(0.3, -0.2, 1).normalize(); P.head.copy(v3q('head'));
+  if (P.empty) a.userData.stowTool(true);
+  poseBody(a, P);
+}
+if (q.has('heat')) { const tl = partName === 'tool' ? scene.children[scene.children.length - 1] : a.userData.tool; scene.updateMatrixWorld(true); heatTool(tl, n('heat', 0), n('arc', 0), 0.3); }
 const fp = n('fp', 0);
-if (fp) { const u = a.userData; poseFirstPerson(u.armR, u.armL, { reach: n('reach', 0) }); u.armL.glove.setCurl(0.3); u.armR.glove.setCurl(0.95);
+if (fp) { const u = a.userData; poseFirstPerson(u.armR, u.armL, { reach: n('reach', 0), support: n('support', 0), reel: n('reel', 0), reelPh: n('reelph', 0), drop: n('drop', 0), empty: !!n('empty', 0), recoil: v3q('recoil') });
+  if (n('empty', 0)) u.armR.tool.visible = false; u.armL.glove.setCurl(0.3); u.armR.glove.setCurl(0.95);
   u.body.rotation.x = 0;
   if (fp === 2) u.body.children.forEach((c) => { if (c !== u.armR.root && c !== u.armL.root) c.visible = false; }); }
 const cam = new THREE.PerspectiveCamera(n('fov', 35), innerWidth / innerHeight, 0.01, 100);
