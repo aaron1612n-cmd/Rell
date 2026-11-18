@@ -91,7 +91,8 @@ export class Nav {
     if (this.docked) { const n = Math.ceil(ship.hull * 10 - 1e-6) * 10; this.repBar.style.width = n + '%'; if ((time * 4 | 0) % 2 === 0) this.refreshDock(); }
 
     const towing = sal.ropes.some((r) => r.item.state === 'towed');
-    const MX = Math.min(84, w * 0.12), MY = 64, cx = w / 2, cy = h / 2;
+    // right edge keeps clear of the hull gauge so pinned markers never sit on it
+    const MX = Math.min(84, w * 0.12), MXR = Math.min(118, w * 0.12 + 40), MY = 64, cx = w / 2, cy = h / 2;
     for (const m of this.marks) {
       const s = m.s; const d = Math.max(0, s.pos.distanceTo(ship.pos) - (s.kind === 'depot' ? 0 : s.radius * 0.4));
       const inside = s.kind !== 'depot' && s.pos.distanceTo(ship.pos) < s.radius * 0.9 && s.state !== 'unstable';
@@ -107,11 +108,11 @@ export class Nav {
       const behind = _p.z > 1;
       let x = (_p.x * 0.5 + 0.5) * w, y = (-_p.y * 0.5 + 0.5) * h;
       if (behind) { x = w - x; y = h - y; }
-      const MB = Math.max(MY, Math.min(150, h * 0.2)), off = behind || x < MX || x > w - MX || y < MY || y > h - MB;
+      const MB = Math.max(MY, Math.min(150, h * 0.2)), off = behind || x < MX || x > w - MXR || y < MY || y > h - MB;
       let ang = 0;
       if (off) {
         let dx = x - cx, dy = y - cy; if (behind && Math.abs(dx) + Math.abs(dy) < 1) dy = 1;
-        const k = Math.min((cx - MX) / Math.abs(dx || 1e-3), (dy > 0 ? h - MB - cy : cy - MY) / Math.abs(dy || 1e-3));
+        const k = Math.min((dx > 0 ? w - MXR - cx : cx - MX) / Math.abs(dx || 1e-3), (dy > 0 ? h - MB - cy : cy - MY) / Math.abs(dy || 1e-3));
         x = cx + dx * k; y = cy + dy * k; ang = Math.atan2(dy, dx); cls += ' off';
       }
       if (cls !== m.cls) { m.el.className = 'mk ' + cls; m.cls = cls; }

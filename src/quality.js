@@ -48,7 +48,7 @@ export class Quality {
     i = THREE.MathUtils.clamp(i, 0, this.levels.length - 1);
     if (i === this.i) return;
     const L = this.levels[i], P = this.i < 0 ? null : this.levels[this.i];
-    this.i = i; this.samples.length = 0; this.hold = 1.2;
+    this.i = i; this.samples.length = 0; this.acc = 0; this.hold = 1.2;
     try { sessionStorage.setItem('rell.q', String(i)); } catch {}
     const { renderer, look, sun } = this;
     if (!P || P.pr !== L.pr) { renderer.setPixelRatio(L.pr); this.onResize(); }
@@ -85,12 +85,14 @@ export class Quality {
   // call once per frame with the real frame interval (seconds, unclamped)
   tick(dt) {
     if (this.warm > 0) { this.warm -= dt; return; }
-    if (dt > 0.25) return;                     // tab switch, shader compile: not representative
+    dt = Math.min(dt, 0.5);                    // single hitches (shader compile) are outvoted by the median
     if (this.hold > 0) { this.hold -= dt; return; }
     this.refresh = Math.min(this.refresh * 1.002, Math.max(1 / 240, dt));   // creeps toward the fastest seen interval
     const gpuMs = this.gpu && this.gpu.last;
     this.samples.push(gpuMs ? Math.max(gpuMs / 1000, dt * 0.5) : dt);
-    const N = 45; if (this.samples.length < N) return;
+    this.acc = (this.acc || 0) + dt;
+    if (this.samples.length < 45 && !(this.acc > 1.5 && this.samples.length >= 6)) return;
+    const N = this.samples.length; this.acc = 0;
     const s = this.samples.slice().sort((a, b) => a - b), med = s[N >> 1], p80 = s[Math.floor(N * 0.8)];
     this.samples.length = 0;
     const target = Math.max(this.refresh, 1 / 60);       // 60 fps is the floor we defend; faster screens are a bonus

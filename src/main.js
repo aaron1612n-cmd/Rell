@@ -44,6 +44,8 @@ const [shipModel, stationModel, debrisModel, depotModel, freighterModel, salvage
 const world = new World(scene, { station: stationModel, stationB: stationModel.clone(true), debris: debrisModel, depot: depotModel, freighter: freighterModel, salvage: salvageModel }, { coarse });
 const depot = world.site.depot;
 scene.add(world.sky);
+// dark glass (station domes, ports) mirrors black space and reads as a hole: let it pick up more of the planet glow
+scene.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && m.metalness > 0.6 && m.roughness < 0.2 && m.color.getHSL({}).l < 0.1) m.envMapIntensity = 2.6; });
 bakeSky(renderer, world.sky); bakePlanet(renderer, world.planet, coarse ? 768 : 1024);   // static sky and planet layers baked to cube maps once (sky.js)
 
 const ship = new Ship();
