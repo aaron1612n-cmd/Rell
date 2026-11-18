@@ -67,8 +67,8 @@ export function suitMaterials(envMap) {
 // a copy of one modelled part with the suit's materials
 function part(name, M) {
   if (!parts) throw new Error('loadSuit() first');
-  const src = parts[name], o = src.clone(true);
-  o.position.set(0, 0, 0); o.quaternion.identity();
+  // wrapped: a compressed part keeps its dequantization transform on its own node, so never touch that one
+  const o = new THREE.Group(); o.add(parts[name].clone(true));
   o.traverse((m) => {
     if (!m.isMesh) return;
     m.material = M[m.material.name] || M.hard;
