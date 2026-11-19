@@ -235,7 +235,7 @@ eva.getFxT = () => fxT;
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
 const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('fail'), onLost: () => toast('fail') });
-const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav });
+const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
 const replayTutorial = () => { respawn(true); tutorial.start(); };
 help.onTutorial = replayTutorial;
 if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);

@@ -403,6 +403,7 @@ export class Cockpit {
   buildEvaCabin(envMap) {
     const g = new THREE.Group();
     g.add(this.interior.clone());
+    g.add(this.buildTub());
     for (const n of ['throttle', 'stick']) { const f = frame(n); f.add((n === 'throttle' ? this.throttle : this.stick).clone()); g.add(f); }
     this.root.children.filter((o) => o.userData && o.userData.size && o.children.some((c) => c.isMesh && c.material.map === this.inst.tex)).forEach((f) => g.add(f.clone()));
     const hinge = new THREE.Group(); hinge.position.copy(HINGE); g.add(hinge);
@@ -411,6 +412,24 @@ export class Cockpit {
     g.userData.hinge = hinge;
     g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     return g;
+  }
+
+  // The hull is outside skin only, so with the canopy footprint cut away you looked straight through the
+  // nose to the planet. This is the tub under it: a lofted floor and side walls that follow the canopy
+  // table, closed off fore and aft, so an open cockpit reads as a cockpit and the ship stays solid.
+  buildTub() {
+    const z0 = data.canopy[0][0] - 0.02, z1 = data.canopy[data.canopy.length - 1][0] + 0.04, N = 14;
+    const ring = (z) => { const [cw, , y0] = canopyAt(z), w = cw * 1.0;
+      return [[-w, y0 - 0.02], [-w * 0.93, y0 - 0.08], [-w * 0.78, y0 - 0.15], [-w * 0.4, y0 - 0.19], [w * 0.4, y0 - 0.19], [w * 0.78, y0 - 0.15], [w * 0.93, y0 - 0.08], [w, y0 - 0.02]]; };
+    const pos = [], idx = [], K = 8;
+    for (let i = 0; i <= N; i++) { const z = z0 + (z1 - z0) * i / N; for (const [x, y] of ring(z)) pos.push(x, y, z); }
+    for (let i = 0; i < N; i++) for (let k = 0; k < K - 1; k++) { const a = i * K + k, b = a + 1, c = a + K, d = c + 1; idx.push(a, c, b, b, c, d); }
+    for (const [i, flip] of [[0, 1], [N, 0]]) for (let k = 1; k < K - 1; k++) { const a = i * K, b = i * K + k, c = i * K + k + 1; idx.push(...(flip ? [a, c, b] : [a, b, c])); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a3036, roughness: 0.72, metalness: 0.45, side: THREE.DoubleSide }));
+    m.castShadow = m.receiveShadow = true;
+    return m;
   }
 
   bandClone() {
