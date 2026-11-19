@@ -6,7 +6,7 @@ const TIPS = {
   'mode-drift': ['Drift', 'No damping. You keep sliding until you burn against it, and top speed is higher.'],
   broken: ['Damage', 'A part is broken. Go outside (G) and hold the cutter on the sparking scorch to weld it.'],
   hangar: ['Hangar', 'Docked. Press U (or tap Hangar) to spend credits on upgrades.'],
-  drone: ['Drone', 'A rival drone is after your cargo. Ram it, outrun it, or jam it (J) once you own a jammer.'],
+  drone: ['Drone', 'A rival drone is after your cargo. Ram it hard, outrun it, or jam it (J, sold at the hangar).'],
   latched: ['Latched', 'It has your load. Ram it hard or jam it before it cuts your line.'],
   o2: ['Oxygen', 'Suit air is low. Get back in the ship (G at the seat) or reel in (R).'],
   seam: ['Seams', 'Big wrecks come apart at their seams. Cut every seam on a section to free it for towing.'],

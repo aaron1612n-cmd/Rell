@@ -119,7 +119,7 @@ ship.fuel = 1;
   const a = document.createElement('div'); a.id = 'auto'; a.innerHTML = '<i></i><span class="mono">Depot</span>'; document.getElementById('hud').appendChild(a); }
 const fuelFill = document.querySelector('#fuel i'), autoEl = document.getElementById('auto');
 let autopilot = false;
-let scan;
+let scan, story = null;
 { const a = document.createElement('div'); a.id = 'scan'; a.innerHTML = '<i></i><span class="mono">Scan</span>'; document.getElementById('hud').appendChild(a);
   const go = () => { if (!eva.active && !menu.open) scan.fire(); };
   addEventListener('keydown', (e) => { if (e.code === 'KeyC' && !e.repeat) go(); }); a.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); go(); }); window.__scanChip = a; }
@@ -246,7 +246,20 @@ systems.onFix = (k, welded) => { toast('fix', SYS[k].name + (welded ? ' welded' 
 eva.onFaint = () => { const fee = Math.min(econ.credits, 150); if (fee) { econ.credits -= fee; econ.save(); } toast('warn', fee ? `Out of air · rescue fee ${fee}` : 'Out of air'); };
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
-const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('fail'), onLost: () => toast('fail') });
+const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('fail'), onLost: () => toast('fail'),
+  onEvent: (e, d) => {
+    if (e === 'chase') { tips.show('drone'); toast('drone', 'Drone after your cargo'); sound.warn(); }
+    if (e === 'latch') { tips.show('latched'); sound.warn(); cockpit.alert(0.4); }
+    if (e === 'cut') toast('warn', 'Drone cut your line');
+    if (e === 'kill') { econ.stats.drones++; econ.bonus(90); nav.pop(90); sound.boom(); rig.kick(0.25); hud.pulse(0.15); toast('drone', 'Drone wrecked +90'); story?.onDrone(); }
+    if (e === 'bump') { sound.hit(d); rig.kick(0.12); }
+    if (e === 'jam') { sound.tonePing(180, 0.8, 0.2, 'sawtooth', 2); rig.kick(0.05); if (d) toast('drone', d > 1 ? `${d} drones jammed` : 'Drone jammed'); }
+    if (e === 'nojammer') toast('warn', 'No jammer: buy one at the hangar');
+  } });
+// J: jam pulse. The chip shows only once you own a jammer.
+{ const a = document.createElement('div'); a.id = 'jam'; a.innerHTML = '<i></i><span class="mono">Jam</span>'; document.getElementById('hud').appendChild(a);
+  const go = () => { if (!eva.active && !menu.open) drones.jam(); };
+  addEventListener('keydown', (e) => { if (e.code === 'KeyJ' && !e.repeat) go(); }); a.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); go(); }); window.__jamChip = a; }
 const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
 const objective = new Objective({ ship, salvage, world, nav, eva, career, input, tutorial, settings });
 const replayTutorial = () => { respawn(true); tutorial.start(); };
@@ -624,6 +637,7 @@ function tickFrame(now) {
   relay.update(dt, time, camera.position, eva, ship);
   scan.update(dt, time); { const c = window.__scanChip; c.classList.toggle('on', scan.t >= 0); c.classList.toggle('cool', scan.t < 0 && scan.cool > 0); }
   drones.enabled = econ.tut && !tutorial.on; drones.update(dt, time);
+  { const c = window.__jamChip; c.classList.toggle('own', drones.jamLevel > 0); c.classList.toggle('on', drones.jamT >= 0); c.classList.toggle('cool', drones.jamT < 0 && drones.jamCool > 0); c.classList.toggle('alert', !!drones.chasing && drones.jamCool <= 0); }
   world.dust.lines.visible = !eva.safe || eva.state !== 'eva';
   { let rs2 = 0; for (let i = 0; i < rcsSm.length; i++) rs2 += rcsSm[i]; sound.update(dt, { main: ship.fx.main, boost: boostSm, rcs: rs2, strain: salvage.ropes.reduce((m, r) => Math.max(m, r.item.strainVis || 0), 0), eva: eva.active, o2low: eva.o2 < 0.25 }); }
   if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
