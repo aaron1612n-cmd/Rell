@@ -37,7 +37,7 @@ export class Help {
   toggle(force) {
     this.open = force ?? !this.open;
     if (this.open) {
-      this.el.innerHTML = `<div class="card">${this.input.touchMode ? TOUCH : KB}<section class="tut"><button>${svg('<path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v4h4"/>')}<span>Tutorial</span></button></section></div>`;
+      this.el.innerHTML = `<div class="card"><section class="goal">You\u2019re a salvager. <b>Tow wrecks to the depot for credits</b>, spend them on upgrades, take jobs for bonus pay.</section>${this.input.touchMode ? TOUCH : KB}<section class="tut"><button>${svg('<path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v4h4"/>')}<span>Tutorial</span></button></section></div>`;
       this.el.querySelector('.tut button').addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.toggle(false); this.onTutorial?.(); });
       if (document.pointerLockElement) document.exitPointerLock();
     }
