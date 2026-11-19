@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { suitMaterials, buildAstronaut, buildArm, poseFirstPerson, driveJets, heatTool, SuitAnim, Spring, SUIT } from './astronaut.js';
+import { suitMaterials, buildAstronaut, buildArm, poseFirstPerson, poseBody, driveJets, heatTool, SuitAnim, Spring, SUIT } from './astronaut.js';
+import { SuitBody, penetration } from './suitBody.js';
+import { MeshCollide } from './meshCollide.js';
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
 import { Hatch } from './hatch.js';
@@ -144,6 +146,12 @@ export class Eva {
     this.hatch = new Hatch(this); this.unclip = 0;
     // motion: the third-person suit's springs, the cutter (holster, heat, recoil), body-space acceleration
     this.anim = new SuitAnim(this.body);
+    // the whole suit collides (helmet, pack, legs...), the arms give way to walls (suitBody.js)
+    this.suit = new SuitBody(this.body);
+    this.anim.P.fixR = this.suit.arms.R.fix; this.anim.P.fixL = this.suit.arms.L.fix;
+    this.tuck = { R: 0, L: 0 };
+    this.meshHit = new MeshCollide(this.world); this.frameN = 0;
+    this.cenv = { world: this.world, ship: this.ship, angle: 0, mesh: this.meshHit, frame: 0 };
     this.holster = new Holster(); this.idleT = 0;
     this.heat = 0; this.vent = 0; this.recoil = new Spring(260, 0.32); this.pulse = 0; this.wasFiring = false;
     this.accB = new THREE.Vector3(); this.spinB = new THREE.Vector3(); this.prevRel = new THREE.Vector3();
@@ -216,6 +224,8 @@ export class Eva {
       const ck = this.cockpit, fp = ck.target === 1;
       this.state = 'out'; this.waitSeat = fp && ck.blend < 1;
       if (!this.waitSeat) this.hatch.startExit(fp);
+      if (this.relay && !this.lootSkip) { for (const it of this.relay.loot) this.meshHit.exclude(it.grp); this.lootSkip = true; }
+      this.meshHit.prepare(this.ship.pos);
       this.damage.ensure(this.ship);
       this.hintUsed = true; this.el.btn.classList.remove('ping');
     } else if (this.state === 'eva' && this.canBoard) {
@@ -300,6 +310,7 @@ export class Eva {
 
     // ---- EVA ----
     this.jets.visible = true;
+    this.cenv.angle = ck.openAngle || 0; this.cenv.frame = ++this.frameN;
     this.flyPilot(dt, cmd);
     this.stepRope(dt, cmd);
     this.useTool(dt, cmd);
@@ -381,6 +392,12 @@ export class Eva {
     const n = Math.max(1, Math.ceil(dt / (1 / 120))), h = dt / n;
     for (let i = 0; i < n; i++) {
       p.pos.addScaledVector(p.vel, h);
+      if (this.suit.ready) {
+        // every part of the suit against the station, wrecks, debris and the ship's real hull shape
+        const hit = this.suit.collide(this.cenv, p, 0.2);
+        if (hit && hit.speed > 2.5) { this.rig.kick(Math.min(0.5, hit.speed / 14)); this.hud.pulse(Math.min(0.2, hit.speed / 40)); }
+        continue;
+      }
       const hit = this.world.collideStatic(p, 0.2);
       if (hit && hit.speed > 2.5) { this.rig.kick(Math.min(0.5, hit.speed / 14)); this.hud.pulse(Math.min(0.2, hit.speed / 40)); }
       for (const d of this.world.debris) { if (d.pos.distanceToSquared(p.pos) < (d.radius + 0.5) ** 2) this.world.collidePair(p, d, 0.3); }
@@ -610,14 +627,18 @@ export class Eva {
     const look = T ? this.lookB.copy(T.point).sub(p.pos).applyQuaternion(_q).normalize() : null;
     const r = this.rope; this.ropeDir.copy(r[r.length - 3].p).sub(r[r.length - 1].p).applyQuaternion(_q);
     if (this.ropeDir.lengthSq() > 1e-6) this.ropeDir.normalize(); else this.ropeDir.set(0, 0, 1);
+    this.suit.relax(dt);
     this.anim.update(dt, {
       acc: this.accB, spin: this.spinB, boost: this.boosting, o2: this.o2,
       aim: !H.inHand ? 0 : this.firing || (T && kind !== 'core') ? 1 : 0.2, firing: this.firing, kind,
       reel: this.reeling, rope: this.ropeDir, look, recoil: this.recoil.x, trig: this.trig, drop: H.drop, empty: !H.inHand,
     });
+    // arms and the cutter give way to whatever they'd go through, then the body's spheres ride the new pose
+    b.updateMatrixWorld(true);
+    this.suit.fitArms(this.cenv, () => { poseBody(b, this.anim.P); b.updateMatrixWorld(true); });
+    this.suit.capture(p);
     // jets: drive the valves from what the pack is doing, carry the plume group on the posed body (it shows in
     // first person too, where the suit is hidden), then puff gas from the open nozzles
-    b.updateMatrixWorld(true);
     driveJets(b, this.jetF, this.jetW, this.t, dt, this.boosting ? 1 : 0);
     this.jets.matrix.copy(b.userData.body.matrixWorld); this.jets.matrixWorldNeedsUpdate = true;
     this.jetFx(dt);
@@ -637,8 +658,9 @@ export class Eva {
       const reelPh = this.anim.P.reelPh;
       poseFirstPerson(this.armR, this.armL, {
         narrow: Math.min(1, cam.aspect * 1.3), sway: this.sway, bob, kick, firing: this.firing, reach: this.reachL,
-        recoil: this.recoil.x, drop: H.drop, empty: !H.inHand, support: this.supFP, reel: this.reelFP, reelPh,
+        recoil: this.recoil.x, drop: H.drop, empty: !H.inHand, support: this.supFP, reel: this.reelFP, reelPh, tuckR: this.tuck.R, tuckL: this.tuck.L,
       });
+      this.fpTuck(dt, cam);
       const ph = reelPh % 1;
       let cL = 0.25 + this.reachL * 0.6 + 0.05 * Math.sin(this.t) + this.anim.P.fidget;
       cL = THREE.MathUtils.lerp(cL, ph < 0.6 ? 0.95 : 0.35, this.reelFP); cL = THREE.MathUtils.lerp(cL, 0.6, this.supFP);
@@ -654,6 +676,34 @@ export class Eva {
       u.uTime.value = this.t; u.uFog.value = THREE.MathUtils.clamp((0.35 - this.o2) / 0.35, 0, 1); u.uBreath.value = 0.5 + 0.5 * Math.sin(this.t * (this.o2 < 0.25 ? 5 : 1.6));
       u.uWarn.value = this.taut > 0.1 || (this.tethDist || 0) > CFG.tether * 0.92 ? 1 : 0;
       _v.set(0, 0, -1).applyQuaternion(cam.quaternion); u.uLook.value = Math.atan2(_v.x, -_v.z) * 0.3 % 1;
+    }
+  }
+
+  // first person: when a wall is closer than your hands (and the cutter), lower them out of the way instead of
+  // drawing them over it. Test the untucked pose at a few tuck depths and ease toward the least that clears.
+  fpTuck(dt, cam) {
+    this.hands.updateMatrixWorld(true);
+    const eye = cam.position;
+    const H = this.holster, T = [0, 0.25, 0.5, 0.75, 1];
+    const pts = {
+      R: [this.armR.wrist, ...(H.inHand && this.tool.visible ? [this.tool.userData.tip, this.tool] : [])],
+      L: [this.armL.wrist],
+    };
+    for (const k of ['R', 'L']) {
+      const cur = this.tuck[k];
+      // the tuck moves the wrist down 0.24 and back 0.2 (camera space)
+      _v3.set(0.03, -0.24, 0.2).applyQuaternion(cam.quaternion);
+      let need = 1;
+      for (const kk of T) {
+        let clear = true;
+        for (const o of pts[k]) {
+          const w = o.getWorldPosition(_v).addScaledVector(_v3, kk - cur);
+          for (const f of [1, 0.66, 0.33]) { _v2.lerpVectors(eye, w, f); if (penetration(this.cenv, _v2, f === 1 ? 0.07 : 0.03) > 0) { clear = false; break; } }
+          if (!clear) break;
+        }
+        if (clear) { need = kk; break; }
+      }
+      this.tuck[k] = THREE.MathUtils.damp(cur, need, need > cur ? 16 : 3.5, dt);
     }
   }
 

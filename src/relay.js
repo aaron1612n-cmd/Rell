@@ -87,8 +87,9 @@ export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
   }
 
   // ---- details ----------------------------------------------------------------------------------
-  const P = (c, s, col, R, extra) => B.box(c, s, { kind: 'prop', color: col, room: R.idx, ...extra });
-  const Pc = (c, r, len, ax, col, R, extra) => B.cyl(c, r, len, ax, { kind: 'prop', color: col, room: R.idx, ...extra });
+  // fixed props are solid too (ribs, rails, trays, lamp housings...), so the suit's limbs can't pass through them
+  const P = (c, s, col, R, extra) => B.box(c, s, { kind: 'prop', color: col, room: R.idx, collide: true, ...extra });
+  const Pc = (c, r, len, ax, col, R, extra) => B.cyl(c, r, len, ax, { kind: 'prop', color: col, room: R.idx, collide: true, ...extra });
   const LAMP = (c, s, col, R, k = 2.2) => B.box(c, s, { kind: 'lamp', color: col, k, room: R.idx, seg: 5 });
   const solid = (c, s) => B.obb(c, s);
 
@@ -140,7 +141,8 @@ export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
 
   // ---- hub ---------------------------------------------------------------------------------------
   // grab-bar cross in the middle, ring lights, pipes, consoles, the suit recharge bay
-  Pc([0, 0, 0], 0.05, 4.6, 'x', C.orange, HUB, { sides: 6 }); Pc([0, 0, 0], 0.05, 4.6, 'z', C.orange, HUB, { sides: 6 }); P([0, 0, 0], [0.3, 0.3, 0.3], C.slate, HUB, { seg: 5 });
+  // (the cross in the middle stays fly-through: it sits right across every doorway's line)
+  Pc([0, 0, 0], 0.05, 4.6, 'x', C.orange, HUB, { sides: 6, collide: false }); Pc([0, 0, 0], 0.05, 4.6, 'z', C.orange, HUB, { sides: 6, collide: false }); P([0, 0, 0], [0.3, 0.3, 0.3], C.slate, HUB, { seg: 5, collide: false });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     Pc([sx * 4.55, 2.6, sz * 2.2], 0.14, 5, 'z', C.steel, HUB); Pc([sx * 2.2, -2.6, sz * 4.55], 0.14, 5, 'x', C.steel, HUB);
     P([sx * 3.5, 2.88, sz * 3.5], [1.2, 0.2, 1.2], C.slate, HUB, { seg: 5 }); LAMP([sx * 3.5, 2.77, sz * 3.5], [0.9, 0.04, 0.9], L.cool, HUB, 2.4);
