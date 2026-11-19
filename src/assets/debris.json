@@ -1,0 +1,1 @@
+{"radius": {"tank": 1.05, "panel": 1.193, "truss": 1.529, "hatch": 0.928, "bell": 0.964, "container": 1.074, "dish": 0.78, "plate": 1.111, "chunk": 1.497}, "order": ["tank", "panel", "truss", "hatch", "bell", "container", "dish", "plate", "chunk"]}

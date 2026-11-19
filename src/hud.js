@@ -5,6 +5,7 @@ const _p = new THREE.Vector3(), _f = new THREE.Vector3();
 export class Hud {
   constructor() {
     this.spd = document.getElementById('spd');
+    this.fill = document.getElementById('spdfill'); this.lastFill = -1; this.hot = false;
     this.assist = document.getElementById('assist');
     this.hull = document.getElementById('hull');
     this.reticle = document.getElementById('reticle');
@@ -16,16 +17,26 @@ export class Hud {
     this.lastSpd = -1; this.lastHull = -1; this.lastAssist = null; this.flashA = 0;
   }
 
-  setAssist(on) { if (this.lastAssist !== on) { this.assist.classList.toggle('on', on); this.lastAssist = on; } }
+  // flight assist chip: mode name, plus the cruise speed in Hold
+  setAssist(ship) {
+    const m = ship.mode, k = m + (m === 'hold' ? Math.round(ship.holdSpd) : '');
+    if (this.lastAssist === k) return; this.lastAssist = k;
+    this.assist.classList.toggle('on', m !== 'drift'); this.assist.dataset.mode = m;
+    if (!this.assistLbl) this.assistLbl = this.assist.querySelector('span');
+    this.assistLbl.textContent = m === 'hold' ? `Hold ${Math.round(ship.holdSpd)}` : m === 'drift' ? 'Drift' : 'Damped';
+  }
 
   pulse(a) { this.flashA = Math.min(0.5, this.flashA + a); }
 
   update(dt, ship, camera, w, h) {
     const sp = Math.round(ship.vel.length());
     if (sp !== this.lastSpd) { this.spd.textContent = String(sp).padStart(3, '0'); this.lastSpd = sp; }
+    // speed track: 0..100 m/s, tick at the assist cap; turns hazard past it
+    const f = Math.min(100, Math.round(ship.vel.length()));
+    if (f !== this.lastFill) { this.fill.style.width = f + '%'; this.lastFill = f; const hot = f > 58; if (hot !== this.hot) { this.fill.classList.toggle('hot', hot); this.hot = hot; } }
     const n = Math.ceil(ship.hull * 10 - 1e-6);
     if (n !== this.lastHull) { this.segs.forEach((s, i) => s.classList.toggle('off', i >= n)); this.hull.classList.toggle('low', n <= 3); this.lastHull = n; }
-    this.setAssist(ship.assist);
+    this.setAssist(ship);
 
     // nose reticle + prograde marker, projected from world space
     const place = (el, world) => {
@@ -39,6 +50,8 @@ export class Hud {
 
     if (this.flashA > 0.002) { this.flash.style.opacity = this.flashA.toFixed(3); this.flashA *= Math.exp(-7 * dt); } else if (this.flash.style.opacity !== '0') this.flash.style.opacity = '0';
   }
+
+  miss() { this.reticle.classList.remove('miss'); void this.reticle.offsetWidth; this.reticle.classList.add('miss'); }
 
   hideHint() { this.hint.style.opacity = 0; }
 }
