@@ -36,7 +36,7 @@ export class Career {
     // job board (shown while docked)
     this.board = document.createElement('div'); this.board.id = 'jobs'; document.body.appendChild(this.board);
     this.board.addEventListener('pointerdown', (e) => e.stopPropagation());
-    addEventListener('keydown', (e) => { if (!this.board.classList.contains('show') || e.repeat) return; const i = ['Digit4', 'Digit5', 'Digit6'].indexOf(e.code); if (i >= 0) this.accept(i); });
+    addEventListener('keydown', (e) => { if (!this.board.classList.contains('show') || e.repeat || document.body.classList.contains('hangar')) return; const i = ['Digit4', 'Digit5', 'Digit6'].indexOf(e.code); if (i >= 0) this.accept(i); });
     if (!this.c.offers) this.roll();
     this.refreshChip(); this.drawBoard(); this.lastTxt = '';
   }

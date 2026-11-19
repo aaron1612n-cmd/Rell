@@ -38,6 +38,9 @@ import { Events } from './events.js';
 import { Sound } from './audio.js';
 import { DeepScan } from './deepscan.js';
 import { Drones } from './drones.js';
+import { Systems, SYS } from './systems.js';
+import { Hangar, UP_ICONS } from './hangar.js';
+import { Tips } from './tips.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -77,7 +80,9 @@ addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) { if (e
   vb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (eva.active) eva.toggleView(); else cockpit.toggle(); }); }
 
 const input = new Input(canvas);
-input.onToggleAssist = () => { ship.assist = !ship.assist; };
+const MODES = ['damped', 'hold', 'drift'];
+input.onToggleAssist = () => { if (eva.active) return; ship.setMode(MODES[(MODES.indexOf(ship.mode) + 1) % 3]); tips?.show('mode-' + ship.mode); sound.step?.(); };
+document.getElementById('assist').addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); input.onToggleAssist(); });
 const impact = new Impact(scene, world, ship, { reduced, coarse });
 {
   const el = document.getElementById('impact');
@@ -101,11 +106,12 @@ const salvage = new Salvage({
     if (e === 'snap') { sound.snap(); sparks({ point: p, normal: _c.copy(ship.pos).sub(p).normalize(), speed: 10 }, 40); rig.kick(0.35); hud.pulse(0.12); cockpit.alert(0.5); }
     if (e === 'hook') { rig.kick(0.05); sound.hook(); }
     if (e === 'miss') hud.miss();
+    if (e === 'nowinch') { hud.miss(); toast('warn', 'Tow winch broken'); }
   },
 });
 econ.apply(ship, salvage);
 const nav = new Nav({ world, salvage, econ, ship, input });
-nav.onBuy = () => econ.apply(ship, salvage);
+const applyUpgrades = () => { econ.apply(ship, salvage); if (scan) scan.level = econ.up.scanner; if (drones) drones.jamLevel = econ.up.jammer; };
 const career = new Career(econ);
 // fuel bar under the speed readout, and the autopilot chip under Impact
 ship.fuel = 1;
@@ -233,12 +239,23 @@ const damage = new HullDamage(shipMesh, shipModel);
 const eva = new Eva({ scene, camera, world, ship, shipMesh, cockpit, input, fx, rig, coarse, reduced, lockers, damage, env: scene.environment, sunDir: SUN_DIR, hud,
   onStow: (L) => { econ.bonus(L.value); career.onLocker(L.value); nav.pop(L.value); } });
 eva.getFxT = () => fxT;
+const systems = new Systems({ ship, damage, econ, fx, getFxT: () => fxT });
+damage.onClear = () => { systems.spots = {}; };
+systems.onBreak = (k) => { sound.warn(); cockpit.alert(1); toast('warn', SYS[k].name + ' damaged'); tips.show('broken'); };
+systems.onFix = (k, welded) => { toast('fix', SYS[k].name + (welded ? ' welded' : ' repaired')); sound.chime(false); };
+eva.onFaint = () => { const fee = Math.min(econ.credits, 150); if (fee) { econ.credits -= fee; econ.save(); } toast('warn', fee ? `Out of air · rescue fee ${fee}` : 'Out of air'); };
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
 const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('fail'), onLost: () => toast('fail') });
 const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
 const objective = new Objective({ ship, salvage, world, nav, eva, career, input, tutorial, settings });
 const replayTutorial = () => { respawn(true); tutorial.start(); };
+if (econ.tut) {
+  ship.pos.copy(depot.dockPt); const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), depot.axis.clone().negate(), new THREE.Vector3(0, 1, 0)); ship.quat.setFromRotationMatrix(m);
+  if (econ.ship) { ship.hull = Math.max(0.15, econ.ship.hull ?? 1); ship.fuel = econ.ship.fuel ?? 1; ship.setMode(econ.ship.mode || 'damped'); }
+}
+shipMesh.position.copy(ship.pos); shipMesh.quaternion.copy(ship.quat); shipMesh.updateMatrixWorld(true);
+systems.restore(); applyUpgrades();
 help.onTutorial = replayTutorial;
 if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
 const events = new Events({ scene, ship, fx, rig, hud, cockpit, nav, sun, coarse, reduced,
@@ -248,15 +265,40 @@ events.getFxT = () => fxT;
 // toasts: icon + number, one at a time
 const toastEl = document.createElement('div'); toastEl.id = 'toast'; document.body.appendChild(toastEl);
 let toastT = 0;
+const WARN_IC = '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>';
 function toast(kind, n) {
-  const ic = { job: JOB_ICONS.haul, done: JOB_ICONS.clean, rank: JOB_ICONS.up, fail: JOB_ICONS.quick, meteor: JOB_ICONS.meteor, flare: JOB_ICONS.flare }[kind];
-  const txt = kind === 'done' ? '+' + n : kind === 'rank' ? n : kind === 'meteor' || kind === 'flare' ? '+120' : '';
+  const ic = { job: JOB_ICONS.haul, done: JOB_ICONS.clean, rank: JOB_ICONS.up, fail: JOB_ICONS.quick, meteor: JOB_ICONS.meteor, flare: JOB_ICONS.flare, warn: WARN_IC, fix: UP_ICONS.wrench, info: JOB_ICONS.clean, drone: UP_ICONS.jammer }[kind];
+  const txt = kind === 'done' ? '+' + n : kind === 'rank' ? n : kind === 'meteor' || kind === 'flare' ? '+120' : n || '';
   toastEl.innerHTML = `<svg viewBox="0 0 24 24">${ic}</svg>${txt ? `<span>${txt}</span>` : ''}`;
-  toastEl.classList.add('show'); toastT = 2.4;
+  toastEl.classList.toggle('long', String(txt).length > 8); toastEl.classList.toggle('warn', kind === 'warn');
+  toastEl.classList.add('show'); toastT = kind === 'warn' || kind === 'fix' || kind === 'info' ? 3.4 : 2.4;
   if (kind === 'done') sound.chime(false); else if (kind === 'rank') sound.chime(true);
 }
 career.toast = toast;
 events.onWarn = () => sound.warn(); tutorial.onStep = () => sound.step();
+const tips = new Tips({ econ, settings, isBusy: () => tutorial.on || menu.open || hangar.open });
+const hangar = new Hangar({ econ, systems, sound, onBuy: () => applyUpgrades() });
+nav.onDock = (v) => { hangar.setDocked(v); if (v) { tips.show('hangar'); tips.show('story'); } };
+// a small "Saved" tick whenever progress is written
+{ const sv = document.createElement('div'); sv.id = 'saved'; sv.className = 'mono'; sv.textContent = 'Saved'; document.body.appendChild(sv);
+  let tm = 0; econ.onSave = () => { sv.classList.add('show'); clearTimeout(tm); tm = setTimeout(() => sv.classList.remove('show'), 1400); }; }
+// the ship itself (hull, fuel, flight mode) is saved every few seconds and when the tab closes
+const saveShip = () => { econ.ship = { hull: +ship.hull.toFixed(3), fuel: +ship.fuel.toFixed(3), mode: ship.mode }; econ.save(true); };
+addEventListener('pagehide', saveShip); addEventListener('visibilitychange', () => { if (document.hidden) saveShip(); });
+// EVA suit readout: oxygen and jetpack fuel as words and numbers (the visor has gauges in first person)
+const suitEl = document.createElement('div'); suitEl.id = 'suit'; suitEl.innerHTML = '<p><span class="mono">O2</span><b></b><s><i></i></s></p><p><span class="mono">Jet</span><b></b><s><i></i></s></p><em></em>';
+document.getElementById('hud').appendChild(suitEl);
+const suitB = suitEl.querySelectorAll('b'), suitI = suitEl.querySelectorAll('s i'), suitEm = suitEl.querySelector('em');
+let suitLast = '';
+function suitHud() {
+  const on = eva.state === 'eva'; suitEl.classList.toggle('on', on); if (!on) return;
+  const o = Math.ceil(eva.o2 * 100), f = Math.ceil(eva.fuel * 100), secs = Math.ceil(eva.o2 * 170 * (ship.o2Cap || 1));
+  const k = o + '|' + f; if (k === suitLast) return; suitLast = k;
+  suitB[0].textContent = o + '%'; suitB[1].textContent = f + '%'; suitI[0].style.width = o + '%'; suitI[1].style.width = f + '%';
+  suitEl.classList.toggle('low', eva.o2 < 0.25 && !eva.safe);
+  suitEm.textContent = eva.safe ? 'Breathing station air' : eva.o2 < 0.25 ? `Low oxygen · ${secs}s left` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} of air`;
+  if (eva.o2 < 0.3 && !eva.safe) tips.show('o2');
+}
 const menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
 const applySettings = (k) => {
   input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
@@ -485,7 +527,7 @@ function navFx(t) {
   const pp = 0.5 + 0.5 * Math.sin(t * (2 + 5 * boostSm)); for (const s of L.pods) s.material.opacity = 0.15 + 0.7 * pp * pp;
 }
 
-let respawnT = 0;
+let respawnT = 0, saveT = 0;
 function onShipHit(hit, otherMass) {
   const s = hit.speed; sound.hit(s);
   sparks(hit, Math.min(40, Math.floor(s * 2.5)));
@@ -493,7 +535,7 @@ function onShipHit(hit, otherMass) {
   if (s > 4) cockpit.alert(Math.min(1, s / 18));
   // glancing bumps are free; real hits cost hull, scaled by what you hit
   const dmg = Math.max(0, s - 7) * 0.011 * Math.min(2, 0.7 + otherMass * 0.15) * (ship.armor ?? 1);
-  if (dmg > 0) { ship.hull = Math.max(0, ship.hull - dmg); damage.add(hit.point, ship, dmg); }
+  if (dmg > 0) { ship.hull = Math.max(0, ship.hull - dmg); damage.add(hit.point, ship, dmg); systems.hit(hit.point, dmg); }
   // knock: a hit tumbles you
   ship.angVel.add(_c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(Math.min(3, s * 0.12)));
   if (ship.hull <= 0 && !respawnT) { respawnT = 1.6; salvage.releaseAll(); }
@@ -502,7 +544,9 @@ function onShipHit(hit, otherMass) {
 // back at the start for the tutorial, otherwise towed home to the depot's dock
 function respawn(start = false) {
   salvage.releaseAll();
-  ship.vel.set(0, 0, 0); ship.angVel.set(0, 0, 0); ship.hull = 1; damage.clear();
+  if (!start) { const fee = Math.min(econ.credits, 200 + systems.cost()); if (fee > 0) { econ.credits -= fee; econ.save(); } toast('warn', `Towed home · fee ${fee}`); }
+  systems.repairAll();
+  ship.vel.set(0, 0, 0); ship.angVel.set(0, 0, 0); ship.hull = 1; damage.clear(); ship.fuel = 1;
   if (start) { ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler)); return; }
   ship.pos.copy(depot.dockPt);
   // face away from the depot, out toward the wrecks
@@ -548,7 +592,7 @@ function tickFrame(now) {
 
   if (autopilot) autoCmd(cmd);
   // boost burns fuel; empty tank, no boost. It trickles back in flight and refills at the dock.
-  if (cmd.boost && cmd.fwd > 0 && ship.fuel > 0) ship.fuel = Math.max(0, ship.fuel - dt * 0.045); else { cmd.boost = false; ship.fuel = Math.min(1, ship.fuel + dt * (nav.docked ? 0.4 : 0.012)); }
+  if (cmd.boost && cmd.fwd > 0 && ship.fuel > 0 && ship.eff.boost) ship.fuel = Math.max(0, ship.fuel - dt * 0.045 / (ship.tank || 1)); else { cmd.boost = false; ship.fuel = Math.min(1, ship.fuel + dt * (nav.docked ? 0.4 : 0.012)); }
   fuelFill.style.width = (ship.fuel * 100).toFixed(0) + '%'; fuelFill.parentNode.classList.toggle('low', ship.fuel < 0.2);
   acc += dt; let first = true, n = 0;
   while (acc >= STEP && n++ < 8) {
@@ -594,6 +638,8 @@ function tickFrame(now) {
   nav.update(dt, camera, innerWidth, innerHeight, time);
   tutorial.update(dt, time, camera, innerWidth, innerHeight);
   career.update(dt, ship, nav.docked); objective.update(dt);
+  systems.update(dt); tips.update(dt); suitHud();
+  if ((saveT += dt) > 5) { saveT = 0; saveShip(); }
   events.update(dt, { busy: !econ.tut || tutorial.on || nav.docked || eva.active || respawnT > 0 }, camera, innerWidth, innerHeight);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
   quality.begin();
@@ -602,4 +648,4 @@ function tickFrame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { systems, hangar, tips, relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };

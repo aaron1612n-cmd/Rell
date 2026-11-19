@@ -17,7 +17,14 @@ export class Hud {
     this.lastSpd = -1; this.lastHull = -1; this.lastAssist = null; this.flashA = 0;
   }
 
-  setAssist(on) { if (this.lastAssist !== on) { this.assist.classList.toggle('on', on); this.lastAssist = on; } }
+  // flight assist chip: mode name, plus the cruise speed in Hold
+  setAssist(ship) {
+    const m = ship.mode, k = m + (m === 'hold' ? Math.round(ship.holdSpd) : '');
+    if (this.lastAssist === k) return; this.lastAssist = k;
+    this.assist.classList.toggle('on', m !== 'drift'); this.assist.dataset.mode = m;
+    if (!this.assistLbl) this.assistLbl = this.assist.querySelector('span');
+    this.assistLbl.textContent = m === 'hold' ? `Hold ${Math.round(ship.holdSpd)}` : m === 'drift' ? 'Drift' : 'Damped';
+  }
 
   pulse(a) { this.flashA = Math.min(0.5, this.flashA + a); }
 
@@ -29,7 +36,7 @@ export class Hud {
     if (f !== this.lastFill) { this.fill.style.width = f + '%'; this.lastFill = f; const hot = f > 58; if (hot !== this.hot) { this.fill.classList.toggle('hot', hot); this.hot = hot; } }
     const n = Math.ceil(ship.hull * 10 - 1e-6);
     if (n !== this.lastHull) { this.segs.forEach((s, i) => s.classList.toggle('off', i >= n)); this.hull.classList.toggle('low', n <= 3); this.lastHull = n; }
-    this.setAssist(ship.assist);
+    this.setAssist(ship);
 
     // nose reticle + prograde marker, projected from world space
     const place = (el, world) => {

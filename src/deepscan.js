@@ -46,8 +46,10 @@ export class DeepScan {
   get ready() { return this.t < 0 && this.cool <= 0; }
   get left() { return this.caches.filter((c) => c.hidden).length; }
 
+  get range() { return R_MAX * (1 + 0.4 * (this.level || 0)); }
   fire() {
     if (!this.ready) return false;
+    if (this.ship.scanOk === false) { this.onDenied?.(); return false; }
     this.t = 0; this.origin.copy(this.ship.pos); this.shell.visible = true;
     this.sound?.tonePing(300, 1.2, 0.18, 'sine', 3); return true;
   }
@@ -61,7 +63,7 @@ export class DeepScan {
     }
     if (this.t < 0) return;
     this.t += dt;
-    const k = this.t / DUR, r = R_MAX * (1 - Math.pow(1 - Math.min(1, k), 2));
+    const k = this.t / DUR, r = this.range * (1 - Math.pow(1 - Math.min(1, k), 2));
     this.shell.position.copy(this.origin); this.shell.scale.setScalar(Math.max(0.1, r));
     this.shell.material.uniforms.uA.value = Math.max(0, 1 - k) * 1.1;
     for (const it of this.caches) {
@@ -72,6 +74,7 @@ export class DeepScan {
         window.dispatchEvent(new CustomEvent('rell:revealed', { detail: { kind: it.cache } }));
       }
     }
-    if (k >= 1) { this.t = -1; this.shell.visible = false; this.cool = COOL; }
+    if (k >= 1) { this.t = -1; this.shell.visible = false; this.cool = COOL * (1 - 0.3 * (this.level || 0)); }
+    this.onSweep?.(this.origin, r);
   }
 }

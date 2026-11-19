@@ -147,6 +147,7 @@ export class Salvage {
   grab() {
     if (this.cool > 0) return false;
     const c = this.candidate;
+    if (c && this.ship.winchOk === false) { this.onEvent?.('nowinch'); return false; }
     if (c && this.ropes.length < this.capacity) { this.attach(c); this.cool = 0.25; return true; }
     if (this.ropes.length) { this.releaseAll(); this.cool = 0.25; return 'release'; }
     this.onEvent?.('miss'); return false;

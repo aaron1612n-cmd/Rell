@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { UPG } from './economy.js';
 
 // Wordless navigation + economy HUD:
 //  - one marker per site (icon + range), pinned to the screen edge with an arrow when off-screen
@@ -41,36 +40,12 @@ export class Nav {
     document.getElementById('hud').appendChild(top);
     this.crEl = top.querySelector('b'); this.towEl = top.querySelector('#tow'); this.popEl = top.querySelector('#pop');
     this.shown = -1; this.crShown = econ.credits; this.lastTow = '';
-    // dock: upgrades
-    const dock = this.dock = document.createElement('div'); dock.id = 'dock';
-    dock.innerHTML = Object.keys(UPG).map((k, i) => `<button data-k="${k}">${svg(NAV_ICONS[k])}<span class="pips">${'<i></i>'.repeat(UPG[k].max)}</span><b></b><kbd>${i + 1}</kbd></button>`).join('')
-      + `<div class="rep">${svg(NAV_ICONS.hull)}<s><i></i></s></div>`;
-    document.body.appendChild(dock);
-    this.tiles = [...dock.querySelectorAll('button')];
-    for (const t of this.tiles) t.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.buy(t.dataset.k); });
-    addEventListener('keydown', (e) => { if (!this.docked || e.repeat) return; const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (i >= 0) this.buy(Object.keys(UPG)[i]); });
-    this.repBar = dock.querySelector('.rep i');
     this.docked = false; this.onBuy = null;
-  }
-
-  buy(k) {
-    const t = this.tiles.find((x) => x.dataset.k === k);
-    if (this.econ.buy(k)) { this.onBuy?.(k); t.classList.remove('no'); t.classList.add('ok'); setTimeout(() => t.classList.remove('ok'), 450); this.refreshDock(); this.crShown = this.econ.credits; }
-    else { t.classList.remove('no'); void t.offsetWidth; t.classList.add('no'); }
-  }
-
-  refreshDock() {
-    for (const t of this.tiles) {
-      const k = t.dataset.k, lvl = this.econ.up[k], p = this.econ.price(k);
-      t.querySelectorAll('.pips i').forEach((e, i) => e.classList.toggle('on', i < lvl));
-      t.querySelector('b').textContent = p === null ? '—' : p;
-      t.classList.toggle('max', p === null); t.classList.toggle('cant', p !== null && p > this.econ.credits);
-    }
   }
 
   setDocked(v) {
     if (v === this.docked) return;
-    this.docked = v; this.dock.classList.toggle('show', v); if (v) this.refreshDock();
+    this.docked = v; this.onDock?.(v);
   }
 
   pop(v) {
@@ -89,7 +64,6 @@ export class Nav {
       this.towEl.innerHTML = Array.from({ length: sal.capacity }, (_, i) => `<i class="${i < sal.ropes.length ? 'on' : ''}"></i>`).join('');
       this.lastTow = tw;
     }
-    if (this.docked) { const n = Math.ceil(ship.hull * 10 - 1e-6) * 10; this.repBar.style.width = n + '%'; if ((time * 4 | 0) % 2 === 0) this.refreshDock(); }
 
     const towing = sal.ropes.some((r) => r.item.state === 'towed');
     // right edge keeps clear of the hull gauge so pinned markers never sit on it

@@ -16,7 +16,7 @@ import { Hatch } from './hatch.js';
 const CFG = {
   acc: 2.3, boost: 2.2, assist: 1.8, brake: 4, max: 7, maxBoost: 11,
   look: 0.0021, roll: 2.2,
-  fuelUse: 0.0095, o2Use: 1 / 300, tether: 40, reach: 3.2, radius: 0.42,
+  fuelUse: 0.0095, o2Use: 1 / 170, tether: 40, reach: 3.2, radius: 0.42,
 };
 const ANCHOR = new THREE.Vector3(0, 0.62, 0.98);           // tether hardpoint on the ship's spine, behind the canopy
 const SEAT_IN = new THREE.Vector3(0, 1.05, 0.05);          // where you hang to climb back in
@@ -362,7 +362,7 @@ export class Eva {
     this.fuel = Math.max(0, this.fuel - use * CFG.fuelUse * dt);
     // inside a pressurised station: breathe, refill, no tether needed
     const safe = this.safe = !!(this.relay && this.relay.air(p.pos));
-    if (safe) this.o2 = Math.min(1, this.o2 + dt * 0.12); else this.o2 = Math.max(0, this.o2 - CFG.o2Use * dt * (boost ? 1.4 : 1));
+    if (safe) this.o2 = Math.min(1, this.o2 + dt * 0.12); else this.o2 = Math.max(0, this.o2 - CFG.o2Use / (ship.o2Cap || 1) * dt * (boost ? 1.4 : 1));
     this.thrSm.lerp(th, 1 - Math.exp(-10 * dt));
     this.boosting = boost; this.burn = th.length();
 
@@ -403,8 +403,8 @@ export class Eva {
     this.canBoard = p.pos.distanceTo(seat) < 2.4;
 
     // out of air: everything fades as the winch drags you home
-    if (this.o2 <= 0) { this.blackout = Math.min(1, (this.blackout || 0) + dt * 0.5); if (this.blackout >= 1 && this.canBoard) this.request(); }
-    else this.blackout = Math.max(0, (this.blackout || 0) - dt);
+    if (this.o2 <= 0) { if (!this.fainted) { this.fainted = true; this.onFaint?.(); } this.blackout = Math.min(1, (this.blackout || 0) + dt * 0.5); if (this.blackout >= 1 && this.canBoard) this.request(); }
+    else { this.blackout = Math.max(0, (this.blackout || 0) - dt); this.fainted = false; }
     if (this.blackout >= 1 && !this.canBoard) {
       // safety: if the reel is slow (snagged), put you at the seat
       this.snag = (this.snag || 0) + dt; if (this.snag > 6) { p.pos.copy(seat); this.snag = 0; }
@@ -492,6 +492,8 @@ export class Eva {
     const reach = CFG.reach + (this.view ? 0.6 : 0);
     let T = this.lockers.pick(o, d, reach);
     const W = this.damage.pick(o, d, reach, this.ship); if (W && (!T || W.dist < T.dist)) T = W;
+    // other workable things (wreck seams, reactor clamps, the derelict's recorder): { pick(o, d, far) -> target with work(dt) }
+    for (const P of this.pickers || []) { const X = P.pick(o, d, reach); if (X && (!T || X.dist < T.dist)) T = X; }
     this.target = T;
     // holster: out when there's something to cut (or the trigger's pulled), away after a while with nothing
     const H = this.holster;
@@ -506,8 +508,10 @@ export class Eva {
     this.useT = fire ? (this.useT || 0) + dt : 0;
     if (!fire) { this.reachL = Math.max(0, this.reachL - dt * 3); return; }
     let ev = null;
-    if (T.kind === 'weld') { const r = this.damage.work(T, dt); this.ship.hull = Math.min(1, this.ship.hull + r); }
-    else ev = this.lockers.work(T, dt);
+    const cut = dt * (this.ship.cutMul || 1);
+    if (T.work) ev = T.work(cut);
+    else if (T.kind === 'weld') { const r = this.damage.work(T, cut); this.ship.hull = Math.min(1, this.ship.hull + r); }
+    else ev = this.lockers.work(T, cut);
     if (T.kind === 'core') this.reachL = Math.min(1, this.reachL + dt * 4);
     // beam: tool tip -> target, a jittering arc (not for clamping tags: that's the hand)
     const tip = new THREE.Vector3();
@@ -661,14 +665,16 @@ export class Eva {
     const T = this.target;
     el.ret.className = 'on' + (T ? ' t' : '') + (this.firing ? ' f' : '') + (T && T.kind === 'weld' ? ' w' : '');
     let prog = 0;
-    if (T && T.kind === 'bolt') prog = T.L.bolts[T.i].heat; else if (T && T.kind === 'core') prog = T.L.tag; else if (T && T.kind === 'weld') prog = 1 - Math.min(1, T.s.amt * 4);
+    if (T && T.kind === 'bolt') prog = T.L.bolts[T.i].heat; else if (T && T.kind === 'core') prog = T.L.tag; else if (T && T.kind === 'weld') prog = this.damage.prog(T.s); else if (T && T.prog) prog = T.prog();
     el.ret.style.setProperty('--p', (prog * 100).toFixed(1) + '%');
     // first time a target is in reach: show the "use" cue under the reticle until you've used it once
     if (T && !this.usedOnce) el.use.className = 'on';
     if (this.firing) { this.usedOnce = true; el.use.className = ''; }
     // markers: nearest locker (if not already looking at it) and home (the seat) when far
-    const near = this.lockers.nearest(this.pilot.pos);
-    this.marker(el.mark, near && near.d > 2.5 && near.d < 120 ? near.L.wp : null);
+    // a broken system on your own hull comes first, then whatever the game is pointing you at, then lockers
+    const near = this.lockers.nearest(this.pilot.pos), fix = this.damage.nearestSys(this.ship, _v3), goal = !fix && this.markTarget?.(this.pilot.pos);
+    const mk = fix || goal || (near && near.d < 120 ? near.L.wp : null);
+    this.marker(el.mark, mk && mk.distanceTo(this.pilot.pos) > 2.5 ? mk : null);
     const seat = this.shipPoint(SEAT_IN, new THREE.Vector3());
     this.marker(el.home, this.pilot.pos.distanceTo(seat) > 3 || this.canBoard ? seat : null, this.canBoard);
     el.btn.classList.toggle('ping', !!this.canBoard && !this.reduced);
