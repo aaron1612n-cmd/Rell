@@ -1,7 +1,7 @@
 // Dev-only turntable for the EVA suit, lit by the game's own light rig. /tools/suitview/?yaw=30&pitch=10&dist=2.6&y=0&reach=0&part=
 import * as THREE from 'three';
 import { setupLights } from '../../src/look.js';
-import { loadSuit, suitMaterials, buildAstronaut, poseAstronaut, poseBody, restPose, poseFirstPerson, heatTool, buildGlove, buildTool, driveJets, SUIT } from '../../src/astronaut.js';
+import { loadSuit, suitMaterials, buildAstronaut, poseAstronaut, poseBody, restPose, poseFirstPerson, heatTool, buildGlove, buildTool, driveJets, SUIT, buildArm, solveArm, handBasis } from '../../src/astronaut.js';
 const q = new URLSearchParams(location.search), n = (k, d) => (q.has(k) ? +q.get(k) : d);
 const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; document.body.appendChild(renderer.domElement);
@@ -13,7 +13,14 @@ await loadSuit();
 const M = suitMaterials(scene.environment), a = buildAstronaut(M);
 // part=glove|fist|tool|gun (glove holding the tool): a single piece, centred, for close inspection
 const partName = q.get('part');
-if (partName) {
+if (partName === 'arm') {
+  // part=arm&bend=0..1: one right arm on its own, elbow bent by `bend`, glove curl `curl`
+  const arm = buildArm(M, 1, false), b = n('bend', 0.6), L = (SUIT.ua + SUIT.fa) * (1 - 0.5 * b);
+  const W = new THREE.Vector3(0, -L * Math.cos(b * 0.9), -L * Math.sin(b * 0.9));
+  solveArm(arm, new THREE.Vector3(), W, new THREE.Vector3(0, -0.2, 1).normalize(), handBasis(W.clone().normalize(), new THREE.Vector3(-1, 0, 0)));
+  arm.glove.setCurl(n('curl', 0.3));
+  scene.add(arm.root); const bb = new THREE.Box3().setFromObject(arm.root), c = bb.getCenter(new THREE.Vector3()); arm.root.position.sub(c);
+} else if (partName) {
   const g = partName === 'tool' ? buildTool(M) : buildGlove(M);
   const o = partName === 'tool' ? g : g.group;
   if (partName !== 'tool') g.setCurl(n('curl', partName === 'glove' ? 0.25 : 0.95));
