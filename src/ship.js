@@ -2,13 +2,13 @@ import * as THREE from 'three';
 
 // Tunables, in meters / seconds.
 export const CFG = {
-  main: 20, reverse: 11, strafe: 11, vert: 11, boostMul: 2.4,
+  main: 20, reverse: 11, strafe: 11, vert: 11, boostMul: 2.6, boostPunch: 0.9, // boostPunch: extra multiplier bleeding off over ~0.5s
   assistDecel: 16, brakeDecel: 26,
   maxAssist: 58, maxBoost: 100, maxFree: 190,
   lookGain: 0.0105,        // rad/s of angular velocity added per pixel of look input
   keyTurn: 3.2,            // rad/s^2 from arrow keys
   rollAccel: 4.2,
-  angDamp: 3.4,            // assist: per-second decay of angular velocity when axis idle
+  angDamp: 3.0, angStop: 0.9, // assist: exponential decay plus a constant rad/s^2 brake so spin stops cleanly
   maxAng: 3.4,
   radius: 1.5,
 };
@@ -28,6 +28,7 @@ export class Ship {
     this.assist = true;
     this.hull = 1;
     // Visual feedback for engines: -1..1 per local axis, plus main burn 0..1.
+    this.th = { fwd: 0, strafe: 0, vert: 0 }; this.boostT = 0; this.wasBoost = false;
     this.fx = { main: 0, x: 0, y: 0, z: 0, boost: false };
     // Measured corrective effort (local accel m/s^2, angular accel rad/s^2), summed over substeps; read with takeFx().
     this.sumA = new THREE.Vector3(); this.sumW = new THREE.Vector3(); this.sumT = 0;
@@ -44,13 +45,19 @@ export class Ship {
 
   step(dt, cmd) {
     const boost = cmd.boost && cmd.fwd > 0;
+    // throttle ramp: thrust builds in ~0.13s and cuts faster, so the ship has weight but never feels laggy
+    const th = this.th, ramp = (cur, tgt) => approach(cur, tgt, (Math.abs(tgt) > Math.abs(cur) ? 7.5 : 14) * dt);
+    th.fwd = ramp(th.fwd, cmd.fwd); th.strafe = ramp(th.strafe, cmd.strafe); th.vert = ramp(th.vert, cmd.vert);
+    if (boost && !this.wasBoost) this.boostT = 1;           // punch on the rising edge
+    this.wasBoost = boost; this.boostT = Math.max(0, this.boostT - dt * 2.2);
+    const bmul = boost ? CFG.boostMul * (1 + CFG.boostPunch * this.boostT) : 1;
     // --- linear: work in the ship's local frame so assist can damp each axis independently ---
     _inv.copy(this.quat).invert();
     const lv = _lv.copy(this.vel).applyQuaternion(_inv);
 
     const lv0x = lv.x, lv0y = lv.y, lv0z = lv.z;
-    const az = cmd.fwd > 0 ? CFG.main * (boost ? CFG.boostMul : 1) : CFG.reverse;
-    const thrust = { x: cmd.strafe * CFG.strafe, y: cmd.vert * CFG.vert, z: -cmd.fwd * az };
+    const az = th.fwd > 0 ? CFG.main * bmul : CFG.reverse;
+    const thrust = { x: th.strafe * CFG.strafe, y: th.vert * CFG.vert, z: -th.fwd * az };
     lv.x += thrust.x * dt; lv.y += thrust.y * dt; lv.z += thrust.z * dt;
 
     // Brake always works, even with flight assist off: it is a hard stop on every axis.
@@ -85,10 +92,10 @@ export class Ship {
     w.x += -cmd.dy * CFG.lookGain + cmd.pitchKey * CFG.keyTurn * dt;
     w.z += -cmd.roll * CFG.rollAccel * dt;
     if (this.assist || cmd.brake) {
-      const k = Math.exp(-CFG.angDamp * (cmd.brake ? 1.8 : 1) * dt);
-      if (!yawIn) w.y *= k;
-      if (!pitchIn) w.x *= k;
-      if (!rollIn) w.z *= k;
+      const k = Math.exp(-CFG.angDamp * (cmd.brake ? 1.8 : 1) * dt), st = CFG.angStop * (cmd.brake ? 1.8 : 1) * dt;
+      if (!yawIn) w.y = approach(w.y * k, 0, st);
+      if (!pitchIn) w.x = approach(w.x * k, 0, st);
+      if (!rollIn) w.z = approach(w.z * k, 0, st);
     }
     this.sumW.x += w.x - w0x; this.sumW.y += w.y - w0y; this.sumW.z += w.z - w0z; this.sumT += dt;
     const m = w.length();
