@@ -12,7 +12,7 @@ await p.goto(process.env.URL || 'http://localhost:5173/'); await p.waitForFuncti
 await p.waitForTimeout(2000);
 await p.evaluate(() => { const g = window.__game; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); g.tutorial.hideIntro?.(); g.eva.request(); });
 await p.waitForFunction(() => window.__game.eva.state === 'eva', null, { timeout: 300000 });
-const res = await p.evaluate(([N, process_env_dbg]) => {
+const res = await p.evaluate(([N, process_env_dbg, only]) => {
   const g = window.__game, T = g.THREE, e = g.eva, w = g.world, ship = g.ship; g.look.render = () => {};
   let seed = 11; const R = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
   const u = e.body.userData, V = (x, y, z) => new T.Vector3(x, y, z);
@@ -23,8 +23,8 @@ const res = await p.evaluate(([N, process_env_dbg]) => {
   for (const A of [u.armR, u.armL]) P.push([A.mid, V(0, 0, 0), 0.08, 'elbow'], [A.wrist, V(0, -0.1, -0.015), 0.07, 'glove']);
   P.push([u.armR.tool, V(-0.01, 0.03, -0.18), 0.05, 'cutter']);
   const FPP = [[e.armR.wrist, 'fpR'], [e.armL.wrist, 'fpL'], [e.tool.userData.tip, 'fpTool']];
-  const rc = new T.Raycaster(); const cmd = { fwd: 0, strafe: 0, vert: 0, dx: 0, dy: 0, roll: 0, brake: false, boost: false, yawKey: 0, pitchKey: 0, reel: false, fire: false };
-  const shipMeshes = []; g.shipMesh.traverse((o) => { if (o.isMesh && o.visible && !/glow|plume|exhaust/i.test(o.name) && o.geometry.attributes.position.count > 30 && !o.material.transparent) shipMeshes.push(o); });
+  const rc = new T.Raycaster(); rc.layers.enableAll(); const cmd = { fwd: 0, strafe: 0, vert: 0, dx: 0, dy: 0, roll: 0, brake: false, boost: false, yawKey: 0, pitchKey: 0, reel: false, fire: false };
+  const shipMeshes = []; g.shipMesh.userData.body.traverse((o) => { if (o.isMesh && o.visible && !/glow|plume|exhaust/i.test(o.name) && o.geometry.attributes.position.count > 30 && !o.material.transparent) shipMeshes.push(o); });
   const relaySite = w.sites.find((s) => s.byName && s.byName.relay);
   const siteMeshes = (s) => { const m = []; s.group.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && o.visible && !/lamp|light|beacon|glow|holo|float/i.test(o.name) && !(o.material && (o.material.transparent || o.material.blending === 2))) m.push(o); }); return m; };
   const out = {};
@@ -46,7 +46,7 @@ const res = await p.evaluate(([N, process_env_dbg]) => {
       cmd.strafe = th.x; cmd.vert = th.y; cmd.fwd = -th.z;
       let clipped = false, fpClip = false; const c0 = e.pilot.pos.clone();
       for (let i = 0; i < 100; i++) {
-        e.update(1 / 60, cmd); if (g.relay) g.relay.update(1 / 60, i / 60, g.camera.position, e, ship);
+        if (g.relay) g.relay.update(1 / 60, i / 60, g.camera.position, e, ship); e.update(1 / 60, cmd);
         if (i < 20 || i % 8) continue;
         e.body.updateMatrixWorld(true); const c = e.pilot.pos;
         // the body's centre itself must not pass through anything
@@ -78,7 +78,7 @@ const res = await p.evaluate(([N, process_env_dbg]) => {
     console.log('[clip]', cat, JSON.stringify(out[cat]));
   }
   // --- relay: walls and corners of every room
-  if (relaySite) {
+  if (relaySite && (!only || only === 'relay')) {
     const vols = g.relay.B.vols, M = relaySite.group.matrixWorld, meshes = siteMeshes(relaySite);
     ship.pos.copy(V(0, 0, 0).applyMatrix4(M)).add(V(0, 60, 0)); ship.vel.set(0, 0, 0); w.refreshActive(ship.pos, true);
     for (const d of Object.values(g.relay.doors)) { d.open = d.kind === 'outer' ? 0 : 1; }
@@ -100,7 +100,7 @@ const res = await p.evaluate(([N, process_env_dbg]) => {
     run('station walls', meshes, wall, N); run('station corners', meshes, corner, N);
   }
   // --- the ship's hull
-  {
+  if (!only || only === 'ship') {
     ship.pos.set(0, 0, 0); ship.quat.identity(); ship.vel.set(0, 0, 0); g.shipMesh.position.copy(ship.pos); g.shipMesh.quaternion.copy(ship.quat); g.shipMesh.updateMatrixWorld(true); w.refreshActive(V(5000, 5000, 5000), true);
     const setup = () => {
       for (let k = 0; k < 20; k++) {
@@ -109,16 +109,16 @@ const res = await p.evaluate(([N, process_env_dbg]) => {
         const out = tgt.clone().normalize(); out.y = Math.abs(out.y) + 0.2; out.normalize();
         const start = tgt.clone().addScaledVector(out, 2.2);
         rc.set(start, tgt.clone().sub(start).normalize()); rc.far = 2.3; const h = rc.intersectObjects(shipMeshes, false)[0];
-        if (!h || h.distance < 1.6) continue;
+        if (!h || h.distance < 1.0) { fails = (fails || 0) + 1; continue; }
         return { start, dir: tgt.clone().sub(start).normalize(), speed: 1.5 + R() * 2 };
       }
       return null;
     };
-    run('ship hull', shipMeshes, setup, N);
+    let fails = 0; run('ship hull', shipMeshes, setup, N); console.log('[clip] ship setup fails', fails);
   }
   // --- wrecks and stations from outside
   for (const s of w.sites) {
-    if (s.kind === 'field' || s === relaySite) continue;
+    if (s.kind === 'field' || s === relaySite || (only && only !== 'sites')) continue;
     const meshes = siteMeshes(s); if (!meshes.length) continue;
     s.group.updateMatrixWorld(true);
     const setup = () => {
@@ -138,6 +138,6 @@ const res = await p.evaluate(([N, process_env_dbg]) => {
     run('site ' + (s.id || s.kind), meshes, setup, Math.ceil(N / 2));
   }
   return out;
-}, [N, !!process.env.DBG]);
+}, [N, !!process.env.DBG, process.env.ONLY || '']);
 console.log(JSON.stringify(res, null, 1));
 await b.close();

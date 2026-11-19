@@ -19,9 +19,9 @@ await p.waitForFunction(() => window.__game.eva.state === 'eva', null, { timeout
 await p.evaluate((S) => {
   const g = window.__game, T = g.THREE, e = g.eva, ship = g.ship, V = (a) => new T.Vector3(...a);
   if (S.setup) new Function('g', 'T', S.setup)(g, T);
-  let start, dir = V(S.dir || [0, 0, -1]).normalize();
-  if (S.rel === 'relay') { const M = g.world.sites.find((s) => s.byName && s.byName.relay).group.matrixWorld; start = V(S.at).applyMatrix4(M); dir.transformDirection(M); ship.pos.copy(V([0, 60, 0]).applyMatrix4(M)); g.world.refreshActive(ship.pos, true); for (const d of Object.values(g.relay.doors)) if (S.doors !== false) d.open = d.kind === 'outer' ? 0 : 1; }
-  else if (S.rel === 'ship') { ship.pos.set(0, 0, 0); ship.quat.identity(); start = V(S.at); g.world.refreshActive(V([5000, 5000, 5000]), true); }
+  let start, dir = V(S.dir || [0, 0, -1]).normalize(), rq = new T.Quaternion();
+  if (S.rel === 'relay') { const M = g.world.sites.find((s) => s.byName && s.byName.relay).group.matrixWorld; start = V(S.at).applyMatrix4(M); dir.transformDirection(M); M.decompose(V([0,0,0]), rq, V([0,0,0])); ship.pos.copy(V([0, 60, 0]).applyMatrix4(M)); g.world.refreshActive(ship.pos, true); for (const d of Object.values(g.relay.doors)) if (S.doors !== false) d.open = d.kind === 'outer' ? 0 : 1; }
+  else if (S.rel === 'ship') { ship.pos.set(3000, 2600, 3000); ship.quat.identity(); start = V(S.at).add(ship.pos); g.world.refreshActive(ship.pos, true); }
   else start = V(S.start);
   ship.vel.set(0, 0, 0); g.shipMesh.position.copy(ship.pos); g.shipMesh.quaternion.copy(ship.quat); g.shipMesh.updateMatrixWorld(true);
   e.view = S.view ?? 1; e.pilot.pos.copy(start); e.pilot.vel.copy(dir).multiplyScalar(S.speed ?? 2);
@@ -30,12 +30,12 @@ await p.evaluate((S) => {
   const th = dir.clone().applyQuaternion(q.clone().invert());
   const cmd = { fwd: -th.z, strafe: th.x, vert: th.y, dx: 0, dy: 0, roll: 0, brake: false, boost: false, yawKey: 0, pitchKey: 0, reel: false, fire: !!S.fire };
   const n = S.frames ?? 90;
-  for (let i = 0; i < n; i++) { e.update(1 / 60, i < n - 20 ? cmd : { ...cmd, fwd: 0, strafe: 0, vert: 0 }); g.relay.update(1 / 60, i / 60, g.camera.position, e, ship); }
+  for (let i = 0; i < n; i++) { g.relay.update(1 / 60, i / 60, g.camera.position, e, ship); e.update(1 / 60, i < n - 20 ? cmd : { ...cmd, fwd: 0, strafe: 0, vert: 0 }); }
   window.__hold = { pos: e.pilot.pos.clone(), quat: e.pilot.quat.clone() };
   g.input.mouseFire = !!S.fire;
   // freeze the pilot where it ended up (the live loop keeps posing the body)
   const fly = e.flyPilot.bind(e); e.flyPilot = (dt, c) => { e.pilot.vel.copy(ship.vel); e.pilot.pos.copy(window.__hold.pos); e.pilot.quat.copy(window.__hold.quat); };
-  if (S.cam) { const off = V(S.cam); const cam = g.camera; const pl = e.place.bind(e); e.place = (dt, c) => { pl(dt, c); cam.position.copy(e.pilot.pos).add(off); cam.lookAt(e.pilot.pos.clone().add(V(S.look || [0, 0, 0]))); cam.updateMatrixWorld(); }; }
+  if (S.cam) { const off = V(S.cam).applyQuaternion(rq); const cam = g.camera; const pl = e.place.bind(e); e.place = (dt, c) => { pl(dt, c); cam.position.copy(e.pilot.pos).add(off); cam.lookAt(e.pilot.pos.clone().add(V(S.look || [0, 0, 0]).applyQuaternion(rq))); cam.updateMatrixWorld(); }; }
   console.log('[s] pilot', e.pilot.pos.toArray().map((v) => v.toFixed(2)).join(','), 'touching', e.suit ? e.suit.touching : '-', 'tuck', e.tuck ? e.tuck.R.toFixed(2) + ' ' + e.tuck.L.toFixed(2) : '-');
 }, S);
 await p.waitForTimeout(+(process.env.WAIT || 2500));
