@@ -207,8 +207,7 @@ export class Hatch {
       const on = this.dir === 'out' || this.t < this.A + 1.75;
       e.pass.enabled = on;
       if (on) {
-        e.handCam.position.copy(cam.position); e.handCam.quaternion.copy(cam.quaternion);
-        e.handCam.fov = cam.fov; e.handCam.aspect = cam.aspect; e.handCam.updateProjectionMatrix(); e.handCam.updateMatrixWorld(true);
+        e.handView(cam);
         this.poseArms(e.armR, e.armL, o, true);
         e.gloveL.setCurl(0.3 + 0.35 * o.grab);
         e.visorU.uOn.value = o.visor;
