@@ -212,7 +212,10 @@ body.cockpit .btn:not(.down){background:rgba(7,9,13,.22);border-color:rgba(232,2
 #auto{position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 68px);display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;padding:8px 0;touch-action:none}
 #auto i{width:10px;height:10px;border:1.5px solid var(--dim);border-radius:50%;transition:.15s}
 #auto.on i{background:var(--hazard);border-color:var(--hazard);box-shadow:0 0 10px var(--hazard);animation:eblink .8s infinite}#auto.on span{color:var(--bone)}
-body.eva #auto{opacity:0!important;pointer-events:none}
+body.eva #auto,body.eva #scan{opacity:0!important;pointer-events:none}
+#scan{position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 100px);display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;padding:8px 0;touch-action:none}
+#scan i{width:10px;height:10px;border:1.5px solid var(--dim);border-radius:2px;transform:rotate(45deg);transition:.15s}
+#scan.on i{background:var(--bone);border-color:var(--bone);box-shadow:0 0 10px var(--bone);animation:eblink .5s infinite}#scan.cool{opacity:.45}
 
 body.photo #hud,body.photo #touch,body.photo #nav,body.photo #dock,body.photo #jobs,body.photo #tut,body.photo #toast,body.photo #hint,body.photo #evw{display:none!important}
 #menubtn{position:absolute;right:calc(max(16px,env(safe-area-inset-right)) + 168px);top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:.15s;padding:0;color:inherit}
