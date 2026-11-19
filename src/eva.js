@@ -134,14 +134,14 @@ export class Eva {
     this.jetF = new THREE.Vector3(); this.jetW = new THREE.Vector3(); this.jetRel = new THREE.Vector3();
     // the cabin as seen from outside while the canopy is open
     this.cabin = this.cockpit.buildEvaCabin(o.env); this.cabin.traverse((m) => m.layers.set(1));
-    this.cabinOn = false; this.hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
+    this.cabinOn = false; this.glassOpen = false; this.hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
     this.swap = []; this.shipMesh.userData.body.traverse((m) => {
       if (!m.isMesh) return;
       for (let p = m; p; p = p.parent) if (/^(canopy|flap_)/.test(p.name)) return;   // hinged parts move, never cut
       this.swap.push({ m, orig: m.material });
     });
     // the canopy glass turns see-through while it's up, so you can see the cabin under it
-    this.openGlass = new THREE.MeshStandardMaterial({ color: 0x0a1016, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.42, envMap: o.env, side: THREE.DoubleSide, depthWrite: false });
+    this.openGlass = new THREE.MeshPhysicalMaterial({ color: 0x4a7f94, emissive: 0x08202c, emissiveIntensity: 0.7, roughness: 0.04, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.03, transparent: true, opacity: 0.26, envMap: o.env, envMapIntensity: 2.2, side: THREE.DoubleSide, depthWrite: false });
 
     this.buildRope(); this.buildHands(); this.buildBeam(); this.buildDom();
     this.lockers.onStow = (L) => this.stowed(L);
@@ -243,7 +243,18 @@ export class Eva {
     if (this.view === 1) { this.tpInit = true; this.camPos.copy(this.camera.position); }
   }
 
-  fitVisor(cam) { const hgt = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * 0.05; this.visor.scale.set(hgt * cam.aspect * 1.002, hgt * 1.002, 1); this.visorU.uAsp.value.set(cam.aspect, 1); this.visorU.uTan.value = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2); }
+  // The hands are drawn by their own camera. A tighter field of view there magnifies the view-model (a
+  // uniform scale about the eye would change nothing on screen), so on wide screens the gloves read at a
+  // proper size; phones are already close. The visor plane follows that camera, its shader keeps the real one.
+  handView(cam) {
+    const h = this.handCam;
+    this.handMag = 1 + 0.22 * THREE.MathUtils.clamp((cam.aspect - 0.7) / 0.9, 0, 1);
+    this.hands.position.y = -SUIT.eye.y + 0.18 * (this.handMag - 1);   // and a touch up, so the bigger gloves stay in frame
+    h.position.copy(cam.position); h.quaternion.copy(cam.quaternion);
+    h.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) / this.handMag));
+    h.aspect = cam.aspect; h.updateProjectionMatrix(); h.updateMatrixWorld(true);
+  }
+  fitVisor(cam) { const hgt = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) / (this.handMag || 1) * 0.05; this.visor.scale.set(hgt * cam.aspect * 1.002, hgt * 1.002, 1); this.visorU.uAsp.value.set(cam.aspect, 1); this.visorU.uTan.value = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2); }
 
   shipPoint(local, out) { return out.copy(local).applyQuaternion(this.ship.quat).add(this.ship.pos); }
 
@@ -311,6 +322,9 @@ export class Eva {
     const near = this.camera.position.distanceTo(this.shipMesh.localToWorld(_cabEye.copy(EYE))) < 2.6;
     const on = ck.open > 0.001 && (this.state === 'out' || this.state === 'in' || near);
     if (on !== this.cabinOn) this.setCabin(on);
+    // the canopy glass reads as tinted glass whenever the canopy is up (not only with the cabin cutaway)
+    const gl = ck.open > 0.001;
+    if (gl !== this.glassOpen) { this.glassOpen = gl; for (const g of this.shipMesh.userData.rig.glass || []) { g.material = gl ? this.openGlass : mats.glass; g.renderOrder = gl ? 2 : 0; } }
     if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
   }
 
@@ -322,7 +336,6 @@ export class Eva {
       const sw = (m) => (m === mats.glass ? this.hiddenMat : m === mats.shipHull ? ck.cutMat : m);
       if (on) { this.shipMesh.add(this.cabin); for (const s of this.swap) s.m.material = Array.isArray(s.orig) ? s.orig.map(sw) : sw(s.orig); }
       else { this.shipMesh.remove(this.cabin); for (const s of this.swap) s.m.material = s.orig; }
-      for (const g of this.shipMesh.userData.rig.glass || []) { g.material = on ? this.openGlass : mats.glass; g.renderOrder = on ? 2 : 0; }
     }
   }
 
@@ -623,8 +636,7 @@ export class Eva {
     // first-person hands: sway with turning and thrust, the left hand reaches to clamp tags
     const hands = this.pass.enabled = this.view === 0;
     if (hands) {
-      this.handCam.position.copy(cam.position); this.handCam.quaternion.copy(cam.quaternion);
-      this.handCam.fov = cam.fov; this.handCam.aspect = cam.aspect; this.handCam.updateProjectionMatrix(); this.handCam.updateMatrixWorld();
+      this.handView(cam);
       const tgt = _v.set(THREE.MathUtils.clamp(cmd.dx * 0.0004, -0.03, 0.03), THREE.MathUtils.clamp(-cmd.dy * 0.0004, -0.03, 0.03), 0).addScaledVector(this.thrSm, -0.012);
       this.swayV.addScaledVector(_v2.copy(tgt).sub(this.sway), 90 * dt).multiplyScalar(Math.exp(-12 * dt)); this.sway.addScaledVector(this.swayV, dt);
       const bob = this.anim.P.breath * 0.0035;
