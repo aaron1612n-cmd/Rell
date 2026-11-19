@@ -83,6 +83,9 @@ class Kit:
         c = lin(color) if isinstance(color, int) else color
         for f in self.bm.faces:
             if f in before: continue
+            if callable(color):   # per-face livery: color(centre, normal) -> hex
+                cc = color(f.calc_center_median(), f.normal)
+                c = lin(cc) if isinstance(cc, int) else cc
             base = c
             if bev_faces is not None and f in bev_faces and mat == HULL:
                 base = tuple(min(1, x * 1.28 + 0.012) for x in c)
@@ -200,6 +203,45 @@ class Kit:
         edges = list({e for v in allv for e in v.link_edges})
         bf = self._bevel(edges, bevel)
         self._finish(before, color, mat, wear, bf)
+
+    def rings(self, rings, color=BONE, mat=HULL, cap0=False, cap1=False, closed=True, wear=0.06):
+        """Skin through rings of 3D points (same count each, ascending around). Winding is fixed to face outward.
+        `color` may be a hex or a callable (centre, normal) -> hex for painted livery."""
+        before = set(self.bm.faces)
+        n = len(rings[0])
+        V = [[self.bm.verts.new(tuple(p)) for p in r] for r in rings]
+        faces = []
+        for i in range(len(V) - 1):
+            for j in range(n if closed else n - 1):
+                k_ = (j + 1) % n
+                try: faces.append(self.bm.faces.new((V[i][j], V[i + 1][j], V[i + 1][k_], V[i][k_])))
+                except ValueError: pass
+        caps = []
+        for flag, ring in ((cap0, V[0]), (cap1, V[-1])):
+            if flag:
+                try: caps.append(self.bm.faces.new(ring))
+                except ValueError: pass
+        allf = faces + caps
+        self.bm.normal_update()
+        cen = sum((v.co for r_ in V for v in r_), Vector()) / (len(V) * n)
+        if sum((f.calc_center_median() - cen).dot(f.normal) for f in faces) < 0:
+            bmesh.ops.reverse_faces(self.bm, faces=allf)
+        self.bm.normal_update()
+        self._finish(before, color, mat, wear)
+        return allf
+
+    def lathe_z(self, prof, c=(0, 0, 0), color=BONE, mat=HULL, segs=20, rot=(0, 0, 0), sx=1.0, sy=1.0, cap0=True, cap1=True, wear=0.06):
+        """Revolve [(z, r)] around the z axis at c (r may be 0 at the ends)."""
+        if not isinstance(rot, Euler): rot = R(*rot)
+        M = Matrix.Translation(Vector(c)) @ rot.to_matrix().to_4x4()
+        rs = [[M @ Vector((r * sx * math.cos(2 * math.pi * j / segs), r * sy * math.sin(2 * math.pi * j / segs), z)) for j in range(segs)] for z, r in prof]
+        return self.rings(rs, color, mat, cap0, cap1, wear=wear)
+
+    def link(self, p0, p1, r0, r1, color=SLATE_L, segs=10, mat=HULL, caps=True):
+        """Tapered round strut from p0 to p1."""
+        a, b = Vector(p0), Vector(p1); d = b - a
+        rot = Vector((0, 0, 1)).rotation_difference(d.normalized()).to_euler()
+        self.cyl(tuple((a + b) / 2), r0, r1, d.length, 'z', segs, color, rot=rot, mat=mat, wear=0.04, caps=caps)
 
     def lamp(self, c, s=(0.2, 0.2, 0.05), color=AMBER, rot=(0, 0, 0)):
         self.box(c, s, color=color, rot=rot, mat=LAMP, wear=0)
