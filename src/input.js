@@ -45,8 +45,11 @@ export class Input {
 
     // Stop double-tap zoom, pinch zoom and iOS gesture zoom from fighting the controls.
     // Pointer events still fire when touch default is cancelled, so the stick, look and buttons keep working.
+    // Panels that use real clicks, sliders and scrolling (pause menu, hangar) keep the browser's touch default,
+    // otherwise taps there never become clicks on phones.
+    const keepTouch = (t) => t instanceof Element && t.closest('#menu, #hangar');
     for (const t of ['touchstart', 'touchmove', 'touchend']) {
-      addEventListener(t, (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+      addEventListener(t, (e) => { if (e.cancelable && !keepTouch(e.target)) e.preventDefault(); }, { passive: false });
     }
     for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
       addEventListener(g, (e) => e.preventDefault(), { passive: false });
