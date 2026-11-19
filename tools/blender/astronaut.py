@@ -411,34 +411,162 @@ def build_helmet():
 UA, FA = 0.29, 0.26      # upper arm (shoulder->elbow), forearm (elbow->wrist)
 
 
-def build_upper_arm():
-    k = P('upperArm', 7)
-    # shoulder ball fills the scye bearing through the arm's range
-    k.lathe([(0.075, 0.0), (0.07, 0.035), (0.05, 0.068), (0.02, 0.083), (-0.02, 0.083), (-0.05, 0.078)], C_SUIT, SUIT, segs=32, cap0=True)
-    prof = [(-0.05, 0.078), (-0.065, 0.074)] + convolute(-0.07, -0.11, 0.07, 0.006, 2) + [(-0.13, 0.069), (-0.165, 0.066)] + convolute(-0.17, -0.23, 0.064, 0.008, 3) + [(-0.25, 0.062), (-0.28, 0.061), (-0.29, 0.06), (-0.31, 0.055), (-0.33, 0.042), (-0.345, 0.022), (-0.35, 0.0)]
-    k.lathe(prof, C_SUIT, SUIT, segs=30, cap1=True)
-    k.lathe(ring_prof(-0.118, 0.069, 0.02, 0.008), C_METAL, METAL, segs=30)       # arm bearing
-    k.lathe([(-0.14, 0.0685), (-0.14, 0.0705), (-0.17, 0.0695), (-0.17, 0.0675)], C_HAZ, HAZ_M, segs=30)  # arm band
-    bmesh.ops.scale(k.bm, vec=(1.04, 1, 1.04), verts=k.bm.verts[:])
-    return k
+def G(v, s):
+    return math.exp(-(v / s) ** 2)
 
 
-def build_forearm():
-    k = P('foreArm', 8)
-    prof = [(0.062, 0.0), (0.058, 0.024), (0.045, 0.045), (0.025, 0.058), (0.0, 0.062), (-0.03, 0.06)] + convolute(-0.05, -0.1, 0.058, 0.007, 3) + [(-0.11, 0.057), (-0.2, 0.052), (-0.235, 0.05), (-0.25, 0.046)]
-    k.lathe(prof, C_SUIT, SUIT, segs=30, cap0=True, cap1=True)
-    # the glove's gauntlet rides on the forearm (the hand bends at the wrist below it): flares over the wrist
-    # ring, a hazard band, then the glove's own wrist bearing right at the wrist pivot
-    g = Matrix.Translation(Vector((0, -FA, 0)))
-    k.lathe([(0.064, 0.0), (0.064, 0.05), (0.062, 0.0525), (0.058, 0.0535), (0.045, 0.0525), (0.02, 0.048), (0.006, 0.046), (0.006, 0.0)], C_SUIT, GLOVE, segs=28, M=g)
-    k.lathe([(0.055, 0.0532), (0.055, 0.0548), (0.042, 0.054), (0.042, 0.0522)], C_HAZ, HAZ_M, segs=28, M=g)
-    k.lathe(ring_prof(0.002, 0.042, 0.012, 0.006), C_METAL, METAL, segs=28, M=g)
-    k.lathe(ring_prof(-0.245, 0.046, 0.026, 0.009), C_METAL, METAL, segs=30)      # wrist disconnect
-    k.lathe(ring_prof(-0.228, 0.05, 0.008, 0.006), C_HAZ, HAZ_M, segs=30)
-    # a cuff checklist / wrist mirror plate on the outside of the forearm (left arm reads it in reality)
-    k.rbox((0.0, -0.15, -0.058), (0.05, 0.075, 0.01), C_SLATE, HARD, bevel=0.003)
-    k.rbox((0.0, -0.15, -0.0635), (0.038, 0.06, 0.002), C_SHELL_D, HARD, bevel=0.0)
-    bmesh.ops.scale(k.bm, vec=(1.04, 1, 1.04), verts=k.bm.verts[:])
+def sstep(a, b, v):
+    t = min(1.0, max(0.0, (v - a) / (b - a)))
+    return t * t * (3 - 2 * t)
+
+
+def keyed(keys, y):
+    """Catmull-Rom through rows (y, v1, v2, ...) sorted by descending y; returns the interpolated values."""
+    if y >= keys[0][0]: return list(keys[0][1:])
+    if y <= keys[-1][0]: return list(keys[-1][1:])
+    i = 0
+    while keys[i + 1][0] > y: i += 1
+    a, b = keys[i], keys[i + 1]
+    p0, p3 = keys[max(i - 1, 0)], keys[min(i + 2, len(keys) - 1)]
+    t = (a[0] - y) / (a[0] - b[0])
+    t2, t3 = t * t, t * t * t
+    out = []
+    for j in range(1, len(a)):
+        m1 = (b[j] - p0[j]) / 2; m2 = (p3[j] - a[j]) / 2
+        out.append((2 * t3 - 3 * t2 + 1) * a[j] + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * b[j] + (t3 - t2) * m2)
+    return out
+
+
+def floft(k, ts, fn, segs, color, mat, cap0=False, cap1=False):
+    """A loft of free-form rings: fn(t, theta) -> Vector. One continuous skin, no stacked primitives."""
+    return k.rings([[fn(t, 2 * math.pi * j / segs) for j in range(segs)] for t in ts], color, mat, cap0, cap1)
+
+
+def paint(k, faces, fn):
+    """Recolour faces: fn(centre) -> None or (hex, material)."""
+    for f in faces:
+        if not f.is_valid: continue
+        r = fn(f.calc_center_median())
+        if not r: continue
+        f.material_index = r[1]
+        for l in f.loops: l[k.col] = (*lin(r[0]), 1.0)
+
+
+def angd(a, b):
+    return (a - b + math.pi) % (2 * math.pi) - math.pi
+
+
+# Sleeve cross-sections (shoulder frame, down -Y). +X lateral, +Z the elbow point, -Z the crook of the arm.
+# rows: y, half width x, front (-Z) half depth, back (+Z) half depth, centre x, centre z
+SLEEVE = [
+    (0.000, 0.088, 0.080, 0.083, 0.004, 0.002),
+    (-0.040, 0.080, 0.077, 0.079, 0.002, 0.000),
+    (-0.085, 0.070, 0.075, 0.072, 0.000, -0.002),
+    (-0.140, 0.066, 0.075, 0.068, 0.000, -0.003),
+    (-0.200, 0.063, 0.070, 0.065, 0.000, -0.002),
+    (-0.255, 0.060, 0.066, 0.066, 0.000, 0.000),
+    (-0.290, 0.059, 0.063, 0.070, 0.000, 0.002),
+    (-0.325, 0.061, 0.061, 0.064, 0.000, 0.000),
+    (-0.370, 0.062, 0.059, 0.058, 0.000, -0.001),
+    (-0.425, 0.057, 0.053, 0.053, 0.000, 0.000),
+    (-0.470, 0.052, 0.047, 0.047, 0.000, 0.000),
+    (-0.492, 0.050, 0.045, 0.045, 0.000, 0.000),
+]
+PAD_Y = -UA
+
+
+def sleeve_disp(y, th):
+    """Fabric: bunched folds in the crook of the elbow, a quilted elbow pad, armpit drape, a wavy bunch above the
+    wrist ring, long soft drapes and a stitched seam down the inside. Displacement along the section normal."""
+    c, s = math.cos(th), math.sin(th)
+    front, med = max(0.0, -s), max(0.0, -c)
+    d = 0.0
+    # crook: crescent folds, deepest in front, curling up toward the sides
+    for yk, amp, tilt, curv in ((-0.236, 0.0026, 0.4, 0.010), (-0.257, 0.0042, -0.3, 0.014), (-0.279, 0.0052, 0.35, 0.017),
+                                (-0.301, 0.0046, -0.25, 0.014), (-0.322, 0.0032, 0.2, 0.010), (-0.342, 0.0018, -0.1, 0.006)):
+        yc = yk + tilt * 0.018 * c + curv * (1 - front) + 0.006 * math.sin(2 * th + yk * 50)
+        w = 0.3 + 0.7 * front ** 1.4
+        d += 1.35 * amp * w * (G(y - yc, 0.0052) - 0.4 * G(y - yc + 0.0105, 0.0035))
+    # elbow pad: a raised quilted patch over the point of the elbow, stitched round its edge
+    r = math.hypot((y - PAD_Y) / 0.046, angd(th, math.pi / 2) / 0.9)
+    d += 0.0042 * (1 - sstep(0.78, 1.0, r)) - 0.001 * G(r - 0.86, 0.045)
+    d -= 0.0007 * G(r - 0.45, 0.04)                       # inner quilting ring
+    # armpit: diagonal folds on the inner side
+    for yk, amp, tilt in ((-0.03, 0.0038, 0.55), (-0.062, 0.0034, 0.45), (-0.094, 0.0024, 0.35)):
+        d += amp * med ** 1.5 * G(y - (yk + tilt * 0.05 * s), 0.0068)
+    # long drapes: a couple of slack helical folds on the upper arm and forearm
+    d += 0.0016 * max(0.0, math.sin(2 * th + y * 55)) ** 3 * sstep(-0.24, -0.2, y) * sstep(-0.1, -0.13, y)
+    d += 0.0019 * max(0.0, math.sin(th - y * 32 + 1.0)) ** 4 * sstep(-0.48, -0.45, y) * sstep(-0.35, -0.38, y)
+    # bunched over the wrist ring, wavy rather than a clean ring
+    for yk, amp in ((-0.462, 0.0022), (-0.477, 0.003)):
+        d += amp * G(y - (yk + 0.0045 * math.sin(3 * th + yk * 90)), 0.0045)
+    # hazard patch sewn on the outside of the upper arm
+    d += 0.0012 * (1 - sstep(0.85, 1.0, max(abs(y + 0.1) / 0.024, abs(angd(th, 0.0)) / 0.42)))
+    # stitched seam along the inside
+    d -= 0.0008 * G(angd(th, math.pi), 0.035)
+    # slack in the cloth
+    d += 0.0006 * math.sin(th * 3 + y * 23) * math.sin(y * 61 + th)
+    return d
+
+
+def sleeve_pt(y, th, dome=1.0):
+    ax, bf, bb, cx, cz = keyed(SLEEVE, y)
+    c, s = math.cos(th), math.sin(th)
+    n = 2.25
+    ax *= dome; bf *= dome; bb *= dome
+    x = cx + ax * sgp(c, 2 / n); z = cz + (bb if s > 0 else bf) * sgp(s, 2 / n)
+    nx, nz = x - cx, z - cz; l = math.hypot(nx, nz) or 1
+    d = sleeve_disp(y, th) * dome
+    return Vector((x + nx / l * d, y, z + nz / l * d))
+
+
+def build_sleeve():
+    """The whole arm, shoulder to wrist, as ONE soft skin (the game skins it to the shoulder, elbow and wrist), then
+    the wrist disconnect ring and the glove's gauntlet. Built in the shoulder frame, the arm hanging down -Y."""
+    k = P('sleeve', 7)
+    ts = [(0.072 * math.sin(a), math.cos(a)) for a in [math.pi / 2 * (1 - i / 9) for i in range(10)]]   # shoulder cap
+    ys = [y for y, _ in ts] + [-0.004 * i for i in range(1, 125)] + [-0.4985]
+    domes = [d for _, d in ts] + [1.0] * 124 + [0.88]
+    rows = list(zip(ys, domes))
+    fs = k.rings([[sleeve_pt(y, 2 * math.pi * j / 56, dm) if y <= 0 else
+                   Vector((sleeve_pt(0, 2 * math.pi * j / 56, dm).x, y, sleeve_pt(0, 2 * math.pi * j / 56, dm).z)) for j in range(56)] for y, dm in rows],
+                 C_SUIT, SUIT, cap0=True, cap1=True)
+
+    def col(p):
+        th = math.atan2(p.z, p.x)
+        if math.hypot((p.y - PAD_Y) / 0.046, angd(th, math.pi / 2) / 0.9) < 0.84: return (0xb9b2a1, SUIT)
+        if abs(p.y + 0.1) < 0.021 and abs(angd(th, 0.0)) < 0.37: return (C_HAZ, HAZ_M)
+        if abs(angd(th, math.pi)) < 0.05: return (C_SUIT_D, SUIT)
+        return None
+    paint(k, fs, col)
+    # wrist disconnect: a machined oval ring with a chamfered lip, three lock lugs and the latch
+    W = -UA - FA
+    rp = [(W + 0.066, 0.043), (W + 0.066, 0.050), (W + 0.063, 0.0545), (W + 0.054, 0.0555), (W + 0.051, 0.0535), (W + 0.049, 0.0535),
+          (W + 0.047, 0.0552), (W + 0.04, 0.0548), (W + 0.037, 0.051), (W + 0.037, 0.043)]
+    k.lathe(rp, C_METAL, METAL, segs=48, sx=1.06, sz=0.93)
+    for a in (30, 150, 270):
+        t = math.radians(a)
+        k.rbox((0.0585 * math.cos(t), W + 0.0515, 0.0545 * math.sin(t)), (0.008, 0.009, 0.012), C_METAL_D, METAL, rot=(0, -a, 0), bevel=0.0018)
+    k.rbox((0.0, W + 0.052, 0.058), (0.016, 0.012, 0.007), C_HAZ, HAZ_M, bevel=0.002)
+    # gauntlet: the glove's soft cuff, flared and oval, slight creases, a rolled hem; strap with a buckle
+    def gpt(y, th):
+        t = (W + 0.04 - y) / 0.04
+        a, b = 0.0495 + 0.004 * t * t, 0.0455 + 0.0035 * t * t
+        c, s = math.cos(th), math.sin(th)
+        r = 1 + 0.03 * G(y - (W + 0.004), 0.0025) + 0.012 * math.sin(5 * th + 0.7) * t * (1 - t) * 3
+        return Vector((a * r * sgp(c, 2 / 2.3), y, b * r * sgp(s, 2 / 2.3)))
+    gy = [W + 0.04 - 0.004 * i for i in range(11)]
+    # one closed skin: down the outside, round the rolled hem and back up the inside as a liner (no open edge)
+    gl = [(y, 1.0) for y in gy] + [(W - 0.0015, 0.985), (W - 0.002, 0.95), (W - 0.001, 0.915), (W + 0.002, 0.9), (W + 0.007, 0.892)]
+    k.rings([[(lambda p: Vector((p.x * f, p.y, p.z * f)))(gpt(y if f == 1.0 else W, 2 * math.pi * j / 48)) + Vector((0, (y - W) if f != 1.0 else 0, 0)) for j in range(48)] for y, f in gl], C_SUIT_D, GLOVE)
+    k.rings([[Vector((p.x * 1.035, p.y, p.z * 1.04)) for p in (gpt(y, 2 * math.pi * j / 48) for j in range(48))] for y in (W + 0.027, W + 0.014)], C_SLATE, RUBBER)
+    k.rbox((0.0, W + 0.0205, 0.0505), (0.02, 0.016, 0.006), C_METAL_D, METAL, bevel=0.002)
+    # cuff checklist on the inside of the forearm: a thin plate curved to the sleeve
+    def ck(y, j):
+        n = 10; a = -math.pi / 2 + 0.5 * ((j if j <= n else 2 * n + 1 - j) / n - 0.5)
+        p = sleeve_pt(y, a); f = 1.075 if j <= n else 1.005
+        return Vector((p.x * f, y, p.z * f))
+    k.rings([[ck(y, j) for j in range(22)] for y in [-0.372 - 0.012 * i for i in range(8)]], C_SLATE, HARD, cap0=True, cap1=True)
     return k
 
 
@@ -474,105 +602,129 @@ def dome(y0, dirn, r, n=4):
     return out
 
 
+
+# ---- glove ----------------------------------------------------------------------------------------
+# Right glove in its wrist frame: fingers -Y, palm normal -X, back of hand +X, thumb toward -Z.
+# rows: y, half width thumb side, half width little-finger side, back depth, palm depth, centre x
+PALM = [
+    (0.052, 0.027, 0.029, 0.0165, 0.018, 0.0),
+    (0.030, 0.029, 0.031, 0.0172, 0.0192, 0.0),
+    (0.006, 0.032, 0.034, 0.0185, 0.021, 0.001),
+    (-0.010, 0.036, 0.039, 0.0198, 0.025, 0.0),
+    (-0.026, 0.043, 0.042, 0.0204, 0.0285, 0.0),
+    (-0.044, 0.048, 0.0445, 0.0204, 0.0288, 0.0),
+    (-0.062, 0.0485, 0.0455, 0.0198, 0.027, 0.0),
+    (-0.078, 0.048, 0.0455, 0.0188, 0.0245, 0.0),
+    (-0.092, 0.047, 0.045, 0.0172, 0.0222, 0.001),
+    (-0.101, 0.046, 0.0435, 0.0158, 0.0202, 0.002),
+]
+FINGERS = [   # base (x, y, z), segment lengths, width, back depth, palm depth
+    ((0.002, -0.102, -0.0312), (0.037, 0.025, 0.020), 0.0112, 0.0094, 0.0104),
+    ((0.002, -0.105, -0.0104), (0.040, 0.028, 0.021), 0.0115, 0.0096, 0.0106),
+    ((0.002, -0.1035, 0.0104), (0.038, 0.026, 0.020), 0.0110, 0.0093, 0.0102),
+    ((0.002, -0.0965, 0.0305), (0.030, 0.021, 0.017), 0.0098, 0.0084, 0.0092),
+]
+
+
+def palm_pt(y, th, dome=1.0):
+    wt, wp, db, dp, cx = keyed(PALM, y)
+    c, s = math.cos(th), math.sin(th)
+    n = 2.6
+    x = cx + (db if c > 0 else dp) * dome * sgp(c, 2 / n)
+    z = (wp if s > 0 else wt) * (0.8 + 0.2 * dome) * sgp(s, 2 / n)
+    if x < 0:
+        x += 0.0045 * G(y + 0.06, 0.02) * G(z + 0.002, 0.02)        # the hollow of the palm
+        x -= 0.0065 * G(y + 0.034, 0.017) * G(z + 0.033, 0.015)     # thenar (ball of the thumb)
+        x -= 0.0032 * G(y + 0.052, 0.024) * G(z - 0.036, 0.011)     # hypothenar
+        x -= 0.0024 * G(y + 0.094, 0.0055) * dome                  # pads under the knuckles
+        x += 0.0011 * G(y + 0.072 + 0.22 * z, 0.0018)               # palm crease
+        x += 0.0012 * G(y + 0.059, 0.0016)                          # gap between the grip pads
+    else:
+        x += 0.0008 * math.cos(z / 0.0205 * math.pi) ** 2 * sstep(-0.03, -0.06, y)   # tendons
+    return Vector((x, y, z))
+
+
+def finger_part(name, lens, w0, b0, p0, root=0.014, rflare=0.25, tipped=True, seed=13, taper=0.2, guard=True):
+    """One whole finger (all phalanges) as one continuous skin in its base frame, down -Y: flattened section, a
+    knuckle on the back of every joint, sharp creases and fat pads on the palm side, a real fingertip (flatter on
+    the nail side, the pad rolling round the end) with a silicone cap. The game skins it to one bone per phalanx."""
+    k = P(name, seed)
+    js = [0.0]
+    for L in lens[:-1]: js.append(js[-1] - L)
+    Lt = sum(lens)
+    kb = [0.0024, 0.0016, 0.0012]
+
+    def sec(y):
+        u = min(1.0, max(0.0, -y / Lt)); tp = (1 - taper * u) * (1 + 0.1 * G(y + 0.004, 0.012))
+        w, db, dp = w0 * tp, b0 * tp, p0 * tp
+        for i, yj in enumerate(js):
+            g = G(y - yj, 0.0045)
+            db += kb[i] * g; w += 0.0006 * g
+            dp -= 0.0017 * G(y - yj - 0.001, 0.0017)
+        bounds = js + [-Lt]
+        for y0, y1 in zip(bounds, bounds[1:]):
+            if y1 <= y <= y0: dp += 0.0011 * math.sin(math.pi * (y0 - y) / (y0 - y1)) ** 2
+            if y1 <= y <= y0: db -= 0.0005 * math.sin(math.pi * (y0 - y) / (y0 - y1)) ** 2
+        if y > 0:
+            f = 1 + rflare * y / root; w *= f; db *= f; dp *= f
+        return w, db, dp
+
+    def pt(t, th):
+        y, sc = t
+        w, db, dp = sec(max(y, -Lt))
+        cx = 0.0
+        if sc < 1:
+            w *= sc ** 0.75; cx = 0.3 * db * (1 - sc); db *= sc ** 1.25; dp *= sc ** 0.6
+        c, s = math.cos(th), math.sin(th)
+        x = cx + (db if c > 0 else dp) * sgp(c, 2 / 2.4)
+        z = w * sgp(s, 2 / 2.4)
+        return Vector((x, y, z))
+    rT = sec(-Lt)[0] * 0.95
+    ts = [(root - 0.0018 * i, 1.0) for i in range(int((root + Lt) / 0.0018) + 1)]
+    ts += [(-Lt - rT * math.sin(a), math.cos(a)) for a in [math.pi / 2 * i / 8 for i in range(1, 9)]]
+    fs = floft(k, ts, pt, 26, C_SUIT, GLOVE, cap0=True, cap1=True)
+    yt = js[-1] - lens[-1] * 0.45
+
+    def col(p):
+        w, db, dp = sec(max(p.y, -Lt))
+        if tipped and p.y < yt and (p.x < 0.0015 or p.y < -Lt + 0.001): return (0x5f5f5a, RUBBER)   # silicone tip and pad
+        if guard and p.x > db * 0.45 and abs(p.y - js[0]) < 0.0062: return (0x55524b, RUBBER)                  # knuckle guard
+        if abs(p.z) > w * 0.9 and p.y < 0: return (C_SUIT_D, GLOVE)                                    # side seams
+        return None
+    paint(k, fs, col)
+    J.setdefault('fingerParts', {})[name] = {'js': js, 'len': Lt}
+    return k
+
+
 def build_glove():
-    """Right glove in its wrist frame: fingers -Y, palm normal -X, back of hand +X, thumb toward -Z.
-    A pressurised EVA glove, modelled as continuous soft skin: a tapered hand with a full palm and a thenar
-    swell, one contoured hard shell over the back of the hand, domed knuckle mounds where the fingers root,
-    and tapered padded fingers whose joints are pinched creases (not stacked beads) with grey silicone tips
-    shaped like fingertips. Jointed per phalanx so the game can curl them."""
+    """Glove: the palm (rigid, with the wrist ball, back-of-hand shell and wrist strap), four whole fingers and a
+    thumb, each one continuous skin."""
     parts = []
     k = P('palm', 11)
-    # the glove's own wrist, a soft ball inside the gauntlet, so the cuff never shows its hollow when the wrist bends
-    k.lathe([(0.05, 0.0), (0.046, 0.026), (0.03, 0.039), (0.008, 0.041), (-0.012, 0.038)], C_SUIT_D, GLOVE, segs=28, sz=1.1, cap0=True)
-    # hand body: wrist -> knuckles. Narrow at the wrist, widening with the thumb side swelling into the thenar
-    # pad (width tuple = (+z half, -z half): -Z is the thumb side), flatter on the back, fuller on the palm.
-    hs = []
-    ys = [0.002, -0.012, -0.026, -0.04, -0.054, -0.068, -0.082, -0.094]
-    wp = [(0.034, 0.036), (0.038, 0.043), (0.041, 0.052), (0.043, 0.055), (0.0445, 0.052), (0.046, 0.048), (0.0465, 0.046), (0.046, 0.045)]
-    bk = [0.0205, 0.0215, 0.0215, 0.021, 0.0205, 0.0195, 0.0185, 0.017]
-    pm = [0.023, 0.027, 0.0305, 0.031, 0.029, 0.0265, 0.0235, 0.0205]
-    for y, w, b_, p_ in zip(ys, wp, bk, pm):
-        hs.append((y, 0.001, -0.002, b_, p_, w, 2.7))
-    for y, s_ in dome(-0.094, -1, 0.012, 4):
-        hs.append((y, 0.002, 0.0, 0.017 * (0.55 + 0.45 * s_), 0.0205 * (0.55 + 0.45 * s_), (0.046 * (0.82 + 0.18 * s_), 0.045 * (0.82 + 0.18 * s_)), 2.8))
-    asec(k, hs, C_SUIT, GLOVE, segs=44, cap0=True, cap1=True)
-    # back-of-hand shell: ONE contoured plate, arched across the hand and swept toward the knuckles, its
-    # palm half buried. Edge band darker; no stacked slabs.
+    dm = [(-0.101 - 0.011 * math.sin(a), math.cos(a)) for a in [math.pi / 2 * i / 6 for i in range(1, 7)]]
+    ts = [(0.052 - 0.0035 * i, 1.0) for i in range(44)] + dm
+    pf = floft(k, ts, lambda t, th: palm_pt(t[0], th, t[1]) if t[1] >= 1 else (lambda p: Vector((p.x, t[0], p.z)))(palm_pt(-0.101, th, t[1])), 52, C_SUIT, GLOVE, cap0=True, cap1=True)
+    paint(k, pf, lambda p: (0x55524b, RUBBER) if p.x < -0.0125 and -0.098 < p.y < -0.02 and abs(p.y + 0.059) > 0.0022 and -0.04 < p.z < 0.034 else None)
+    # back-of-hand shell: one contoured plate arched across the hand
     bs = []
-    for y, w, hgt in ((-0.020, 0.030, 0.0215), (-0.034, 0.036, 0.0238), (-0.05, 0.039, 0.0248), (-0.066, 0.0405, 0.0247), (-0.080, 0.041, 0.0238), (-0.090, 0.039, 0.0222), (-0.095, 0.034, 0.0198)):
+    for y, w, hgt in ((-0.020, 0.030, 0.0215), (-0.034, 0.036, 0.0238), (-0.05, 0.039, 0.0248), (-0.066, 0.0405, 0.0247), (-0.080, 0.041, 0.0236), (-0.088, 0.039, 0.022), (-0.093, 0.034, 0.0196)):
         bs.append((y, 0.003, -0.0015, hgt, 0.0, w, 3.4))
     asec(k, bs, C_SHELL, HARD, segs=40, cap0=True, cap1=True)
-    # three low tendon ribs along the shell
     for z in (-0.013, 0.0, 0.013):
-        rb = [(-0.026, 0.0, z, 0.0, 0.0, 0.0, 2)]
-        rs = []
-        for yy in (-0.026, -0.04, -0.056, -0.072, -0.086):
-            hh = 0.0262 - 0.0000 * abs(yy)
-            rs.append((yy, 0.0))
-        pts = [Vector((0.0255 + 0.0006 * math.sin((yy + 0.026) * 30), yy, z)) for yy, _ in rs]
+        pts = [Vector((0.0255 + 0.0006 * math.sin((yy + 0.026) * 30), yy, z)) for yy in (-0.026, -0.04, -0.056, -0.072, -0.086)]
         k.sweep(pts, 0.0021, C_SHELL_D, HARD, segs=8)
-    # knuckle mounds: a soft dome where each finger roots, with a rubber bar across them (the knuckle guard)
-    for z in (-0.032, -0.0108, 0.0108, 0.0315):
-        k.lathe([(0.0085, 0.0), (0.0077, 0.0052), (0.0045, 0.0092), (0.0, 0.0105), (-0.0045, 0.0092), (-0.0077, 0.0052), (-0.0085, 0.0)], C_SUIT, GLOVE, segs=20, sx=0.8, sz=1.15,
-                M=rotM(0, 0, 0, (0.0165, -0.098, z)), cap0=True, cap1=True)
-    gb = [(-0.0905, 0.002, 0.0, 0.0215, 0.0, 0.0425, 3.2), (-0.1005, 0.002, 0.0, 0.0225, 0.0, 0.0435, 3.2), (-0.1085, 0.002, 0.0, 0.0175, 0.0, 0.0405, 3.0)]
-    asec(k, gb, C_RUB, RUBBER, segs=36, cap0=True, cap1=True)
-    # palm: a grip pad in two pieces with a crease between, buried on the back side
-    for (y0, y1, w) in ((-0.028, -0.056, (0.034, 0.042)), (-0.062, -0.093, (0.042, 0.042))):
-        ps = [(y0 + 0.003, 0.0, 0.001, 0.0, 0.022, (w[0] * 0.8, w[1] * 0.8), 2.6), (y0, 0.0, 0.001, 0.0, 0.0315, w, 2.9), (y1, 0.0, 0.001, 0.0, 0.0295, w, 2.9), (y1 - 0.003, 0.0, 0.001, 0.0, 0.02, (w[0] * 0.8, w[1] * 0.8), 2.6)]
-        asec(k, ps, 0x55524b, RUBBER, segs=36, cap0=True, cap1=True)
-    # thenar: bridges the thumb side of the palm into the thumb root
-    th = rotM(-50, 0, 12, (-0.008, -0.033, -0.04))
-    k.lathe([(0.022, 0.0), (0.02, 0.009), (0.012, 0.0155), (0.0, 0.017), (-0.012, 0.0155), (-0.018, 0.01), (-0.021, 0.0)], C_SUIT, GLOVE, segs=24, sx=0.95, sz=0.85, M=th, cap0=True, cap1=True)
-    # wrist strap with a buckle on the back of the hand
     ws = [(-0.004, 0.0, -0.002, 0.0235, 0.0265, 0.0375, 2.6), (-0.014, 0.0005, -0.003, 0.0245, 0.0285, 0.0405, 2.7)]
     asec(k, ws, C_SLATE, RUBBER, segs=36, cap0=False, cap1=False)
     k.rbox((0.026, -0.009, 0.006), (0.006, 0.014, 0.02), C_METAL_D, METAL, bevel=0.002)
     k.rbox((0.0285, -0.009, 0.006), (0.002, 0.007, 0.011), C_HAZ, HAZ_M, bevel=0.0007)
     parts.append(k)
-
-    # a finger phalanx: tapered, slightly flattened, a fuller pad on the palm side, pinched at each joint. The
-    # distal one ends in a fingertip (silicone pad that wraps the tip, with a clean seam); others end in a dome
-    # that sits inside the next segment as it bends.
-    def phalanx(name, L, w, d, tip=False, taper=0.86):
-        f = P(name, 13)
-        secs = []
-        for y, s in reversed(dome(0.0, 1, w * 0.9, 4)):
-            secs.append((y, 0.0, 0.0, d * (0.3 + 0.7 * s), d * 1.06 * (0.3 + 0.7 * s), w * (0.3 + 0.7 * s), 2.4))
-        N = 11
-        for i in range(N + 1):
-            t = i / N; y = -L * t
-            joint = math.exp(-((t - 0.0) / 0.1) ** 2) + (0 if tip else math.exp(-((t - 1.0) / 0.1) ** 2))
-            tp = 1 - (1 - taper) * t
-            ww = w * tp * (1.0 - 0.07 * joint)
-            back = d * tp * (1.0 - 0.07 * joint)
-            palm = d * tp * (1.06 + 0.14 * math.sin(math.pi * t) - 0.05 * joint)
-            secs.append((y, 0.0, 0.0, back, palm, ww, 2.5))
-        e_w, e_b, e_p = w * taper, d * taper, d * taper * 1.06
-        if tip:
-            for y, s in dome(-L, -1, w * taper * 1.0, 6):
-                secs.append((y, -0.001 * (1 - s), 0.0, e_b * (0.15 + 0.85 * s), e_p * (0.25 + 0.75 * s), e_w * (0.3 + 0.7 * s), 2.3))
-        else:
-            for y, s in dome(-L, -1, w * 0.62, 4):
-                secs.append((y, 0.0, 0.0, e_b * (0.4 + 0.6 * s), e_p * (0.4 + 0.6 * s), e_w * (0.4 + 0.6 * s), 2.4))
-        fs = asec(f, secs, C_SUIT, GLOVE, segs=22, cap0=True, cap1=True)
-        if tip:
-            f.bm.normal_update()
-            for fc in fs:
-                if fc.is_valid and fc.calc_center_median().y < -L * 0.58:
-                    fc.material_index = RUBBER
-                    for l in fc.loops: l[f.col] = (*lin(0x5f5f5a), 1.0)
-        return f
-    parts.append(phalanx('finA', 0.036, 0.0114, 0.0106))
-    parts.append(phalanx('finB', 0.026, 0.0104, 0.0098))
-    parts.append(phalanx('finC', 0.021, 0.0095, 0.009, tip=True))
-    parts.append(phalanx('thumbA', 0.03, 0.0136, 0.0124))
-    parts.append(phalanx('thumbB', 0.026, 0.0126, 0.0116, tip=True, taper=0.88))
-    J['fingers'] = [[0.002, -0.104, z] for z in (-0.032, -0.0108, 0.0108, 0.0315)]
-    J['fingerScale'] = [1.0, 1.08, 1.02, 0.82]
-    J['fingerLen'] = [0.036, 0.026]
+    for i, (base, lens, w, b, p) in enumerate(FINGERS):
+        parts.append(finger_part('finger%d' % i, lens, w, b, p, seed=13 + i))
+    parts.append(finger_part('thumb', (0.032, 0.027), 0.0142, 0.012, 0.0136, root=0.014, rflare=0.35, seed=19, taper=0.26, guard=False))
+    J['fingers'] = [list(f[0]) for f in FINGERS]
+    J['fingerLens'] = [list(f[1]) for f in FINGERS]
     J['thumb'] = [-0.012, -0.04, -0.046]
-    J['thumbLen'] = 0.03
+    J['thumbLens'] = [0.032, 0.027]
     return parts
 
 
@@ -757,7 +909,7 @@ def export(parts, path):
 if __name__ == '__main__':
     root = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'assets')
     torso, helmet = build_torso(), build_helmet()
-    ua, fa = build_upper_arm(), build_forearm()
+    sl = build_sleeve()
     glove = build_glove()
     th, sh, bo = build_thigh(), build_shin(), build_boot()
     tool = build_tool()
@@ -770,8 +922,9 @@ if __name__ == '__main__':
     tm = bmesh.new(); me = bpy.data.meshes.new('t'); torso.bm.to_mesh(me); tm.from_mesh(me); bpy.data.meshes.remove(me)
     bmesh.ops.translate(tm, vec=-Vector(J['neck']), verts=tm.verts)
     bake([helmet], occluders=[type('O', (), {'bm': tm})()], dist=0.12)
-    for p in (ua, fa, th, sh, bo, tool): bake([p], dist=0.08)
+    for p in (th, sh, bo, tool): bake([p], dist=0.08)
+    bake([sl], dist=0.03, strength=0.75)
     bake([glove[0]], dist=0.05)
-    for g in glove[1:]: bake([g], dist=0.02, strength=0.5)
-    export([torso, helmet, ua, fa, *glove, th, sh, bo, tool], os.path.join(root, 'astronaut.glb'))
+    for g in glove[1:]: bake([g], dist=0.012, strength=0.45)
+    export([torso, helmet, sl, *glove, th, sh, bo, tool], os.path.join(root, 'astronaut.glb'))
     with open(os.path.join(root, 'astronaut.json'), 'w') as f: json.dump(J, f, indent=1)

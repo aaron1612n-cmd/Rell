@@ -13,7 +13,7 @@ await p.goto('http://localhost:5173/'); await p.waitForFunction(() => window.__g
 const only = (process.env.ONLY || '').split(',').filter(Boolean), want = (n) => !only.length || only.includes(n);
 const shot = async (n) => { await p.screenshot({ path: `${out}/${n}.png` }); console.log('shot', n); };
 await p.waitForTimeout(2500);
-await p.evaluate(() => { const g = window.__game, T = g.THREE; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish();
+await p.evaluate(() => { const g = window.__game, T = g.THREE; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); g.tutorial.hideIntro?.();
   g.ship.hull = 0.7; g.damage.add(new T.Vector3(1, 1.5, -0.5).applyQuaternion(g.ship.quat).add(g.ship.pos), g.ship, 0.18); });
 await p.evaluate(() => window.__game.eva.request());
 await p.waitForFunction(() => window.__game.eva.state === 'eva', null, { timeout: 400000 });
