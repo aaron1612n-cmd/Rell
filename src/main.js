@@ -324,6 +324,7 @@ function toast(kind, n) {
 }
 career.toast = toast;
 events.onWarn = () => sound.warn(); tutorial.onStep = () => sound.step();
+const stnEl = document.getElementById('stn'); let stnT = 0, stnM = '';
 const tips = new Tips({ econ, settings, isBusy: () => tutorial.on || menu.open || hangar.open });
 const hangar = new Hangar({ econ, systems, sound, onBuy: () => applyUpgrades() });
 tutorial.hangar = hangar; hangar.onToggle = (v) => { if (v) tutorial.hangarSeen = true; };
@@ -341,6 +342,7 @@ const suitB = suitEl.querySelectorAll('b'), suitI = suitEl.querySelectorAll('s i
 let suitLast = '';
 function suitHud() {
   const on = eva.state === 'eva'; suitEl.classList.toggle('on', on); if (!on) return;
+  tips.show('cutter');
   const o = Math.ceil(eva.o2 * 100), f = Math.ceil(eva.fuel * 100), secs = Math.ceil(eva.o2 * 170 * (ship.o2Cap || 1));
   const k = o + '|' + f; if (k === suitLast) return; suitLast = k;
   suitB[0].textContent = o + '%'; suitB[1].textContent = f + '%'; suitI[0].style.width = o + '%'; suitI[1].style.width = f + '%';
@@ -682,6 +684,7 @@ function tickFrame(now) {
   partsFx(dt);
   eva.update(dt, raw);
   relay.update(dt, time, camera.position, eva, ship);
+  if ((stnT -= dt) <= 0) { stnT = 0.2; const m = relay.status(eva, ship, input.touchMode); if (m !== stnM) { stnM = m; stnEl.innerHTML = m; stnEl.classList.toggle('on', !!m); } }
   scan.update(dt, time); { const c = window.__scanChip; c.classList.toggle('on', scan.t >= 0); c.classList.toggle('cool', scan.t < 0 && scan.cool > 0); }
   breakup.update(dt, time); story.update(dt, time);
   drones.enabled = econ.tut && !tutorial.on; drones.update(dt, time);

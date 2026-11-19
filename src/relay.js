@@ -562,6 +562,7 @@ class Relay {
     const pilot = eva.state === 'eva' ? eva.pilot.pos : null;
     const p = pilot ? this.local(pilot, this.pl) : null;
     this.here = p ? this.roomAt(p, 0.15) : -1;
+    this.innerDoors(dt, p);
     this.airlock(dt, p, time);
     this.interior(dt, p, pilot);
     // animated bits
@@ -594,7 +595,7 @@ class Relay {
       // who wants what
       if (zone === 'chamber') {
         if (!al.entry) al.entry = outD.open > 0.05 ? 'out' : inD.open > 0.05 ? 'in' : null;
-        const deep = al.entry === 'out' ? p.z < 18.1 : al.entry === 'in' ? p.z > 15.8 : false;
+        const deep = al.entry === 'out' ? p.z < 18.6 : al.entry === 'in' ? p.z > 15.3 : false;
         if (deep) al.goal = al.entry === 'out' ? 'in' : 'out';
       } else if (zone === 'out') { al.entry = null; if (!al.goal || al.goal === 'out' || inD.open < 0.05) al.goal = 'out'; }
       else if (zone === 'in') { al.entry = null; if (!al.goal || al.goal === 'in' || outD.open < 0.05) al.goal = 'in'; }
@@ -631,6 +632,41 @@ class Relay {
     // collar clamps close when the doors are shut, open to take a visitor
     const open = Math.max(outD.open, al.phase === 'cycle' ? 0 : 0);
     for (const c of this.clamps) c.hinge.rotation.x = THREE.MathUtils.damp(c.hinge.rotation.x, 0.45 - open * 1.3, 3, dt);
+  }
+
+  // inner doors: open as you float up to them, close behind you (they used to never open at all)
+  innerDoors(dt, p) {
+    for (const d of Object.values(this.doors)) {
+      if (d.kind !== 'int') continue;
+      d.target = 0;
+      if (p) { const c = d.axis === 'z' ? _v.set(d.u, d.v, d.at) : _v.set(d.at, d.v, d.u); if (p.distanceToSquared(c) < 3.6 * 3.6) d.target = 1; }
+      const prev = d.open;
+      d.open += Math.sign(d.target - d.open) * Math.min(Math.abs(d.target - d.open), 2.6 * dt);
+      if (prev !== d.open && (prev < 0.55) !== (d.open < 0.55)) this.site.world.dirty = true;
+      if (prev === 0 && d.open > 0) this.sound?.noise(0.4, 'lowpass', 600, 0.1);
+    }
+  }
+
+  // one line of plain words about what to do here: shown from the ship on approach and all the way inside
+  status(eva, ship, touch) {
+    if (!this.near) return '';
+    const al = this.al, inEva = eva.state === 'eva';
+    if (!inEva) {
+      const d = this.local(ship.pos, _v2); if (Math.hypot(d.x, d.y, d.z - 22) > 70) return '';
+      return `<b>Kestrel Relay</b> Park by the orange airlock, ${touch ? 'tap Hatch' : 'press G'} and float in`;
+    }
+    const p = this.pl, here = this.here;
+    const left = this.left, loot = left ? ` · ${left} glowing case${left > 1 ? 's' : ''} to grab inside` : '';
+    if (al.phase === 'cycle') return `<b>${al.target ? 'Pressurising' : 'Venting'}</b> ${Math.max(0, al.dur - al.t).toFixed(1)}s · wait in the airlock`;
+    if (here === 2) {
+      const msg = al.goal === 'in' ? (al.air ? 'Inner door opening, float on in' : 'Outer door closing behind you') : al.goal === 'out' ? (al.air ? 'Inner door closing, then it vents' : 'Outer door open, float out') : 'Float all the way in';
+      return `<b>Airlock</b> ${msg}`;
+    }
+    if (here < 0) { if (p.z > 17 && p.z < 40 && Math.abs(p.x) < 8 && Math.abs(p.y) < 8) return '<b>Airlock</b> Float in through the open door' + loot; return ''; }
+    const N = { 0: ['Hub', 'stand in the green bay to refill air and fuel'], 4: ['Cargo hold', ''], 6: ['Crew quarters', ''], 8: ['Lab', ''], 1: ['Corridor', 'doors open as you get close'], 3: ['Corridor', 'doors open as you get close'], 5: ['Corridor', 'doors open as you get close'], 7: ['Corridor', 'doors open as you get close'] }[here];
+    if (!N) return '';
+    const tail = [N[1], left ? `${left} case${left > 1 ? 's' : ''} left · fly into them` : ''].filter(Boolean).join(' · ');
+    return `<b>${N[0]}</b> ${tail}`;
   }
 
   slide(d) {
