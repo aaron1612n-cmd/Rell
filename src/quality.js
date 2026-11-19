@@ -42,6 +42,9 @@ export class Quality {
     window.__quality = this;
   }
 
+  // 'auto' adapts; 'low' pins the cheapest useful rung; 'high' pins the top
+  setMode(m) { this.mode = m; if (m === 'low') this.set(Math.min(1, this.levels.length - 1)); else if (m === 'high') this.set(this.levels.length - 1); }
+
   get level() { return this.levels[this.i]; }
 
   set(i) {
@@ -84,6 +87,7 @@ export class Quality {
 
   // call once per frame with the real frame interval (seconds, unclamped)
   tick(dt) {
+    if (this.mode && this.mode !== 'auto') return;
     if (this.warm > 0) { this.warm -= dt; return; }
     dt = Math.min(dt, 0.5);                    // single hitches (shader compile) are outvoted by the median
     if (this.hold > 0) { this.hold -= dt; return; }

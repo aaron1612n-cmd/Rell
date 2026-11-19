@@ -18,7 +18,7 @@ export class CamRig {
   // ease from a pose the camera is in now (the end of a cutscene) into the chase view over `dur` seconds
   blendFrom(cam, dur) { this.bf = { p: cam.position.clone(), q: cam.quaternion.clone(), t: 0, d: this.reduced ? 0 : dur }; }
 
-  kick(a) { if (!this.reduced) this.shake = Math.min(1, this.shake + a); }
+  kick(a) { if (!this.reduced) this.shake = Math.min(1, this.shake + a * (this.shakeScale ?? 1)); }
 
   update(dt, ship) {
     this.t += dt;
