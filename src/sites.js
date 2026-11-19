@@ -20,6 +20,7 @@ export const LAYOUT = {
   freighter: { pos: [1450, -40, -980], yaw: -0.7, roll: -0.25 },
   field: { pos: [-260, 60, -1650], r: 260 },                    // debris graveyard
   relay: { pos: [-560, 30, 520], yaw: 2.14 },                   // Kestrel Relay: a working station you can walk into
+  vesper: { pos: [-2350, 210, 1700], yaw: 2.6, roll: 0.7, pitch: 0.35 },   // the story's mystery derelict, hidden until found
 };
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _c = new THREE.Vector3();
@@ -287,6 +288,19 @@ export function buildSites(world, models) {
     const L = LAYOUT.relay;
     const s = new Site(world, { id: 'relay', kind: 'relay', pos: L.pos, yaw: L.yaw, radius: 85 });
     s.relay = buildRelay(s, { Part, scene: world.scene });
+    S.push(s);
+  }
+  // 7. The Vesper: a sister station gutted to the frame, cold and dark, found by following a signal (story.js).
+  if (models.stationC) {
+    const L = LAYOUT.vesper;
+    const s = new Site(world, { id: 'vesper', kind: 'derelict', pos: L.pos, yaw: L.yaw, roll: L.roll, pitch: L.pitch, radius: 120 });
+    const nodes = s.addModel(models.stationC, stationData, { darkened: true, extra: extraColliders.station });
+    for (const n of ['ring', 'solar_r', 'solar_l', 'solar_boom', 'mast_aft', 'pod_0', 'pod_2', 'lamps_a', 'lamps_b', 'lamps_c']) s.remove(n);
+    // eleven years in the dark: cold slate, frost-dulled, nothing lit
+    const cold = addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, color: 0x5d646b, roughness: 0.9, metalness: 0.22 }), { scale: 0.22, grime: 1.5, bump: 1.6, scratch: 0.3 });
+    const { dark } = darkMats(); s.group.traverse((o) => { if (o.isMesh && o.material === dark) o.material = cold; });
+    s.hidden = true;
+    s.debrisSpec = { n: 24, rMin: 30, rMax: 160 };
     S.push(s);
   }
   for (const s of S) s.afterBuild?.();

@@ -315,6 +315,23 @@ body.eva #obj,body.cockpit #obj{top:calc(max(12px,env(safe-area-inset-top)) + 70
 #jam.alert i{border-color:var(--hazard);border-style:solid;animation:eblink .5s infinite}#jam.alert span{color:var(--hazard)}
 body.eva #jam{opacity:0!important;pointer-events:none}
 @media (max-width:640px){#jam{top:calc(max(16px,env(safe-area-inset-top)) + 196px)}}
+#comms{position:fixed;right:max(16px,env(safe-area-inset-right));top:calc(max(16px,env(safe-area-inset-top)) + 64px);width:min(360px,calc(100vw - 32px));display:flex;flex-direction:column;gap:4px;padding:12px 16px 14px;border-right:3px solid var(--hazard);background:rgba(7,9,13,.82);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;transform:translateX(12px);pointer-events:none;transition:opacity .35s,transform .35s;z-index:4;text-align:right}
+#comms.show{opacity:1;transform:none;pointer-events:auto}
+#comms b{font-size:20px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+#comms p{margin:2px 0 0;font-size:15px;line-height:1.4;letter-spacing:.01em;color:rgba(232,224,204,.88)}
+#comms .mono{color:var(--hazard)}
+body.touch #comms{top:auto;bottom:calc(max(16px,env(safe-area-inset-bottom)) + 160px)}
+body.photo #comms,body.eva #comms{display:none!important}
+#ending{position:fixed;inset:0;z-index:9;display:grid;place-items:center;padding:24px;background:rgba(3,4,6,.86);opacity:0;pointer-events:none;transition:opacity .8s}
+#ending.show{opacity:1;pointer-events:auto}
+#ending .c{max-width:520px;display:flex;flex-direction:column;gap:14px}
+#ending .mono{color:var(--hazard)}
+#ending h1{margin:0;font-size:clamp(38px,8vw,64px);font-weight:700;letter-spacing:.02em;text-transform:uppercase;line-height:.95}
+#ending p{margin:0;font-size:18px;line-height:1.45}
+#ending .sig{color:var(--dim);font-style:italic}
+#ending button{align-self:flex-start;margin-top:8px;font:600 13px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.2em;text-transform:uppercase;cursor:pointer;border-radius:26px;padding:13px 24px;background:var(--hazard);border:1.5px solid var(--hazard);color:var(--void)}
+.mk.derelict>svg{stroke:var(--hazard);opacity:1}.mk.derelict b{color:var(--hazard)}
+@media (prefers-reduced-motion:reduce){#comms,#ending{transition:none}}
 /* ---- hangar, systems, suit readout, tips (gameplay systems) ---- */
 #hangarbtn{position:fixed;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translate(-50%,16px);display:flex;align-items:center;gap:10px;padding:11px 18px 11px 14px;border:1.5px solid var(--hazard);border-radius:4px;background:rgba(7,9,13,.6);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:var(--bone);font:600 15px/1 inherit;font-family:inherit;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:3;touch-action:none}
 #hangarbtn.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}

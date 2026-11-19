@@ -118,7 +118,7 @@ export class Salvage {
       it.obj = pv; it.body.pos.copy(pv.position); it.body.quat.copy(pv.quaternion); it.body.updateSpheres();
       this.world.dirty = true;
     }
-    if (it.kind === 'core' && it.site.state === 'ok') it.site.destabilise(24);
+    if (it.kind === 'core' && it.site.state === 'ok' && !it.safe) it.site.destabilise(24);
   }
 
   towed() { return this.ropes.length; }

@@ -21,19 +21,33 @@ export class Objective {
 
   say() {
     const touch = this.input.touchMode, k = (key, tap) => touch ? tap : key;
-    if (this.eva.state === 'eva') return [`Cut lockers for credits · ${k('G', 'Hatch')} at the ship to return`, ''];
+    const X = this.ext || {}, sys = X.systems, br = X.breakup, dr = X.drones, st = X.story, ship = this.ship;
+    if (this.eva.state === 'eva') {
+      if (this.eva.o2 < 0.25 && !this.eva.safe) return ['Low oxygen: get back to your seat', k('G at the seat, or hold R to reel in', 'tap Hatch at the seat, or Reel')];
+      if (sys && sys.any()) return ['Weld the sparking scorch on your hull', sys.list().map((x) => X.SYS[x].name).join(', ') + ' broken'];
+      if (br && br.melting) return ['Reactor meltdown: get back in and get clear', Math.ceil(br.reactor.melt) + 's'];
+      const so = st && st.cur && st.cur.id === 'vesper' && st.rec && st.rec.state === 'bolted' && this.eva.pilot.pos.distanceTo(st.rec.g.getWorldPosition(this._v || (this._v = this.eva.pilot.pos.clone()))) < 60;
+      if (so) return ['Cut the 4 bolts on the orange flight recorder', `${st.rec.bolts.filter((b) => b.cut).length}/4`];
+      if (br && this.eva.pilot.pos.distanceTo(br.site.pos) < 180) return ['Cut the striped collars to free a section', 'reactor: cut the two clamps, never the frosted line'];
+      return [`Cut lockers for credits · ${k('G', 'Hatch')} at the ship to return`, ''];
+    }
     if (this.eva.state !== 'off') return null;
-    if (this.nav.docked) return ['Docked: pick a job, buy upgrades, then fly out', ''];
-    const depot = this.world.site.depot, d = depot ? this.ship.pos.distanceTo(depot.mouth) : 0;
+    if (this.nav.docked) return [`Docked: open the hangar (${k('U', 'tap Hangar')}), take a job, fly out`, ''];
+    if (br && br.melting) return ['Reactor meltdown: get clear or deliver it fast', Math.ceil(br.reactor.melt) + 's'];
+    if (dr && dr.chasing && dr.chasing.mode === 'latch') return ['A drone is on your cargo: ram it or jam it', k('J to jam', 'tap Jam')];
+    if (sys && sys.any()) return [`${sys.list().map((x) => X.SYS[x].name).join(', ')} broken: go outside (${k('G', 'Hatch')}) and weld it`, 'or pay for repairs at the hangar'];
+    const depot = this.world.site.depot, d = depot ? ship.pos.distanceTo(depot.mouth) : 0;
     const dist = d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m';
+    if (dr && dr.chasing) return ['A drone is chasing your tow: outrun, ram or jam it', dist + ' to the depot'];
     if (this.salvage.ropes.length) return ['Tow it to the depot to sell it', dist];
     const a = this.career.c.active;
     if (a && JOB_SAY[a.kind]) return [JOB_SAY[a.kind](a), a.prog + '/' + a.goal];
+    const so = st && st.objective(); if (so) return [so[0], so[1]];
     return [`Find wreckage, aim at it, ${k('press F', 'tap Grab')} to tow`, 'then sell it at the depot'];
   }
 
   update(dt) {
-    this.t -= dt; if (this.t > 0) return; this.t = 0.25;
+    this.t -= dt; if (this.t > 0) return; this.t = 0.2;
     const s = this.settings.get('hints') && !this.tutorial.on && this.tutorial.econ.tut ? this.say() : null;
     const key = s ? s.join('|') : '';
     if (key === this.last) return; this.last = key;
