@@ -47,7 +47,7 @@ function boxSpheres(obbsL, centre) {
 
 class Item {
   constructor(o) { Object.assign(this, o); this.integrity = 1; this.strain = 0; this.cap = null; }
-  get hot() { return this.state === 'free' || this.state === 'welded'; }
+  get hot() { return (this.state === 'free' || this.state === 'welded' || this.state === 'carried') && !this.hidden; }
   unweld(vel, angVel) {
     if (this.state !== 'welded') return;
     this.mgr.detach(this);
@@ -171,7 +171,7 @@ export class Salvage {
     const d0 = pa.distanceTo(hookW);
     const rope = { item: it, a: ship, b: it.state === 'welded' ? null : b, hookL, pa, pb: hookW.clone(), rest: Math.max(5, d0), target: 9 + b.radius * 0.6, len: d0, tension: 0, shoot: 0, d0 };
     this.ropes.push(rope);
-    if (it.state === 'free') it.state = 'towed';
+    if (it.state === 'free' || it.state === 'carried') it.state = 'towed';
     this.onEvent?.('hook', it);
   }
 
@@ -218,6 +218,7 @@ export class Salvage {
       if (it.state === 'welded' || it.state === 'gone') continue;
       const b = it.body;
       if (it.state === 'captured') { this.stepCapture(it, dt, depot); continue; }
+      if (it.state === 'carried') continue;   // a rival drone has it
       const near = b.pos.distanceToSquared(ship.pos) < 450 * 450;
       if (!near && it.state !== 'towed') continue;
       b.integrate(dt);

@@ -128,7 +128,7 @@ export class Nav {
     camera.getWorldDirection(_f);
     const list = [];
     for (const it of sal.items) {
-      if (it.state === 'gone' || it.state === 'captured') continue;
+      if (it.state === 'gone' || it.state === 'captured' || it.hidden) continue;
       const d = it.body.pos.distanceTo(ship.pos); if (d > 320) continue;
       _v.copy(it.body.pos).sub(camera.position); if (_v.dot(_f) < 0) continue;
       list.push([d, it]);

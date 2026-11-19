@@ -35,6 +35,8 @@ import { Career, JOB_ICONS } from './career.js';
 import { Settings, Menu } from './settings.js';
 import { Events } from './events.js';
 import { Sound } from './audio.js';
+import { DeepScan } from './deepscan.js';
+import { Drones } from './drones.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -110,6 +112,10 @@ ship.fuel = 1;
   const a = document.createElement('div'); a.id = 'auto'; a.innerHTML = '<i></i><span class="mono">Depot</span>'; document.getElementById('hud').appendChild(a); }
 const fuelFill = document.querySelector('#fuel i'), autoEl = document.getElementById('auto');
 let autopilot = false;
+let scan;
+{ const a = document.createElement('div'); a.id = 'scan'; a.innerHTML = '<i></i><span class="mono">Scan</span>'; document.getElementById('hud').appendChild(a);
+  const go = () => { if (!eva.active && !menu.open) scan.fire(); };
+  addEventListener('keydown', (e) => { if (e.code === 'KeyC' && !e.repeat) go(); }); a.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); go(); }); window.__scanChip = a; }
 function setAuto(v) { autopilot = v && !eva.active && !respawnT; autoEl.classList.toggle('on', autopilot); }
 addEventListener('keydown', (e) => { if (e.code === 'KeyN' && !e.repeat && !menu.open) setAuto(!autopilot); });
 autoEl.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); setAuto(!autopilot); });
@@ -219,7 +225,7 @@ const haze = coarse ? null : new GpuParticles(500, 'haze'); if (haze) hazeScene.
 const engU = Engine.uniforms(coarse);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _ax = new THREE.Vector3(), _u = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion();
 const R = Math.random, rs = () => R() - 0.5;
-let fxT = 0, boostSm = 0, heat = 0, offT = 1, onT = 0, wasBoost = false, gx = 0, gy = 0, gr = 0, flashL = 0;
+let fxT = 0, boostSm = 0, heat = 0, hullHeat = 0, offT = 1, onT = 0, wasBoost = false, gx = 0, gy = 0, gr = 0, flashL = 0;
 // ---- EVA: bolted lockers on the wrecks, hull damage on the ship, the pilot outside ------------
 const lockers = new Lockers(scene, world, { coarse });
 const damage = new HullDamage(shipMesh, shipModel);
@@ -227,6 +233,8 @@ const eva = new Eva({ scene, camera, world, ship, shipMesh, cockpit, input, fx, 
   onStow: (L) => { econ.bonus(L.value); career.onLocker(L.value); nav.pop(L.value); } });
 eva.getFxT = () => fxT;
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
+scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
+const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('fail'), onLost: () => toast('fail') });
 const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav });
 const replayTutorial = () => { respawn(true); tutorial.start(); };
 help.onTutorial = replayTutorial;
@@ -313,6 +321,7 @@ function engineFx(dt) {
   boostSm = THREE.MathUtils.damp(boostSm, f.boost ? 1 : 0, 8, dt);
   // metal heats slowly and cools slower still
   const ht = main * (0.6 + 0.5 * boostSm); heat += (ht - heat) * Math.min(1, dt * (ht > heat ? 0.9 : 0.22));
+  { const sp = Math.min(1, ship.vel.length() / 40), tgt = Math.min(1, boostSm * 0.85 + sp * sp * 0.25); hullHeat += (tgt - hullHeat) * Math.min(1, dt * (tgt > hullHeat ? 0.5 : 0.18)); mats.shipHull.userData.heat.uHeat.value = hullHeat; }
   engU.heat.uHeat.value = heat; engU.heat.uBoost.value = boostSm;
   engU.inner.uPower.value = main * (0.85 + 0.35 * boostSm) * flick; engU.inner.uTime.value = fxT;
 
@@ -567,6 +576,8 @@ function tickFrame(now) {
   partsFx(dt);
   eva.update(dt, raw);
   relay.update(dt, time, camera.position, eva, ship);
+  scan.update(dt, time); { const c = window.__scanChip; c.classList.toggle('on', scan.t >= 0); c.classList.toggle('cool', scan.t < 0 && scan.cool > 0); }
+  drones.enabled = econ.tut && !tutorial.on; drones.update(dt, time);
   world.dust.lines.visible = !eva.safe || eva.state !== 'eva';
   { let rs2 = 0; for (let i = 0; i < rcsSm.length; i++) rs2 += rcsSm[i]; sound.update(dt, { main: ship.fx.main, boost: boostSm, rcs: rs2, strain: salvage.ropes.reduce((m, r) => Math.max(m, r.item.strainVis || 0), 0), eva: eva.active, o2low: eva.o2 < 0.25 }); }
   if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
@@ -589,4 +600,4 @@ function tickFrame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { relay, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
