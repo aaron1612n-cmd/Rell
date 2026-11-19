@@ -15,10 +15,12 @@ const STEPS = [
   { say: ['Move the mouse to turn toward the next ring', 'Drag the right side to turn toward the ring'], word: 'Aim', key: 'Mouse', touch: TOUCH_IC.look, rings: [[95, 30, 112]] },
   { say: ['Hold Shift to boost through both rings', 'Hold the boost button to speed through'], word: 'Boost', key: 'Shift', touch: ICONS.boost, rings: [[118, 40, 232], [128, 45, 382]] },
   { say: ['Press X to stop inside the bubble', 'Tap brake to stop inside the bubble'], word: 'Brake', key: 'X', touch: ICONS.brake, zone: [134, 45, 468], r: 15 },
+  { say: ['Press Z to switch flight mode. Hold is cruise control', 'Tap the diamond to switch flight mode. Hold is cruise control'], word: 'Mode', key: 'Z', touch: ICONS.assist, mode: true },
   { say: ['Point at the canister, press F to tow it', 'Aim at the canister, tap grab to tow it'], word: 'Grab', key: 'F', touch: NAV_ICONS.grab, item: [138, 46, 494] },
   { say: ['Tow it into the depot to sell it', 'Tow it into the depot to sell it'], word: 'Deliver', icon: NAV_ICONS.depot },
   // depot, then outside: dock, take a job, suit up, cut a locker, come home
   { say: ['Fly into the depot bay to dock and shop', 'Fly into the depot bay to dock and shop'], word: 'Dock', icon: NAV_ICONS.depot, dock: true },
+  { say: ['Press U to open the hangar: upgrades and repairs', 'Tap Hangar: upgrades and repairs'], word: 'Hangar', key: 'U', touch: '<path d="M14.5 6.5a4 4 0 00-5.2 5.2L4 17l3 3 5.3-5.3a4 4 0 005.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z"/>', hangar: true },
   { say: ['Pick a job for bonus pay (keys 4 5 6)', 'Tap a job card for bonus pay'], word: 'Job', icon: JOB_ICONS.haul, job: true },
   { say: ['Park by a wreck locker, press G to go outside', 'Park by a wreck locker, tap hatch to go outside'], word: 'Suit', key: 'G', touch: ICONS.exit, suit: true },
   { say: ['Hold click on the locker to cut it open', 'Hold the tool button on the locker'], word: 'Cut', key: 'Click', touch: ICONS.tool, cut: true },
@@ -110,7 +112,7 @@ export class Tutorial {
     // progress pips: where you are in the whole run
     this.pp.innerHTML = STEPS.map((_, n) => `<i class="${n < i ? 'd' : n === i ? 'c' : ''}"></i>`).join('');
     if (i > 0) this.onStep?.();
-    this.base = this.econ.stats.lockers; this.jobBase = this.econ.stats.jobs;
+    this.base = this.econ.stats.lockers; this.jobBase = this.econ.stats.jobs; this.mode0 = this.ship.mode; this.hangarSeen = false;
     this.g.classList.remove('pop'); void this.g.offsetWidth; this.g.classList.add('pop');
   }
 
@@ -128,7 +130,7 @@ export class Tutorial {
   target() {
     const st = STEPS[this.step];
     if (st.dock) return this.world.site.depot.dockPt;
-    if (st.job) return this._v || (this._v = new THREE.Vector3());
+    if (st.job || st.mode || st.hangar) return this._v || (this._v = new THREE.Vector3());
     if (st.suit || st.cut) return this.eva.active && this.eva.state === 'eva' ? this.lockerPos() : this.lockerPos();
     if (st.back) return this._v || (this._v = new THREE.Vector3());
     if (st.relay) return this.world.site.relay.group.position;
@@ -153,7 +155,9 @@ export class Tutorial {
       if (this.zone.position.distanceTo(ship.pos) < st.r && ship.vel.length() < 2.5) { this.zone.visible = false; this.go(this.step + 1); }
     } else if (st.item) {
       if (this.salvage.ropes.some((r) => r.item === this.item)) this.go(this.step + 1);
-    } else if (st.dock) { if (this.nav.docked) this.go(this.step + 1); }
+    } else if (st.mode) { if (this.ship.mode !== this.mode0) this.go(this.step + 1); }
+    else if (st.hangar) { if (this.hangar?.open || this.hangarSeen) this.go(this.step + 1); }
+    else if (st.dock) { if (this.nav.docked) this.go(this.step + 1); }
     else if (st.job) { if (this.career.c.active || this.career.econ.stats.jobs > this.jobBase) this.go(this.step + 1); }
     else if (st.suit) {
       // wrecks are far from the depot: skip the outside lesson only if no locker is left anywhere
@@ -177,7 +181,7 @@ export class Tutorial {
     // glyph follows the target, clamped on screen
     const st2 = STEPS[this.step];
     let p;
-    if (st2.job || st2.scan) { p = null; } else if (st2.back) { p = this.eva.state === 'eva' ? this.eva.shipPoint(this._seat || (this._seat = new THREE.Vector3(0, 0.5, 0)), new THREE.Vector3()).project(camera) : null; } else p = this.target().clone().project(camera);
+    if (st2.job || st2.scan || st2.mode || st2.hangar) { p = null; } else if (st2.back) { p = this.eva.state === 'eva' ? this.eva.shipPoint(this._seat || (this._seat = new THREE.Vector3(0, 0.5, 0)), new THREE.Vector3()).project(camera) : null; } else p = this.target().clone().project(camera);
     if (!p) { this.g.style.transform = `translate(${(w / 2).toFixed(0)}px,${(this.input.touchMode ? 300 : h - 345).toFixed(0)}px)`; return; }
     let x = (p.x * 0.5 + 0.5) * w + Math.min(90, w * 0.12), y = (-p.y * 0.5 + 0.5) * h - 20;
     if (p.z > 1 || x < 80 || x > w - 80 || y < 90 || y > h - 120) { x = w / 2; y = h * 0.68; }

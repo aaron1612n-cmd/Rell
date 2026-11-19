@@ -134,8 +134,8 @@ export class Events {
     const flick = this.reduced ? 1 : 0.85 + 0.15 * Math.sin(performance.now() * 0.03);
     this.flare.style.opacity = (this.k * 0.8 * flick).toFixed(3);
     this.sun.intensity = this.sunBase * (1 + 1.1 * this.k);
-    if (on) { if (!this.jamOn) { this.jamOn = true; this.prevAssist = this.ship.assist; } this.ship.assist = false; this.nav.root.classList.add('jam'); this.nav.jam = true; if (!this.reduced && (t * 7 | 0) % 5 === 0) this.rig.kick(0.01); }
-    else if (this.nav.jam) { this.nav.root.classList.remove('jam'); this.nav.jam = false; this.jamOn = false; this.ship.assist = this.prevAssist; }
+    if (on) { if (!this.jamOn) { this.jamOn = true; this.prevMode = this.ship.mode; } this.ship.mode = 'drift'; this.nav.root.classList.add('jam'); this.nav.jam = true; if (!this.reduced && (t * 7 | 0) % 5 === 0) this.rig.kick(0.01); }
+    else if (this.nav.jam) { this.nav.root.classList.remove('jam'); this.nav.jam = false; this.jamOn = false; this.ship.mode = this.prevMode || 'damped'; }
   }
 
   finish() {

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { UPG } from './economy.js';
 
 // Wordless navigation + economy HUD:
 //  - one marker per site (icon + range), pinned to the screen edge with an arrow when off-screen
@@ -14,6 +13,7 @@ export const NAV_ICONS = {
   thrust: '<path d="M6 17l6-6 6 6M6 11l6-6 6 6"/>',
   winch: '<path d="M12 3v9"/><path d="M12 12a4 4 0 1 0 4 4"/><circle cx="12" cy="3" r="1"/>',
   hull: '<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/>',
+  derelict: '<path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="5"/><path d="M9.5 9.5l5 5"/>',
   grab: '<path d="M4 20L14 10"/><path d="M14 10l2-6 4 4-6 2"/><circle cx="4" cy="20" r="1.2"/>',
 };
 const _p = new THREE.Vector3(), _v = new THREE.Vector3(), _f = new THREE.Vector3();
@@ -41,36 +41,12 @@ export class Nav {
     document.getElementById('hud').appendChild(top);
     this.crEl = top.querySelector('b'); this.towEl = top.querySelector('#tow'); this.popEl = top.querySelector('#pop');
     this.shown = -1; this.crShown = econ.credits; this.lastTow = '';
-    // dock: upgrades
-    const dock = this.dock = document.createElement('div'); dock.id = 'dock';
-    dock.innerHTML = Object.keys(UPG).map((k, i) => `<button data-k="${k}">${svg(NAV_ICONS[k])}<span class="pips">${'<i></i>'.repeat(UPG[k].max)}</span><b></b><kbd>${i + 1}</kbd></button>`).join('')
-      + `<div class="rep">${svg(NAV_ICONS.hull)}<s><i></i></s></div>`;
-    document.body.appendChild(dock);
-    this.tiles = [...dock.querySelectorAll('button')];
-    for (const t of this.tiles) t.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.buy(t.dataset.k); });
-    addEventListener('keydown', (e) => { if (!this.docked || e.repeat) return; const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (i >= 0) this.buy(Object.keys(UPG)[i]); });
-    this.repBar = dock.querySelector('.rep i');
     this.docked = false; this.onBuy = null;
-  }
-
-  buy(k) {
-    const t = this.tiles.find((x) => x.dataset.k === k);
-    if (this.econ.buy(k)) { this.onBuy?.(k); t.classList.remove('no'); t.classList.add('ok'); setTimeout(() => t.classList.remove('ok'), 450); this.refreshDock(); this.crShown = this.econ.credits; }
-    else { t.classList.remove('no'); void t.offsetWidth; t.classList.add('no'); }
-  }
-
-  refreshDock() {
-    for (const t of this.tiles) {
-      const k = t.dataset.k, lvl = this.econ.up[k], p = this.econ.price(k);
-      t.querySelectorAll('.pips i').forEach((e, i) => e.classList.toggle('on', i < lvl));
-      t.querySelector('b').textContent = p === null ? '—' : p;
-      t.classList.toggle('max', p === null); t.classList.toggle('cant', p !== null && p > this.econ.credits);
-    }
   }
 
   setDocked(v) {
     if (v === this.docked) return;
-    this.docked = v; this.dock.classList.toggle('show', v); if (v) this.refreshDock();
+    this.docked = v; this.onDock?.(v);
   }
 
   pop(v) {
@@ -89,7 +65,6 @@ export class Nav {
       this.towEl.innerHTML = Array.from({ length: sal.capacity }, (_, i) => `<i class="${i < sal.ropes.length ? 'on' : ''}"></i>`).join('');
       this.lastTow = tw;
     }
-    if (this.docked) { const n = Math.ceil(ship.hull * 10 - 1e-6) * 10; this.repBar.style.width = n + '%'; if ((time * 4 | 0) % 2 === 0) this.refreshDock(); }
 
     const towing = sal.ropes.some((r) => r.item.state === 'towed');
     // right edge keeps clear of the hull gauge so pinned markers never sit on it
@@ -97,7 +72,7 @@ export class Nav {
     for (const m of this.marks) {
       const s = m.s; const d = Math.max(0, s.pos.distanceTo(ship.pos) - (s.kind === 'depot' ? 0 : s.radius * 0.4));
       const inside = s.kind !== 'depot' && s.pos.distanceTo(ship.pos) < s.radius * 0.9 && s.state !== 'unstable';
-      const hide = inside || (s.kind === 'depot' && this.docked) || (s.state === 'collapsed' && !s.debris.length);
+      const hide = s.hidden || inside || (s.kind === 'depot' && this.docked) || (s.state === 'collapsed' && !s.debris.length);
       let cls = s.kind;
       if (s.kind === 'depot' && towing) cls += ' hot';
       if (s.state === 'unstable') cls += ' warn';

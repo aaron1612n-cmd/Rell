@@ -602,7 +602,7 @@ export class Cockpit {
       fpm: { x: Math.atan2(fpmBack ? -vl.x : vl.x, fz) * DEG, y: Math.atan2(fpmBack ? -vl.y : vl.y, fz) * DEG, back: fpmBack },
       contacts: C, range: RANGE, nearest: Math.max(0, nearest),
       main: ship.fx.main, boost: ship.fx.boost ? 1 : 0, brake: !!ship.braking, th: ship.th, heat: this.heat ?? 0,
-      hull: ship.hull, rcs: rs, assist: ship.assist, caution: this.caution, gPeak: this.gPeak,
+      hull: ship.hull, rcs: rs, assist: ship.assist, mode: ship.mode, caution: this.caution, gPeak: this.gPeak,
     }, dt);
   }
 }

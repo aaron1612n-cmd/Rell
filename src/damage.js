@@ -44,9 +44,11 @@ export class HullDamage {
   mat(u) { return new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms: u, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }); }
 
   // world-space hit on the ship -> a spot on the real hull. amt = hull fraction lost.
-  add(point, ship, amt) {
+  add(point, ship, amt, aimL) {
     this.root.updateMatrixWorld(true);
-    const dir = _v.copy(ship.pos).sub(point).normalize();
+    // aimL: ship-local point to cast toward (a system's part), else the ship's centre
+    const aim = aimL ? aimL.clone().applyQuaternion(ship.quat).add(ship.pos) : ship.pos;
+    const dir = _v.copy(aim).sub(point).normalize();
     this.rc.set(point.clone().addScaledVector(dir, -1.5), dir); this.rc.far = 6;
     const h = this.rc.intersectObjects(this.targets, false)[0];
     let p, n;
@@ -55,9 +57,9 @@ export class HullDamage {
     // to ship-local
     _q.copy(ship.quat).invert();
     p.sub(ship.pos).applyQuaternion(_q); n.applyQuaternion(_q);
-    const near = this.spots.find((s) => s.p.distanceTo(p) < 0.6 && s.amt > 0);
+    const near = !aimL && this.spots.find((s) => s.p.distanceTo(p) < 0.6 && s.amt > 0 && !s.sys);
     if (near) { near.amt += amt; near.u.uAmt.value = near.amt; this.size(near); return near; }
-    if (this.spots.length >= 10) { const s = this.spots.shift(); this.root.remove(s.m); }
+    if (this.spots.length >= 10) { const i = this.spots.findIndex((x) => !x.sys); if (i >= 0) { const s = this.spots.splice(i, 1)[0]; this.root.remove(s.m); } }
     const u = { uAmt: { value: amt }, uWeld: { value: 0 }, uTime: { value: 0 }, uSeed: { value: Math.random() }, uHot: { value: 1 } };
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat(u));
     m.position.copy(p).addScaledVector(n, 0.012); m.quaternion.setFromUnitVectors(_z, n); m.rotateZ(Math.random() * 6);
@@ -70,7 +72,7 @@ export class HullDamage {
 
   // make sure the hull you've lost is visible somewhere (older damage, or hits before this system)
   ensure(ship) {
-    const lost = 1 - ship.hull, shown = this.spots.reduce((a, s) => a + s.amt, 0);
+    const lost = 1 - ship.hull, shown = this.spots.reduce((a, s) => a + (s.sys ? 0 : s.amt), 0);
     let left = lost - shown;
     while (left > 0.02) {
       const a = Math.random() * Math.PI * 2, z = -1.6 + Math.random() * 3;
@@ -100,10 +102,21 @@ export class HullDamage {
 
   // weld for dt; returns hull restored
   work(T, dt) {
-    const s = T.s, r = Math.min(s.amt, dt * 0.09);
+    const s = T.s;
+    if (s.sys) {
+      // a broken system takes a proper weld: progress by time, the scorch cools as it goes
+      s.fix = Math.min(1, s.fix + dt / s.need); s.weld = 1;
+      const r = Math.max(0, s.amt - s.amt0 * (1 - s.fix)); s.amt -= r; s.u.uAmt.value = s.amt;
+      if (s.fix >= 1) { s.amt = 0; s.u.uAmt.value = 0; this.onFixed?.(s); }
+      return r;
+    }
+    const r = Math.min(s.amt, dt * 0.09);
     s.amt -= r; s.weld = 1; s.u.uAmt.value = s.amt;
     return r;
   }
+  prog(s) { return s.sys ? s.fix : 1 - Math.min(1, s.amt * 4); }
+  // nearest unrepaired system scorch (for the EVA waypoint)
+  nearestSys(ship, out) { const s = this.spots.find((x) => x.sys && x.amt > 0); return s ? this.world(s, ship, out) : null; }
 
   update(dt) {
     this.t += dt;
@@ -113,7 +126,7 @@ export class HullDamage {
     }
   }
 
-  clear() { for (const s of this.spots) this.root.remove(s.m); this.spots.length = 0; }
+  clear() { for (const s of this.spots) this.root.remove(s.m); this.spots.length = 0; this.onClear?.(); }
 
   get total() { return this.spots.reduce((a, s) => a + Math.max(0, s.amt), 0); }
 }

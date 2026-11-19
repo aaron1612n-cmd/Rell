@@ -16,7 +16,7 @@ const only = (process.env.ONLY || '').split(',').filter(Boolean);
 const want = (n) => !only.length || only.includes(n);
 await wait(3000);
 // park: kill the intro sweep, stop the ship
-await p.evaluate(() => { const g = window.__game; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); });
+await p.evaluate(() => { const g = window.__game; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); g.tutorial.hideIntro?.(); });
 // put a couple of scorches on the hull so there's something to weld
 await p.evaluate(() => { const g = window.__game; const T = g.THREE; g.ship.hull = 0.7; g.damage.add(new T.Vector3(1, 1.5, -0.5).applyQuaternion(g.ship.quat).add(g.ship.pos), g.ship, 0.18); g.damage.add(new T.Vector3(-1.4, 0.8, 0.9).applyQuaternion(g.ship.quat).add(g.ship.pos), g.ship, 0.12); });
 await wait(600);

@@ -236,7 +236,7 @@ export class Instruments {
     // flight assist state
     x.strokeStyle = st.assist ? AMB : AMB_D; x.lineWidth = 2; x.strokeRect(300, 330, 190, 34);
     if (st.assist) { x.fillStyle = 'rgba(255,170,90,.14)'; x.fillRect(300, 330, 190, 34); }
-    this.label(st.assist ? 'ASSIST' : 'FREE', 395, 347, 15, st.assist ? AMB : HAZ, 'center');
+    this.label(st.mode === 'hold' ? 'HOLD' : st.assist ? 'DAMPED' : 'DRIFT', 395, 347, 15, st.assist ? AMB : HAZ, 'center');
     this.end('R', w, h);
   }
 
