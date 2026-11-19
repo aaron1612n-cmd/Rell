@@ -9,6 +9,7 @@ const svg = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
 export const NAV_ICONS = {
   depot: '<path d="M17 5H6v14h11"/><path d="M10 9h7M10 15h7"/><circle cx="20" cy="12" r="1.2"/>',
   wreck: '<path d="M12 3l8 8-3.5 3.5M12 21l-8-8 3.5-3.5"/><path d="M10 11l2 2 2-2"/>',
+  relay: '<path d="M12 3l7 4v6l-7 4-7-4V7z"/><path d="M12 17v4M9 21h6"/><circle cx="12" cy="10" r="1.2"/>',
   field: '<circle cx="7" cy="8" r="1.6"/><circle cx="16" cy="6" r="1.2"/><circle cx="13" cy="14" r="2"/><circle cx="6" cy="17" r="1.1"/><circle cx="19" cy="17" r="1.4"/>',
   thrust: '<path d="M6 17l6-6 6 6M6 11l6-6 6 6"/>',
   winch: '<path d="M12 3v9"/><path d="M12 12a4 4 0 1 0 4 4"/><circle cx="12" cy="3" r="1"/>',

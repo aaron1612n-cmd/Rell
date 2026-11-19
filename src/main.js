@@ -226,6 +226,7 @@ const damage = new HullDamage(shipMesh, shipModel);
 const eva = new Eva({ scene, camera, world, ship, shipMesh, cockpit, input, fx, rig, coarse, reduced, lockers, damage, env: scene.environment, sunDir: SUN_DIR, hud,
   onStow: (L) => { econ.bonus(L.value); career.onLocker(L.value); nav.pop(L.value); } });
 eva.getFxT = () => fxT;
+const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
 const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav });
 const replayTutorial = () => { respawn(true); tutorial.start(); };
 help.onTutorial = replayTutorial;
@@ -565,6 +566,8 @@ function tickFrame(now) {
   cockpit.update(dt, ship, rig);
   partsFx(dt);
   eva.update(dt, raw);
+  relay.update(dt, time, camera.position, eva, ship);
+  world.dust.lines.visible = !eva.safe || eva.state !== 'eva';
   { let rs2 = 0; for (let i = 0; i < rcsSm.length; i++) rs2 += rcsSm[i]; sound.update(dt, { main: ship.fx.main, boost: boostSm, rcs: rs2, strain: salvage.ropes.reduce((m, r) => Math.max(m, r.item.strainVis || 0), 0), eva: eva.active, o2low: eva.o2 < 0.25 }); }
   if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
   world.updateVisual(time, camera.position);
@@ -586,4 +589,4 @@ function tickFrame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { relay, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };

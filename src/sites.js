@@ -4,6 +4,7 @@ import { addHullDetail } from './hullDetail.js';
 import stationData from './assets/station.json';
 import depotData from './assets/depot.json';
 import freighterData from './assets/freighter.json';
+import { buildRelay } from './relay.js';
 import extraColliders from './assets/colliders.json';   // gap-fillers traced from the meshes (scripts/colliders.mjs)
 
 // The yard: one working depot and several wrecks spread over a few kilometres of low orbit.
@@ -18,6 +19,7 @@ export const LAYOUT = {
   halves: { pos: [-1250, 140, -620], yaw: 0.9, roll: 0.35 },   // station broken in two
   freighter: { pos: [1450, -40, -980], yaw: -0.7, roll: -0.25 },
   field: { pos: [-260, 60, -1650], r: 260 },                    // debris graveyard
+  relay: { pos: [-560, 30, 520], yaw: 2.14 },                   // Kestrel Relay: a working station you can walk into
 };
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _c = new THREE.Vector3();
@@ -34,7 +36,7 @@ function darkMats() {
 // A chunk of a site. obbsL are colliders in the model's authoring frame (Blender object space); obbs are
 // the live world copies. The .glb is quantized, so each node carries a dequantize offset/scale on top of
 // that frame: `unq` strips it back off, and frame() gives the true node frame in world space.
-class Part {
+export class Part {
   constructor(site, name, node, obbsL) {
     this.site = site; this.name = name; this.node = node;
     node.updateMatrix(); this.unq = node.matrix.clone().invert(); this.M = new THREE.Matrix4();
@@ -278,6 +280,13 @@ export function buildSites(world, models) {
     s.salvageSpec = [];
     for (let i = 0; i < 9; i++) s.salvageSpec.push({ type: i % 3 === 0 ? 'crate' : 'canister', at: [R() * 200, R() * 70, R() * 200] });
     s.debrisSpec = { n: 110, rMin: 0, rMax: L.r, flat: 0.4 };
+    S.push(s);
+  }
+  // 6. Kestrel Relay: a lit, pressurised station with an EVA airlock. Built in code (relay.js).
+  {
+    const L = LAYOUT.relay;
+    const s = new Site(world, { id: 'relay', kind: 'relay', pos: L.pos, yaw: L.yaw, radius: 85 });
+    s.relay = buildRelay(s, { Part, scene: world.scene });
     S.push(s);
   }
   for (const s of S) s.afterBuild?.();
