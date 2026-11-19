@@ -205,7 +205,7 @@ export class Eva {
 
   buildDom() {
     const $ = (id) => document.getElementById(id);
-    this.el = { ret: $('evaret'), mark: $('evamark'), home: $('evahome'), fade: $('evafade'), btn: $('exitbtn'), use: $('evause') };
+    this.el = { ret: $('evaret'), mark: $('evamark'), home: $('evahome'), fade: $('evafade'), btn: $('exitbtn'), use: $('evause'), lbl: $('evalbl') };
   }
 
   // ---- transitions --------------------------------------------------------------------------
@@ -494,7 +494,7 @@ export class Eva {
     const W = this.damage.pick(o, d, reach, this.ship); if (W && (!T || W.dist < T.dist)) T = W;
     // other workable things (wreck seams, reactor clamps, the derelict's recorder): { pick(o, d, far) -> target with work(dt) }
     for (const P of this.pickers || []) { const X = P.pick(o, d, reach); if (X && (!T || X.dist < T.dist)) T = X; }
-    this.target = T;
+    this.target = T; this.emptyT = cmd.fire && !T ? 1.6 : Math.max(0, (this.emptyT || 0) - dt);
     // holster: out when there's something to cut (or the trigger's pulled), away after a while with nothing
     const H = this.holster;
     if (cmd.fire || (T && T.kind !== 'core')) { H.want(true); this.idleT = 0; }
@@ -660,7 +660,7 @@ export class Eva {
   // DOM: reticle, waypoint markers, boarding cue
   setHud(on) {
     const el = this.el;
-    if (!on) { if (this.hudOn) { el.ret.className = ''; el.mark.style.display = el.home.style.display = 'none'; el.use.className = ''; this.hudOn = false; } return; }
+    if (!on) { if (this.hudOn) { el.ret.className = ''; el.mark.style.display = el.home.style.display = 'none'; el.use.className = ''; el.lbl.className = 'mono'; this.lblKey = ''; this.hudOn = false; } return; }
     this.hudOn = true;
     const T = this.target;
     el.ret.className = 'on' + (T ? ' t' : '') + (this.firing ? ' f' : '') + (T && T.kind === 'weld' ? ' w' : '');
@@ -670,6 +670,9 @@ export class Eva {
     // first time a target is in reach: show the "use" cue under the reticle until you've used it once
     if (T && !this.usedOnce) el.use.className = 'on';
     if (this.firing) { this.usedOnce = true; el.use.className = ''; }
+    // plain words under the reticle: what you're aiming at and what the cutter will do to it
+    const L = this.toolLabel(T), key = L ? L.join('|') : '';
+    if (key !== this.lblKey) { this.lblKey = key; el.lbl.innerHTML = L ? `<b>${L[0]}</b>${L[1]}` : ''; el.lbl.className = 'mono' + (L ? ' on' : '') + (L && L[2] ? ' bad' : ''); }
     // markers: nearest locker (if not already looking at it) and home (the seat) when far
     // a broken system on your own hull comes first, then whatever the game is pointing you at, then lockers
     const near = this.lockers.nearest(this.pilot.pos), fix = this.damage.nearestSys(this.ship, _v3), goal = !fix && this.markTarget?.(this.pilot.pos);
@@ -678,6 +681,21 @@ export class Eva {
     const seat = this.shipPoint(SEAT_IN, new THREE.Vector3());
     this.marker(el.home, this.pilot.pos.distanceTo(seat) > 3 || this.canBoard ? seat : null, this.canBoard);
     el.btn.classList.toggle('ping', !!this.canBoard && !this.reduced);
+  }
+
+  toolLabel(T) {
+    const hold = document.body.classList.contains('touch') ? 'Hold Cut' : 'Hold click';
+    if (!T) return this.emptyT > 0 ? ['Cutter', 'Nothing in reach. Get close to orange bolts, seams or scorch marks'] : null;
+    if (T.kind === 'weld') return ['Scorch mark', `${hold} to weld your hull`];
+    if (T.kind === 'core') return ['Cargo', `${hold} to grab it`];
+    if (T.kind === 'bolt') return T.L ? ['Locker bolt', `${hold} to cut it open`] : ['Recorder bolt', `${hold} to cut it loose`];
+    if (T.kind === 'seam') {
+      const k = T.seam.kind;
+      if (k === 'coolant') return ['Coolant line', 'Do not cut: meltdown', 1];
+      if (k === 'clamp') return ['Reactor clamp', `${hold} to cut`];
+      return ['Seam', `${hold} to cut the section free`];
+    }
+    return ['Cutter', `${hold} to cut`];
   }
 
   marker(m, p, hot = false) {

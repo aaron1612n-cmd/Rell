@@ -12,6 +12,7 @@ const TIPS = {
   seam: ['Seams', 'Big wrecks come apart at their seams. Cut every seam on a section to free it for towing.'],
   reactor: ['Reactor', 'Cut the two clamps. Never the frosted coolant line: that starts a meltdown.'],
   meltdown: ['Meltdown', 'The reactor will blow. Get well clear, or haul it to the depot before it does.'],
+  cutter: ['Cutter', 'Your tool, not a weapon. Hold it on bolts and seams to cut, on scorch marks to weld. The label under the crosshair says what it will do.'],
   story: ['Contract', 'Story contracts are shown at the depot. They pay well and lead somewhere.'],
 };
 

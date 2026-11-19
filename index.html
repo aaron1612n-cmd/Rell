@@ -192,6 +192,17 @@ body.touch #evause{display:none}
 .emk.edge i{border-width:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:14px solid var(--hazard);transform:none;border-radius:0;background:none}
 .emk.home.edge i{border-bottom-color:var(--bone)}
 .emk.edge b{display:none}
+#evalbl{position:absolute;left:50%;top:calc(50% + 72px);transform:translateX(-50%);max-width:min(86vw,420px);padding:5px 12px;border-radius:3px;background:rgba(7,9,13,.62);font:500 12px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.06em;text-align:center;color:var(--bone);opacity:0;transition:opacity .2s;white-space:nowrap}
+#evalbl b{color:var(--hazard);font-weight:700;text-transform:uppercase;margin-right:6px}
+#evalbl.on{opacity:1}#evalbl.bad b{color:#ff4a3a}
+body.touch #evalbl{top:calc(50% + 40px);font-size:11px;white-space:normal}
+body.evx #evalbl{display:none!important}
+#stn{position:fixed;left:50%;bottom:calc(max(20px,env(safe-area-inset-bottom)) + 62px);transform:translateX(-50%);max-width:min(92vw,560px);padding:8px 16px;border-left:3px solid var(--hazard);background:rgba(7,9,13,.75);font:500 13px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.04em;color:var(--bone);opacity:0;pointer-events:none;transition:opacity .3s;z-index:3}
+#stn b{color:var(--hazard);text-transform:uppercase;letter-spacing:.1em;margin-right:8px}
+#stn.on{opacity:1}
+body.touch #stn{bottom:auto;top:calc(max(16px,env(safe-area-inset-top)) + 306px);font-size:11px;max-width:calc(100vw - 32px);left:16px;transform:none}
+body.paused #stn{display:none}
+#evabtns .btn.big{position:relative}#evabtns .btn.big::after{content:'Cut';position:absolute;left:50%;bottom:-15px;transform:translateX(-50%);font:600 9px ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--hazard)}
 #evafade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:4}
 #evabtns{display:none}
 body.eva #btns,body.eva #hint,body.eva #dock{display:none!important}
@@ -221,7 +232,7 @@ body.photo #hud,body.photo #touch,body.photo #nav,body.photo #dock,body.photo #j
 #menubtn{position:absolute;right:calc(max(16px,env(safe-area-inset-right)) + 168px);top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:.15s;padding:0;color:inherit}
 #menubtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 #menubtn.on{background:var(--hazard);border-color:var(--hazard)}#menubtn.on svg{stroke:var(--void)}
-#menu{position:fixed;inset:0;display:grid;place-items:center;background:rgba(7,9,13,.78);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:6;overflow:auto}
+#menu{position:fixed;inset:0;display:grid;place-items:center;background:rgba(7,9,13,.78);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:6;overflow:auto;touch-action:pan-y;overscroll-behavior:contain}
 #menu.show{opacity:1;pointer-events:auto}
 .mcard{width:min(94vw,760px);padding:22px 4px;display:flex;flex-direction:column;gap:22px}
 .mcard header{display:flex;align-items:baseline;gap:16px;border-bottom:1px solid rgba(232,224,204,.18);padding-bottom:14px}
@@ -408,7 +419,7 @@ body.hangar #tip,body.photo #tip,body.photo #suit,body.photo #sys,body.photo #ha
   <div id="assist" class="on"><i></i><span class="mono">Assist</span></div>
   <div id="impact" class="on"><i></i><span class="mono">Impact</span></div>
   <button id="helpbtn" aria-label="Controls"></button><button id="viewbtn" aria-label="View"></button><button id="exitbtn" aria-label="Hatch"></button>
-  <div id="evaret"><s></s></div><div id="evause"></div>
+  <div id="evaret"><s></s></div><div id="evause"></div><div id="evalbl" class="mono"></div>
   <div id="evamark" class="emk"><i></i><b></b></div><div id="evahome" class="emk home"><i></i><b></b></div>
   <div id="hullwrap"><span class="mono">Hull</span><div id="hull"></div></div>
   <div id="speed"><span class="mono">m/s</span><b id="spd">000</b><div id="spdbar"><i id="spdfill"></i><s></s></div></div>
@@ -420,6 +431,7 @@ body.hangar #tip,body.photo #tip,body.photo #suit,body.photo #sys,body.photo #ha
   <div class="btns" id="evabtns"></div>
 </div>
 <div id="hint" class="mono">click to aim</div>
+<div id="stn" class="mono"></div>
 <div id="help"></div>
 <div id="flash"></div>
 <div id="evafade"></div>
