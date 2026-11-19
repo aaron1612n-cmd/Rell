@@ -378,6 +378,7 @@ body.hangar #hangarbtn,body.hangar #jobs,body.eva #hangarbtn{opacity:0!important
 #sys b{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--hazard)}
 #sys span{font:500 9px ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
 body.eva #sys,body.cockpit #sys{opacity:.85}
+body.touch.eva #sys{display:none}
 #suit{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 8px);display:none;flex-direction:column;gap:7px;pointer-events:none}
 #suit.on{display:flex}
 #suit p{margin:0;display:flex;align-items:center;gap:9px}#suit p .mono{width:26px}
@@ -385,7 +386,7 @@ body.eva #sys,body.cockpit #sys{opacity:.85}
 #suit s{display:block;width:clamp(90px,14vw,160px);height:3px;background:rgba(232,224,204,.16)}#suit s i{display:block;height:100%;background:var(--bone)}
 #suit em{font:500 10px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-style:normal}
 #suit.low p:first-child b,#suit.low em{color:var(--hazard)}#suit.low p:first-child s i{background:var(--hazard);animation:eblink .6s infinite}
-body.touch #suit{bottom:auto;top:calc(max(16px,env(safe-area-inset-top)) + 64px)}
+body.touch #suit{bottom:auto;top:calc(max(16px,env(safe-area-inset-top)) + 214px);gap:5px}body.touch #suit b{font-size:17px;width:46px}body.touch #suit s{width:70px}
 #tip{position:fixed;left:max(16px,env(safe-area-inset-left));top:46%;transform:translate(-10px,-50%);max-width:min(80vw,340px);display:flex;flex-direction:column;gap:3px;padding:10px 16px 11px;border-left:3px solid var(--hazard);background:rgba(7,9,13,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;z-index:4}
 #tip.show{opacity:1;transform:translate(0,-50%)}
 #tip b{font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--hazard)}
