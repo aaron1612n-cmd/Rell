@@ -281,7 +281,7 @@ systems.onFix = (k, welded) => { toast('fix', SYS[k].name + (welded ? ' welded' 
 eva.onFaint = () => { const fee = Math.min(econ.credits, 150); if (fee) { econ.credits -= fee; econ.save(); } toast('warn', fee ? `Out of air · rescue fee ${fee}` : 'Out of air'); };
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
-const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('drone', 'Drone took loose cargo'), onLost: () => toast('warn', 'Cargo lost to a drone'),
+const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: (d) => { if (d.pos.distanceTo(ship.pos) < 500) toast('drone', 'Drone took loose cargo'); }, onLost: (d, it) => { if (it.wasMine) toast('warn', 'Cargo lost to a drone'); },
   onEvent: (e, d) => {
     if (e === 'chase') { tips.show('drone'); toast('drone', 'Drone after your cargo'); sound.warn(); }
     if (e === 'latch') { tips.show('latched'); sound.warn(); cockpit.alert(0.4); }

@@ -246,7 +246,7 @@ export class Drones {
           _w.copy(it.body.pos).sub(this.ship.pos).normalize().multiplyScalar(it.body.mass * 7 * dt * d.grip);   // straight away from you
           it.body.impulse(_w, d.pos);
           d.cutT += dt;
-          if (d.cutT > CUT) { this.salvage.drop(it); this.grab(d, it); this.onEvent?.('cut', d); }
+          if (d.cutT > CUT) { this.salvage.drop(it); it.wasMine = true; this.grab(d, it); this.onEvent?.('cut', d); }
         }
       } else if (d.mode === 'haul') {
         const it = d.item;

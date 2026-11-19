@@ -320,7 +320,9 @@ body.eva #jam{opacity:0!important;pointer-events:none}
 #comms b{font-size:20px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
 #comms p{margin:2px 0 0;font-size:15px;line-height:1.4;letter-spacing:.01em;color:rgba(232,224,204,.88)}
 #comms .mono{color:var(--hazard)}
-body.touch #comms{top:auto;bottom:calc(max(16px,env(safe-area-inset-bottom)) + 160px)}
+body.touch #comms{top:auto;bottom:calc(max(16px,env(safe-area-inset-bottom)) + 160px);padding:10px 13px 11px}
+body.touch #comms b{font-size:16px}
+body.touch #comms p{font-size:13px}
 body.photo #comms,body.eva #comms{display:none!important}
 #ending{position:fixed;inset:0;z-index:9;display:grid;place-items:center;padding:24px;background:rgba(3,4,6,.86);opacity:0;pointer-events:none;transition:opacity .8s}
 #ending.show{opacity:1;pointer-events:auto}
@@ -338,7 +340,8 @@ body.photo #comms,body.eva #comms{display:none!important}
 #hangarbtn svg{width:20px;height:20px;stroke:var(--hazard);fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 #hangarbtn kbd{font:600 10px ui-monospace,Menlo,monospace;color:var(--dim);border:1px solid var(--dim);border-radius:3px;padding:2px 5px}
 body.touch #hangarbtn kbd,body.touch #hangar kbd{display:none}
-body.touch #hangarbtn{top:calc(max(12px,env(safe-area-inset-top)) + 64px);bottom:auto}
+body.touch #hangarbtn{left:max(14px,env(safe-area-inset-left));top:calc(max(12px,env(safe-area-inset-top)) + 300px);bottom:auto;transform:translateX(-8px);padding:9px 14px 9px 11px;font-size:13px}
+body.touch #hangarbtn.show{transform:none}
 body.hangar #hangarbtn,body.hangar #jobs,body.eva #hangarbtn{opacity:0!important;pointer-events:none!important}
 #hangar{position:fixed;inset:0;z-index:6;display:flex;justify-content:flex-end;align-items:stretch;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) 16px;background:linear-gradient(90deg,transparent 40%,rgba(4,5,8,.55));opacity:0;pointer-events:none;transition:opacity .25s}
 #hangar.show{opacity:1;pointer-events:auto}
