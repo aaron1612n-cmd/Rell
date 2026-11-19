@@ -144,7 +144,7 @@ export class Tutorial {
     const st2 = STEPS[this.step];
     let p;
     if (st2.job) { p = null; } else if (st2.back) { p = this.eva.state === 'eva' ? this.eva.shipPoint(this._seat || (this._seat = new THREE.Vector3(0, 0.5, 0)), new THREE.Vector3()).project(camera) : null; } else p = this.target().clone().project(camera);
-    if (!p) { this.g.style.transform = `translate(${(w / 2).toFixed(0)}px,${(this.input.touchMode ? 300 : h - 280).toFixed(0)}px)`; return; }
+    if (!p) { this.g.style.transform = `translate(${(w / 2).toFixed(0)}px,${(this.input.touchMode ? 300 : h - 345).toFixed(0)}px)`; return; }
     let x = (p.x * 0.5 + 0.5) * w + Math.min(90, w * 0.12), y = (-p.y * 0.5 + 0.5) * h - 20;
     if (p.z > 1 || x < 80 || x > w - 80 || y < 90 || y > h - 120) { x = w / 2; y = h * 0.68; }
     this.g.style.transform = `translate(${x.toFixed(0)}px,${y.toFixed(0)}px)`;
