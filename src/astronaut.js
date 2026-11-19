@@ -81,24 +81,83 @@ function part(name, M) {
   return o;
 }
 
-// glove: palm + four three-phalanx fingers + a two-segment thumb. setCurl(c): 0 open .. 1 fist
+// A soft part skinned to bones: the modelled geometry (dequantized to plain floats) gets two bone influences per
+// vertex from weight(p) -> [i0, i1, w1] in the part's own modelling frame, then is moved by `place` (the bind pose).
+function skinnedPart(name, M, weight, place = null) {
+  if (!parts) throw new Error('loadSuit() first');
+  const src = parts[name]; src.updateMatrixWorld(true);
+  const out = [], nm = new THREE.Matrix3(), p = new THREE.Vector3();
+  src.traverse((m) => {
+    if (!m.isMesh) return;
+    const g = new THREE.BufferGeometry(), sg = m.geometry, P = sg.attributes.position, N = sg.attributes.normal, n = P.count;
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+    const mw = place ? place.clone().multiply(m.matrixWorld) : m.matrixWorld; nm.getNormalMatrix(mw);
+    for (let i = 0; i < n; i++) {
+      p.fromBufferAttribute(P, i).applyMatrix4(m.matrixWorld);
+      const [i0, i1, w1] = weight(p);
+      si[i * 4] = i0; si[i * 4 + 1] = i1; sw[i * 4] = 1 - w1; sw[i * 4 + 1] = w1;
+      p.fromBufferAttribute(P, i).applyMatrix4(mw); p.toArray(pos, i * 3);
+      p.fromBufferAttribute(N, i).applyMatrix3(nm).normalize(); p.toArray(nor, i * 3);
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    for (const k of ['color', 'uv']) if (sg.attributes[k]) g.setAttribute(k, sg.attributes[k]);
+    if (sg.index) g.setIndex(sg.index);
+    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+    const s = new THREE.SkinnedMesh(g, M[m.material.name] || M.hard);
+    s.castShadow = s.receiveShadow = true; s.frustumCulled = false;
+    out.push(s);
+  });
+  return out;
+}
+const smooth = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+// bones along -Y with joints at js[]: blend over +-h around each joint. ids: bone index above the first joint, then one per segment
+function chainWeight(js, ids, h) {
+  return (p) => {
+    const y = p.y;
+    for (let j = js.length - 1; j >= 0; j--) {
+      if (y < js[j] + h[j]) {
+        const w = smooth(js[j] + h[j], js[j] - h[j], y);
+        return [ids[j], ids[j + 1], w];
+      }
+    }
+    return [ids[0], ids[0], 0];
+  };
+}
+function bindAll(root, bones, meshes) {
+  root.updateMatrixWorld(true);
+  const sk = new THREE.Skeleton(bones);
+  for (const m of meshes) m.bind(sk, m.matrixWorld);
+  return sk;
+}
+
+// glove: rigid palm + four whole fingers and a thumb, each one continuous skin bent by a bone per phalanx.
+// setCurl(c): 0 open .. 1 fist
+const THUMB_BIND = 0.5;
+const thumbRot = (c, e) => e.set(0.8 - c * 0.3, 0.15 + c * 0.25, -(0.3 + c * 0.55));
 export function buildGlove(M) {
   const g = new THREE.Group();
   g.add(part('palm', M));
-  const [LA, LB] = J.fingerLen;
-  const seg = (name, parent, y, s) => {
-    const j = new THREE.Group(); j.position.y = y; parent.add(j);
-    const m = part(name, M); m.scale.set(1, s, 1); j.add(m); m.traverse((o) => { o.castShadow = false; });
-    return j;
-  };
-  const fingers = J.fingers.map((p, i) => {
-    const s = J.fingerScale[i];
-    const base = new THREE.Group(); base.position.set(...p); g.add(base);
-    const a = seg('finA', base, 0, s), b = seg('finB', a, -LA * s, s), c = seg('finC', b, -LB * s, s);
+  const palm = new THREE.Bone(); g.add(palm);
+  const bones = [palm], meshes = [];
+  const fingers = J.fingers.map((base, i) => {
+    const [LA, LB] = J.fingerLens[i];
+    const b0 = new THREE.Bone(); b0.position.set(...base); g.add(b0);
+    const a = new THREE.Bone(); b0.add(a);
+    const b = new THREE.Bone(); b.position.y = -LA; a.add(b);
+    const c = new THREE.Bone(); c.position.y = -LB; b.add(c);
+    const k = bones.length; bones.push(a, b, c);
+    const ms = skinnedPart('finger' + i, M, chainWeight([0.002, -LA, -LA - LB], [0, k, k + 1, k + 2], [0.006, 0.0045, 0.004]), new THREE.Matrix4().makeTranslation(...base));
+    ms.forEach((m) => { m.castShadow = false; g.add(m); }); meshes.push(...ms);
     return [a, b, c];
   });
-  const thumb = new THREE.Group(); thumb.position.set(...J.thumb); g.add(thumb);
-  const ta = seg('thumbA', thumb, 0, 1), tb = seg('thumbB', ta, -J.thumbLen, 1);
+  const thumb = new THREE.Bone(); thumb.position.set(...J.thumb); thumbRot(THUMB_BIND, thumb.rotation); g.add(thumb);
+  const ta = new THREE.Bone(); thumb.add(ta);
+  const tb = new THREE.Bone(); tb.position.y = -J.thumbLens[0]; ta.add(tb);
+  const k = bones.length; bones.push(ta, tb);
+  thumb.updateMatrix();
+  const tms = skinnedPart('thumb', M, chainWeight([-J.thumbLens[0]], [k, k + 1], [0.0045]), thumb.matrix.clone());
+  tms.forEach((m) => { m.castShadow = false; g.add(m); }); meshes.push(...tms);
+  bindAll(g, bones, meshes);
   // a gloved fist: the pressurised fingers never fully close, the little finger curls the most
   // trig: the index finger on its own (the trigger finger); null follows the rest
   const setCurl = (c0, spread = 0, trig = null) => {
@@ -108,7 +167,7 @@ export function buildGlove(M) {
       b.rotation.z = -(0.14 + c * 1.35 * k);
       d.rotation.z = -(0.1 + c * 0.95);
     });
-    const c = c0; thumb.rotation.set(0.8 - c * 0.3, 0.15 + c * 0.25, -(0.3 + c * 0.55)); ta.rotation.z = 0; tb.rotation.z = -(0.15 + c * 0.75);
+    thumbRot(c0, thumb.rotation); tb.rotation.z = -(0.15 + c0 * 0.75);
   };
   setCurl(0.3);
   return { group: g, setCurl };
@@ -183,19 +242,29 @@ export function heatTool(tool, heat, fire, t) {
 // the back of the glove in first person instead of looking into the cuff
 const TOOL_RAKE = 0.5;
 
-// one arm as three free pieces (posed by IK, not nested): upper arm, forearm, glove (+ tool on the right)
+// one arm: a single sleeve skinned to the shoulder, a half-way elbow bone and the forearm (posed by IK, not nested),
+// then the glove at the wrist (+ tool on the right)
 export function buildArm(M, side = 1, withTool = false) {
   const root = new THREE.Group(); root.scale.x = side;          // mirrored for the left
-  const upper = part('upperArm', M), fore = part('foreArm', M), glove = buildGlove(M);
+  const upper = new THREE.Bone(), mid = new THREE.Bone(), fore = new THREE.Bone();
+  mid.position.y = fore.position.y = -SUIT.ua;
+  const glove = buildGlove(M);
   const wrist = new THREE.Group(); wrist.add(glove.group);
-  root.add(upper, fore, wrist);
+  root.add(upper, mid, fore, wrist);
+  const E = -SUIT.ua, Wy = E - SUIT.fa;
+  // the gauntlet below the wrist ring is soft: it follows the hand most of the way as the wrist bends
+  const sleeve = skinnedPart('sleeve', M, (p) => (p.y > E + 0.075 ? [0, 0, 0] : p.y > E ? [0, 1, smooth(E + 0.075, E, p.y)]
+    : p.y > Wy + 0.038 ? [1, 2, smooth(E, E - 0.075, p.y)] : [2, 3, 0.75 * smooth(Wy + 0.038, Wy - 0.002, p.y)]));
+  root.add(...sleeve);
+  wrist.position.y = Wy;
+  bindAll(root, [upper, mid, fore, wrist], sleeve);
   let tool = null;
   if (withTool) {
     tool = buildTool(M); glove.group.add(tool);
     tool.position.set(-0.036, -0.074, 0.006); tool.rotation.set(-Math.PI / 2 - TOOL_RAKE, 0, 0);
     // flip back so the tool is never mirrored (it's only ever in the right hand)
   }
-  return { root, upper, fore, wrist, glove, tool, side };
+  return { root, upper, mid, fore, wrist, glove, tool, side };
 }
 
 // Two-bone IK in the arm's own (unmirrored) space. S shoulder, W wrist target, pole: where the elbow goes,
@@ -220,6 +289,7 @@ export function solveArm(arm, S, W, pole, hand) {
   // twist: forearm leans its +Z the way the back of the hand faces, so the forearm detail sits on the outside
   aimBone(arm.upper, S, E, pole);
   aimBone(arm.fore, E, Wc, _c.set(0, 0, 0).add(pole));
+  arm.mid.position.copy(E); arm.mid.quaternion.copy(arm.upper.quaternion).slerp(arm.fore.quaternion, 0.5);
   arm.wrist.position.copy(Wc); arm.wrist.quaternion.copy(hand);
   return E;
 }

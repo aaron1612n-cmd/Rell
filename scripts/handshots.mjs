@@ -11,7 +11,7 @@ await p.goto('http://localhost:5173/'); await p.waitForFunction(() => window.__g
 const wait = (ms) => p.waitForTimeout(ms);
 const shot = async (n) => { await p.screenshot({ path: `${out}/${n}.png` }); console.log('shot', n); };
 await wait(3000);
-await p.evaluate(() => { const g = window.__game; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); });
+await p.evaluate(() => { const g = window.__game; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); g.tutorial.hideIntro?.(); });
 await p.evaluate(() => window.__game.eva.request());
 await p.waitForFunction(() => window.__game.eva.state === 'eva', null, { timeout: 300000 });
 await wait(800);
