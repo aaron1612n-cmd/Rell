@@ -80,6 +80,7 @@ export class Tutorial {
     this.w.textContent = st.word;
     // progress pips: where you are in the whole run
     this.pp.innerHTML = STEPS.map((_, n) => `<i class="${n < i ? 'd' : n === i ? 'c' : ''}"></i>`).join('');
+    if (i > 0) this.onStep?.();
     this.base = this.econ.stats.lockers; this.jobBase = this.econ.stats.jobs;
     this.g.classList.remove('pop'); void this.g.offsetWidth; this.g.classList.add('pop');
   }

@@ -1,7 +1,7 @@
 // Player settings (saved) and the pause menu: sensitivity, invert, field of view, shake, graphics tier,
 // plus the career page, tutorial replay and save reset. Opening the menu freezes the simulation.
 const KEY = 'rell.settings';
-const DEF = { sens: 1, invert: false, fov: 0, shake: 1, quality: 'auto', hints: true };
+const DEF = { volume: 0.7, sens: 1, invert: false, fov: 0, shake: 1, quality: 'auto', hints: true };
 const svg = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
 const IC = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
@@ -56,6 +56,7 @@ export class Menu {
         </section>
         <section><h3>Graphics</h3>
           <div class="segs">${q}</div>
+          ${this.row('Sound', this.slider('volume', 0, 1, 0.05, (v) => Math.round(v * 100) + '%'))}
           ${this.row('Hints', this.toggleBtn('hints'))}
         </section>
         <section><h3>Career</h3>

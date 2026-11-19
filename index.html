@@ -202,10 +202,12 @@ body.evx #evabtns,body.evx #evaret,body.evx #evause{display:none!important}
 .btn.big.down svg{stroke:var(--void)}
 /* phones held upright: a compact row so the buttons stay out of the middle of the view */
 @media (max-aspect-ratio:4/5){.btns{grid-template-columns:repeat(3,54px);gap:9px}.btn{width:54px;height:54px}.btn svg{width:22px;height:22px}}
+@media (max-aspect-ratio:4/5){body.cockpit .btns{bottom:auto;top:46%;grid-template-columns:repeat(3,46px);gap:8px}body.cockpit .btn{width:46px;height:46px}body.cockpit .btn svg{width:20px;height:20px}}
 body.cockpit .btn:not(.down){background:rgba(7,9,13,.22);border-color:rgba(232,224,204,.3)}
 @media (prefers-reduced-motion:reduce){#exitbtn.ping,#evause::before,.emk.home.hot i{animation:none}}
 
 /* ---- career, menu, events ---- */
+body.photo #hud,body.photo #touch,body.photo #nav,body.photo #dock,body.photo #jobs,body.photo #tut,body.photo #toast,body.photo #hint,body.photo #evw{display:none!important}
 #menubtn{position:absolute;right:calc(max(16px,env(safe-area-inset-right)) + 168px);top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:.15s;padding:0;color:inherit}
 #menubtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 #menubtn.on{background:var(--hazard);border-color:var(--hazard)}#menubtn.on svg{stroke:var(--void)}

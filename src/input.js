@@ -123,6 +123,23 @@ export class Input {
     mk('reel', true); mk('up', true); mk('boost', true); mk('down', true); mk('brake', true); mk('tool', true).classList.add('big');
   }
 
+  // gamepad: sticks move and aim, triggers boost and brake, bumpers climb and dive; A grabs/cuts, Y hatch,
+  // X assist, B impact scan, Back view, Start menu
+  pad(cmd) {
+    const gp = navigator.getGamepads ? [...navigator.getGamepads()].find((g) => g && g.connected) : null;
+    if (!gp) { this.padPrev = null; return; }
+    const dz = (v) => (Math.abs(v) < 0.16 ? 0 : (v - Math.sign(v) * 0.16) / 0.84);
+    const b = (i) => !!gp.buttons[i]?.pressed, B = gp.buttons.map((x) => x.pressed);
+    cmd.strafe += dz(gp.axes[0]); cmd.fwd -= dz(gp.axes[1]);
+    cmd.dx += dz(gp.axes[2]) * 16; cmd.dy += dz(gp.axes[3]) * 16 * (this.invertY ? -1 : 1);
+    cmd.vert += (b(5) ? 1 : 0) - (b(4) ? 1 : 0);
+    cmd.boost = cmd.boost || b(7); cmd.brake = cmd.brake || b(6); cmd.fire = cmd.fire || b(0); cmd.reel = cmd.reel || b(2);
+    const prev = this.padPrev || [], edge = (i) => B[i] && !prev[i];
+    if (edge(0)) this.onGrab(); if (edge(3)) this.onExit(); if (edge(1)) this.onToggleImpact(); if (edge(8)) dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV' }));
+    if (edge(9)) dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' })); if (edge(12)) this.onToggleAssist();
+    this.padPrev = B; this.padOn = true;
+  }
+
   k(...c) { return c.some((x) => this.keys.has(x)); }
 
   // Returns the command for this frame and clears accumulated look deltas.
@@ -141,6 +158,7 @@ export class Input {
       pitchKey: (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0),
       dx: this.lookDX, dy: this.lookDY * (this.invertY ? -1 : 1),
     };
+    this.pad(cmd);
     for (const a of ['fwd', 'strafe', 'vert']) cmd[a] = Math.max(-1, Math.min(1, cmd[a]));
     this.lookDX = this.lookDY = 0;
     return cmd;

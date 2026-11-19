@@ -34,6 +34,7 @@ import { Quality } from './quality.js';
 import { Career, JOB_ICONS } from './career.js';
 import { Settings, Menu } from './settings.js';
 import { Events } from './events.js';
+import { Sound } from './audio.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -67,6 +68,7 @@ shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.se
 camera.layers.enable(1); sun.shadow.camera.layers.enable(1);
 const cockpit = new Cockpit({ renderer, camera, shipModel, env: scene.environment, sunDir: SUN_DIR, world, coarse, reduced });
 await Promise.all([cockpit.load(), loadSuit()]);
+addEventListener('keydown', (e) => { if (e.code === 'KeyO' && !e.repeat) document.body.classList.toggle('photo'); });
 addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) { if (eva.active) eva.toggleView(); else cockpit.toggle(); } });
 { const vb = document.getElementById('viewbtn'); vb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.view}</svg>`;
   vb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (eva.active) eva.toggleView(); else cockpit.toggle(); }); }
@@ -91,10 +93,10 @@ const econ = new Econ();
 const salvage = new Salvage({
   scene, world, ship, models: { salvage: salvageModel }, coarse,
   onImpact: (h, m) => onShipHit(h, Math.min(3, m * 0.3)),
-  onDeliver: (it, v) => { econ.earn(v); career.onDeliver(it, v); nav.pop(v); tutorial.delivered(); depotFlash = 1; },
+  onDeliver: (it, v) => { sound.deliver(); econ.earn(v); career.onDeliver(it, v); nav.pop(v); tutorial.delivered(); depotFlash = 1; },
   onEvent: (e, it, p) => {
-    if (e === 'snap') { sparks({ point: p, normal: _c.copy(ship.pos).sub(p).normalize(), speed: 10 }, 40); rig.kick(0.35); hud.pulse(0.12); cockpit.alert(0.5); }
-    if (e === 'hook') rig.kick(0.05);
+    if (e === 'snap') { sound.snap(); sparks({ point: p, normal: _c.copy(ship.pos).sub(p).normalize(), speed: 10 }, 40); rig.kick(0.35); hud.pulse(0.12); cockpit.alert(0.5); }
+    if (e === 'hook') { rig.kick(0.05); sound.hook(); }
     if (e === 'miss') hud.miss();
   },
 });
@@ -103,6 +105,7 @@ const nav = new Nav({ world, salvage, econ, ship, input });
 nav.onBuy = () => econ.apply(ship, salvage);
 const career = new Career(econ);
 const settings = new Settings();
+const sound = new Sound(settings.get('volume'));
 input.onGrab = () => { if (!eva.active) salvage.grab(); };
 let depotFlash = 0;
 
@@ -110,7 +113,7 @@ world.onSiteEvent = (e, site) => {
   const d = site.pos.distanceTo(ship.pos);
   if (e === 'unstable') { rig.kick(d < 400 ? 0.4 : 0.05); if (d < 400) cockpit.alert(0.6); }
   if (e === 'collapse') {
-    shock(site);
+    shock(site); if (d < 1500) sound.boom();
     const near = 1 - THREE.MathUtils.clamp((d - site.radius * 0.3) / 260, 0, 1);
     if (near > 0) {
       rig.kick(Math.min(1, near * 1.4)); hud.pulse(0.45 * near); cockpit.alert(near);
@@ -217,8 +220,10 @@ function toast(kind, n) {
   const txt = kind === 'done' ? '+' + n : kind === 'rank' ? n : kind === 'meteor' || kind === 'flare' ? '+120' : '';
   toastEl.innerHTML = `<svg viewBox="0 0 24 24">${ic}</svg>${txt ? `<span>${txt}</span>` : ''}`;
   toastEl.classList.add('show'); toastT = 2.4;
+  if (kind === 'done') sound.chime(false); else if (kind === 'rank') sound.chime(true);
 }
 career.toast = toast;
+events.onWarn = () => sound.warn(); tutorial.onStep = () => sound.step();
 const menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
 const applySettings = (k) => {
   input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
@@ -226,7 +231,7 @@ const applySettings = (k) => {
   if (k === 'fov') resize();
   document.getElementById('hint').style.display = settings.get('hints') ? '' : 'none';
 };
-settings.onChange = applySettings; applySettings();
+settings.onChange = (k) => { if (k === 'volume') sound.setVolume(settings.get('volume')); else applySettings(k); }; menu.onToggle = (o) => sound.setPaused(o); applySettings();
 
 look.composer.insertPass(eva.pass, look.composer.passes.indexOf(cockpit.pass) + 1);
 input.onExit = () => eva.request();
@@ -448,7 +453,7 @@ function navFx(t) {
 
 let respawnT = 0;
 function onShipHit(hit, otherMass) {
-  const s = hit.speed;
+  const s = hit.speed; sound.hit(s);
   sparks(hit, Math.min(40, Math.floor(s * 2.5)));
   if (s > 2) { rig.kick(Math.min(1, s / 28)); hud.pulse(Math.min(0.35, s / 70)); }
   if (s > 4) cockpit.alert(Math.min(1, s / 18));
@@ -534,6 +539,7 @@ function tickFrame(now) {
   cockpit.update(dt, ship, rig);
   partsFx(dt);
   eva.update(dt, raw);
+  { let rs2 = 0; for (let i = 0; i < rcsSm.length; i++) rs2 += rcsSm[i]; sound.update(dt, { main: ship.fx.main, boost: boostSm, rcs: rs2, strain: salvage.ropes.reduce((m, r) => Math.max(m, r.item.strainVis || 0), 0), eva: eva.active, o2low: eva.o2 < 0.25 }); }
   if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
   world.updateVisual(time, camera.position);
   worldAnim.update(dt, time);

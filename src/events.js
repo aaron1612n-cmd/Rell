@@ -44,7 +44,7 @@ export class Events {
     // incoming lane: mostly across the ship's path, from a random side
     this.dir.set(R() - 0.5, (R() - 0.5) * 0.5, R() - 0.5).normalize();
     this.warn.innerHTML = svg(JOB_ICONS[kind === 'meteor' ? 'meteor' : 'flare']); this.warn.className = kind;
-    this.warn.style.display = 'block';
+    this.warn.style.display = 'block'; this.onWarn?.(kind);
   }
 
   update(dt, ctx, camera, w, h) {
