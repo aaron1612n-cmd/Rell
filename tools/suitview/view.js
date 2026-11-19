@@ -1,7 +1,7 @@
 // Dev-only turntable for the EVA suit, lit by the game's own light rig. /tools/suitview/?yaw=30&pitch=10&dist=2.6&y=0&reach=0&part=
 import * as THREE from 'three';
 import { setupLights } from '../../src/look.js';
-import { loadSuit, suitMaterials, buildAstronaut, poseAstronaut, poseBody, restPose, poseFirstPerson, heatTool, buildGlove, buildTool, driveJets, SUIT, buildArm, solveArm, handBasis } from '../../src/astronaut.js';
+import { loadSuit, suitMaterials, buildAstronaut, poseAstronaut, poseBody, restPose, poseFirstPerson, heatTool, buildGlove, buildTool, driveJets, SUIT, buildArm, solveArm, handBasis, holdTool } from '../../src/astronaut.js';
 const q = new URLSearchParams(location.search), n = (k, d) => (q.has(k) ? +q.get(k) : d);
 const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; document.body.appendChild(renderer.domElement);
@@ -11,7 +11,7 @@ sun.position.copy(sunDir).multiplyScalar(10); sun.shadow.camera.left = sun.shado
 scene.background = new THREE.Color(0x05070a);
 await loadSuit();
 const M = suitMaterials(scene.environment), a = buildAstronaut(M);
-// part=glove|fist|tool|gun (glove holding the tool): a single piece, centred, for close inspection
+// part=glove|fist|tool|gun (glove holding the tool; xray=0.3 ghosts the tool, trig=0..1): a single piece, centred, for close inspection
 const partName = q.get('part');
 if (partName === 'arm') {
   // part=arm&bend=0..1: one right arm on its own, elbow bent by `bend`, glove curl `curl`
@@ -24,7 +24,8 @@ if (partName === 'arm') {
   const g = partName === 'tool' ? buildTool(M) : buildGlove(M);
   const o = partName === 'tool' ? g : g.group;
   if (partName !== 'tool') g.setCurl(n('curl', partName === 'glove' ? 0.25 : 0.95));
-  if (partName === 'gun') { const t = buildTool(M); g.group.add(t); t.position.set(-0.036, -0.074, 0.006); t.rotation.set(-Math.PI / 2 - 0.5, 0, 0); }
+  if (partName === 'gun') { const t = buildTool(M); holdTool(g, t); g.setCurl(0.95, 0, n('trig', 0.72));
+    if (q.has('xray')) t.traverse((m) => { if (m.isMesh) { m.material = m.material.clone(); m.material.transparent = true; m.material.opacity = n('xray', 0.3); m.material.depthWrite = false; } }); }
   if (q.has('side')) o.traverse((m) => { if (m.isMesh) m.material = m.material.clone(), m.material.side = THREE.FrontSide; });
   scene.add(o); const bb = new THREE.Box3().setFromObject(o), c = bb.getCenter(new THREE.Vector3()); o.position.sub(c);
 } else scene.add(a);

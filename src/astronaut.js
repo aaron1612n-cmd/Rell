@@ -130,47 +130,135 @@ function bindAll(root, bones, meshes) {
   return sk;
 }
 
-// glove: rigid palm + four whole fingers and a thumb, each one continuous skin bent by a bone per phalanx.
-// setCurl(c): 0 open .. 1 fist
-const THUMB_BIND = 0.5;
-const thumbRot = (c, e) => e.set(0.8 - c * 0.3, 0.15 + c * 0.25, -(0.3 + c * 0.55));
+// glove: ONE sculpted surface (tools/blender/glove.py) skinned to a rigid palm and three bones per finger and
+// thumb, built from the joint chains in astronaut.json. Every bone's -Y runs down its phalanx and its -X faces the
+// way the finger curls, so a curl is always a rotation about the bone's own Z.
+// setCurl(c, spread, trig): 0 open .. 1 fist. When the glove holds the tool, fitGrip() has already closed every
+// finger onto the cutter's grip (index on the trigger, thumb wrapped round the far side) and that pose is used.
+const CHAINS = J.hand.chains;
+const _gq = new THREE.Quaternion(), _ge = new THREE.Euler(), _gm = new THREE.Matrix4(), _gv = new THREE.Vector3(), _gw = new THREE.Vector3();
+function chainFrames(c) {
+  return [0, 1, 2].map((k) => {
+    const p = V(c.j[k]), d = V(c.j[k + 1]).sub(p).normalize(), f = V(c.flex);
+    const x = f.addScaledVector(d, -f.dot(d)).normalize().negate(), y = d.clone().negate(), z = new THREE.Vector3().crossVectors(x, y);
+    return { p, q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z)), len: V(c.j[k + 1]).distanceTo(V(c.j[k])) };
+  });
+}
+// which bone owns a point of the glove surface: nearest phalanx, then a blend across the joint by arc length
+function gloveWeight(ids) {
+  const A = CHAINS.map((c) => c.j.map(V));
+  return (p) => {
+    let best = 1e9, bc = 0, bs = 0;
+    A.forEach((js, ci) => {
+      let s0 = 0;
+      for (let k = 0; k < 3; k++) {
+        const ab = _gv.subVectors(js[k + 1], js[k]), L = ab.length(); ab.divideScalar(L);
+        const q = _gw.subVectors(p, js[k]), t = q.dot(ab), tc = Math.min(Math.max(t, 0), L);
+        let dd = q.addScaledVector(ab, -tc).length() - CHAINS[ci].r[k];
+        if (k === 0 && t < 0) dd -= t * 2;
+        if (dd < best) { best = dd; bc = ci; bs = s0 + (k === 2 || t < L ? t : L); }
+        s0 += L;
+      }
+    });
+    const c = CHAINS[bc], L0 = A[bc][1].distanceTo(A[bc][0]), L1 = A[bc][2].distanceTo(A[bc][1]);
+    const h0 = bc === 4 ? 0.016 : 0.008;
+    return chainWeight([0, -L0, -L0 - L1], [0, ...ids[bc]], [h0, 0.0045, 0.004])({ y: -bs });
+  };
+}
 export function buildGlove(M) {
   const g = new THREE.Group();
-  g.add(part('palm', M));
+  g.add(part('handgear', M));
   const palm = new THREE.Bone(); g.add(palm);
-  const bones = [palm], meshes = [];
-  const fingers = J.fingers.map((base, i) => {
-    const [LA, LB] = J.fingerLens[i];
-    const b0 = new THREE.Bone(); b0.position.set(...base); g.add(b0);
-    const a = new THREE.Bone(); b0.add(a);
-    const b = new THREE.Bone(); b.position.y = -LA; a.add(b);
-    const c = new THREE.Bone(); c.position.y = -LB; b.add(c);
-    const k = bones.length; bones.push(a, b, c);
-    const ms = skinnedPart('finger' + i, M, chainWeight([0.002, -LA, -LA - LB], [0, k, k + 1, k + 2], [0.006, 0.0045, 0.004]), new THREE.Matrix4().makeTranslation(...base));
-    ms.forEach((m) => { m.castShadow = false; g.add(m); }); meshes.push(...ms);
-    return [a, b, c];
-  });
-  const thumb = new THREE.Bone(); thumb.position.set(...J.thumb); thumbRot(THUMB_BIND, thumb.rotation); g.add(thumb);
-  const ta = new THREE.Bone(); thumb.add(ta);
-  const tb = new THREE.Bone(); tb.position.y = -J.thumbLens[0]; ta.add(tb);
-  const k = bones.length; bones.push(ta, tb);
-  thumb.updateMatrix();
-  const tms = skinnedPart('thumb', M, chainWeight([-J.thumbLens[0]], [k, k + 1], [0.0045]), thumb.matrix.clone());
-  tms.forEach((m) => { m.castShadow = false; g.add(m); }); meshes.push(...tms);
-  bindAll(g, bones, meshes);
-  // a gloved fist: the pressurised fingers never fully close, the little finger curls the most
-  // trig: the index finger on its own (the trigger finger); null follows the rest
-  const setCurl = (c0, spread = 0, trig = null) => {
-    fingers.forEach(([a, b, d], i) => {
-      const k = 1 + (i - 1.5) * 0.06, c = i === 0 && trig !== null ? trig : c0;
-      a.rotation.set((i - 1.5) * (0.04 + spread * 0.1) * (1 - c * 0.6), 0, -(0.1 + c * 1.25 * k));
-      b.rotation.z = -(0.14 + c * 1.35 * k);
-      d.rotation.z = -(0.1 + c * 0.95);
+  const bones = [palm], ids = [];
+  const chains = CHAINS.map((c, ci) => {
+    const fr = chainFrames(c);
+    let parent = palm, pq = new THREE.Quaternion(), pp = new THREE.Vector3();
+    const bs = fr.map((f) => {
+      const b = new THREE.Bone(), iq = pq.clone().invert();
+      b.position.copy(f.p).sub(pp).applyQuaternion(iq); b.quaternion.copy(iq.multiply(f.q));
+      b.userData.rest = b.quaternion.clone(); b.userData.len = f.len;
+      parent.add(b); parent = b; pq = f.q; pp = f.p;
+      return b;
     });
-    thumbRot(c0, thumb.rotation); tb.rotation.z = -(0.15 + c0 * 0.75);
+    ids.push(bs.map((b) => bones.push(b) - 1));
+    // fan angle of the finger in the rest pose (about its own X); the fingers close together as they curl
+    const d0 = V(c.j[1]).sub(V(c.j[0])); bs.fan = Math.atan2(d0.z, -d0.y);
+    return bs;
+  });
+  const meshes = skinnedPart('hand', M, gloveWeight(ids));
+  meshes.forEach((m) => g.add(m));
+  bindAll(g, bones, meshes);
+  const setJ = (b, flex, abd = 0, twist = 0) => b.quaternion.copy(b.userData.rest).multiply(_gq.setFromEuler(_ge.set(abd, twist, -flex)));
+  // the pose the tool's grip gives (filled by fitGrip): per chain [flex0, flex1, flex2, abd, twist]
+  let grip = null, holding = () => false;
+  const setCurl = (c, spread = 0, trig = null) => {
+    if (grip && holding()) {
+      grip.forEach((a, ci) => {
+        const t = ci === 0 && trig !== null ? Math.max(0, trig - 0.72) / 0.28 : 0;
+        chains[ci].forEach((b, k) => setJ(b, a[k] + (ci === 0 ? [0.04, 0.12, 0.1][k] * t : 0), k === 0 ? a[3] : 0, k === 0 ? a[4] : 0));
+      });
+      return;
+    }
+    // a pressurised glove: never quite flat, never a tight fist; the little finger curls the most
+    for (let i = 0; i < 4; i++) {
+      const ci = i === 0 && trig !== null ? trig : c, k = 1 + (i - 1.5) * 0.05;
+      const [a, b, d] = chains[i];
+      setJ(a, 0.1 + ci * 1.2 * k, -chains[i].fan * (0.75 * ci - 0.6 * spread));
+      setJ(b, 0.16 + ci * 1.4 * k);
+      setJ(d, 0.1 + ci * 0.85 * k);
+    }
+    const [ta, tb, td] = chains[4];
+    setJ(ta, 0.05 + c * 0.32, -0.1 * c, 0.15 * c); setJ(tb, 0.12 + c * 0.45); setJ(td, 0.12 + c * 0.6);
+  };
+  // close every finger onto the tool until it meets the grip (sdf: glove-space point -> distance to the tool)
+  const fitGrip = (sdf, isHolding, plan) => {
+    holding = isHolding; grip = [];
+    const inv = new THREE.Matrix4(), P = new THREE.Vector3();
+    g.updateMatrixWorld(true); inv.copy(g.matrixWorld).invert();
+    // clearance of phalanx k from the tool along its length (negative: sunk in), relative to its radius
+    const clear = (ci, k, fn) => {
+      const b = chains[ci][k], r0 = CHAINS[ci].r[k], r1 = CHAINS[ci].r[k + 1];
+      const L = b.userData.len + (k === 2 ? r1 * 0.8 : 0);
+      _gm.multiplyMatrices(inv, b.matrixWorld);
+      for (let i = 1; i <= 6; i++) { const u = i / 6; P.set(0, -L * u, 0).applyMatrix4(_gm); fn(sdf(P, ci) - (r0 + (r1 - r0) * u), u); }
+    };
+    const touching = (ci, k) => { let t = false; clear(ci, k, (c, u) => { if (c < -0.1 * CHAINS[ci].r[k]) t = true; }); return t; };
+    for (let ci = 0; ci < 5; ci++) {
+      const pl = plan[ci], a = [0, 0, 0], frozen = [false, false, false];
+      let abd = pl.abd, twist = pl.twist;
+      const apply = () => { chains[ci].forEach((b, k) => setJ(b, a[k], k === 0 ? abd : 0, k === 0 ? twist : 0)); chains[ci][0].updateMatrixWorld(true); };
+      if (pl.search) {
+        // the thumb: search its pose for the one that lies along the tool, pad down, without sinking in
+        let best = 1e9, bp = null;
+        const S = pl.search, cost = () => {
+          let pen = 0, gap = 0;
+          for (let k = 0; k < 3; k++) clear(ci, k, (c, u) => { const soft = k === 0 ? 0.45 * CHAINS[ci].r[0] : 0.06 * CHAINS[ci].r[k]; pen += Math.max(0, -c - soft) ** 2; if (k > 0) gap += Math.max(0, c) ** 2; });
+          return pen * 400 + gap * 6 + 0.0004 * (a[0] ** 2 + a[1] ** 2 + a[2] ** 2 + abd ** 2);
+        };
+        for (const x0 of S[0]) for (const ab of S[1]) for (const x1 of S[2]) for (const x2 of S[3]) {
+          a[0] = x0; abd = ab; a[1] = x1; a[2] = x2; apply();
+          const c = cost(); if (c < best) { best = c; bp = [x0, ab, x1, x2]; }
+        }
+        [a[0], abd, a[1], a[2]] = bp; apply();
+      } else {
+        apply();
+        // all joints close together at their own rates; a phalanx that meets the tool stops its joint and every
+        // joint above it, the ones beyond keep closing (so the fingers wrap instead of poking)
+        for (let s = 0; s < 160 && frozen.some((f) => !f); s++) {
+          const old = [...a];
+          for (let k = 0; k < 3; k++) if (!frozen[k]) a[k] = Math.min(pl.max[k], a[k] + 0.015 * pl.rate[k]);
+          apply();
+          let m = -1;
+          for (let j = 2; j >= 0; j--) if (touching(ci, j)) { m = j; break; }
+          if (m >= 0) { for (let k = 0; k <= m; k++) { a[k] = old[k]; frozen[k] = true; } apply(); }
+          for (let k = 0; k < 3; k++) if (a[k] >= pl.max[k]) frozen[k] = true;
+        }
+      }
+      grip.push([...a, abd, twist]);
+    }
   };
   setCurl(0.3);
-  return { group: g, setCurl };
+  return { group: g, setCurl, fitGrip, chains };
 }
 
 // the multi-tool: plasma cutter / welder. Origin at the grip; barrel -Z. Emitter ring glows.
@@ -240,7 +328,50 @@ export function heatTool(tool, heat, fire, t) {
 
 // the tool sits raked forward in the fist (wrist cocked up, barrel level), which is also what lets you see
 // the back of the glove in first person instead of looking into the cuff
-const TOOL_RAKE = 0.5;
+const TOOL_RAKE = 0.2;
+// the tool sits with the flat of its grip in the palm: this point of the grip (tool space, the palm-side face at the
+// middle finger) lands on this point of the palm (glove space)
+const GRIP_FACE = [0.018, -0.009, 0.012], PALM_AT = [-0.026, -0.066, -0.023];
+const TOOL_AT = V(PALM_AT).sub(V(GRIP_FACE).applyEuler(new THREE.Euler(-Math.PI / 2 - TOOL_RAKE, 0, 0))).toArray();
+// how each finger closes on the grip: abduction / twist of its knuckle, joint rates and limits (index, middle,
+// ring, little, thumb)
+const GRIP_PLAN = [
+  { abd: 0.0, twist: 0, rate: [1, 1.25, 0.9], max: [1.45, 1.75, 1.3] },
+  { abd: 0.0, twist: 0, rate: [1, 1.25, 0.9], max: [1.5, 1.75, 1.3] },
+  { abd: 0.0, twist: 0, rate: [1, 1.25, 0.9], max: [1.5, 1.75, 1.3] },
+  { abd: 0.0, twist: 0, rate: [1, 1.25, 0.9], max: [1.55, 1.75, 1.3] },
+  { abd: 0.0, twist: 0, search: [[0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.05], [-0.3, -0.15, 0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9], [0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2], [0, 0.2, 0.4, 0.6, 0.8, 1.0]] },
+];
+// approximate distance to the cutter (tool space): grip, body shell and trigger paddle (a finger wrapped on the
+// grip is always inside the guard loop, so the guard needn't stop the fingers closing)
+const lerpRows = (rows, key, v) => {   // rows sorted by descending key
+  if (v >= rows[0][key]) return rows[0];
+  for (let i = 1; i < rows.length; i++) if (v >= rows[i][key]) { const a = rows[i - 1], b = rows[i], t = (a[key] - v) / (a[key] - b[key]); return a.map((x, j) => x + (b[j] - x) * t); }
+  return rows[rows.length - 1];
+};
+const sedist = (x, z, a, b, n) => ((Math.abs(x / a) ** n + Math.abs(z / b) ** n) ** (1 / n) - 1) * Math.min(a, b);
+const _tq = new THREE.Vector3(), _trM = new THREE.Matrix4().makeRotationX(-J.trigger.rx * Math.PI / 180);
+function toolSdf(p, shell = true) {
+  const G = J.grip, gy0 = G[0][0], gy1 = G[G.length - 1][0];
+  const [, oz, wx, fr, bk] = lerpRows(G, 0, Math.min(gy0, Math.max(gy1, p.y)));
+  let d = Math.max(sedist(p.x, p.z - oz, wx, p.z < oz ? fr : bk, 3), p.y - gy0 - 0.01, gy1 - p.y);
+  const S = J.shell, [, cy, a, b] = lerpRows(S, 0, Math.min(S[0][0], Math.max(S[S.length - 1][0], p.z)));
+  if (shell) d = Math.min(d, Math.max(sedist(p.x, p.y - cy, a, b, 3), p.z - S[0][0], S[S.length - 1][0] - p.z));
+  const T = J.trigger; _tq.set(p.x - T.c[0], p.y - T.c[1], p.z - T.c[2]).applyMatrix4(_trM);
+  d = Math.min(d, Math.max(Math.abs(_tq.x) - T.h[0], Math.abs(_tq.y) - T.h[1], Math.abs(_tq.z) - T.h[2]));
+  return d;
+}
+const _tv = new THREE.Vector3();
+
+// put the tool in a glove and close the fingers onto its grip: done once, the pose is reused whenever the tool
+// is back in this hand
+export function holdTool(glove, tool) {
+  glove.group.add(tool);
+  tool.position.set(...TOOL_AT); tool.rotation.set(-Math.PI / 2 - TOOL_RAKE, 0, 0);
+  const inv = new THREE.Matrix4(), P = new THREE.Vector3();
+  tool.updateMatrix(); inv.copy(tool.matrix).invert();
+  glove.fitGrip((p, ci) => toolSdf(P.copy(p).applyMatrix4(inv), ci === 4), () => tool.parent === glove.group && tool.visible, GRIP_PLAN);
+}
 
 // one arm: a single sleeve skinned to the shoulder, a half-way elbow bone and the forearm (posed by IK, not nested),
 // then the glove at the wrist (+ tool on the right)
@@ -260,9 +391,7 @@ export function buildArm(M, side = 1, withTool = false) {
   bindAll(root, [upper, mid, fore, wrist], sleeve);
   let tool = null;
   if (withTool) {
-    tool = buildTool(M); glove.group.add(tool);
-    tool.position.set(-0.036, -0.074, 0.006); tool.rotation.set(-Math.PI / 2 - TOOL_RAKE, 0, 0);
-    // flip back so the tool is never mirrored (it's only ever in the right hand)
+    tool = buildTool(M); holdTool(glove, tool);
   }
   return { root, upper, mid, fore, wrist, glove, tool, side };
 }
@@ -397,7 +526,7 @@ export function poseBody(a, P) {
   if (!P.empty) {
     _W.set(0.2 - r * 0.06, -0.14 + r * 0.27 + s * 0.01, -0.3 - r * 0.12).add(P.armR);
     _W.y += rc.y; _W.z += rc.z;
-    _F.set(-0.1 * r, -0.3 + r * 0.75 + rc.x * 1.2, -1).normalize(); _T.set(-0.25, 1, -0.1);
+    _F.set(-0.1 * r, -0.3 + r * (0.3 + Math.tan(TOOL_RAKE)) + rc.x * 1.2, -1).normalize(); _T.set(-0.25, 1, -0.1);
   } else {
     // empty: floats open like the left
     _W.set(0.25 - c * 0.01, -0.21 - s * 0.012, -0.22).add(P.armR);

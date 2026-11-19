@@ -697,35 +697,11 @@ def finger_part(name, lens, w0, b0, p0, root=0.014, rflare=0.25, tipped=True, se
 
 
 def build_glove():
-    """Glove: the palm (rigid, with the wrist ball, back-of-hand shell and wrist strap), four whole fingers and a
-    thumb, each one continuous skin."""
-    parts = []
-    k = P('palm', 11)
-    dm = [(-0.101 - 0.011 * math.sin(a), math.cos(a)) for a in [math.pi / 2 * i / 6 for i in range(1, 7)]]
-    ts = [(0.052 - 0.0035 * i, 1.0) for i in range(44)] + dm
-    pf = floft(k, ts, lambda t, th: palm_pt(t[0], th, t[1]) if t[1] >= 1 else (lambda p: Vector((p.x, t[0], p.z)))(palm_pt(-0.101, th, t[1])), 52, C_SUIT, GLOVE, cap0=True, cap1=True)
-    paint(k, pf, lambda p: (0x55524b, RUBBER) if p.x < -0.0125 and -0.098 < p.y < -0.02 and abs(p.y + 0.059) > 0.0022 and -0.04 < p.z < 0.034 else None)
-    # back-of-hand shell: one contoured plate arched across the hand
-    bs = []
-    for y, w, hgt in ((-0.020, 0.030, 0.0215), (-0.034, 0.036, 0.0238), (-0.05, 0.039, 0.0248), (-0.066, 0.0405, 0.0247), (-0.080, 0.041, 0.0236), (-0.088, 0.039, 0.022), (-0.093, 0.034, 0.0196)):
-        bs.append((y, 0.003, -0.0015, hgt, 0.0, w, 3.4))
-    asec(k, bs, C_SHELL, HARD, segs=40, cap0=True, cap1=True)
-    for z in (-0.013, 0.0, 0.013):
-        pts = [Vector((0.0255 + 0.0006 * math.sin((yy + 0.026) * 30), yy, z)) for yy in (-0.026, -0.04, -0.056, -0.072, -0.086)]
-        k.sweep(pts, 0.0021, C_SHELL_D, HARD, segs=8)
-    ws = [(-0.004, 0.0, -0.002, 0.0235, 0.0265, 0.0375, 2.6), (-0.014, 0.0005, -0.003, 0.0245, 0.0285, 0.0405, 2.7)]
-    asec(k, ws, C_SLATE, RUBBER, segs=36, cap0=False, cap1=False)
-    k.rbox((0.026, -0.009, 0.006), (0.006, 0.014, 0.02), C_METAL_D, METAL, bevel=0.002)
-    k.rbox((0.0285, -0.009, 0.006), (0.002, 0.007, 0.011), C_HAZ, HAZ_M, bevel=0.0007)
-    parts.append(k)
-    for i, (base, lens, w, b, p) in enumerate(FINGERS):
-        parts.append(finger_part('finger%d' % i, lens, w, b, p, seed=13 + i))
-    parts.append(finger_part('thumb', (0.032, 0.027), 0.0142, 0.012, 0.0136, root=0.014, rflare=0.35, seed=19, taper=0.26, guard=False))
-    J['fingers'] = [list(f[0]) for f in FINGERS]
-    J['fingerLens'] = [list(f[1]) for f in FINGERS]
-    J['thumb'] = [-0.012, -0.04, -0.046]
-    J['thumbLens'] = [0.032, 0.027]
-    return parts
+    """Glove: one sculpted skinned surface (tools/blender/glove.py) + the rigid wrist strap."""
+    import glove
+    C = {'suit': C_SUIT, 'seam': C_SUIT_D, 'pad': 0xc9c2b2, 'guard': 0x8f8a7f, 'rubber': 0x66625a, 'tip': 0x5a5853, 'slate': C_SLATE, 'metal': C_METAL_D, 'haz': C_HAZ,
+         'GLOVE': GLOVE, 'RUBBER': RUBBER, 'METAL': METAL, 'HAZ': HAZ_M}
+    return glove.build_hand(P, J, C)
 
 
 def build_thigh():
@@ -829,7 +805,7 @@ def build_tool():
     # grip: raked, rubber overmold with finger grooves on the front, palm swell at the back, pommel + lanyard ring
     gs = []
     for i in range(11):
-        t = i / 10; y = 0.03 - t * 0.092
+        t = i / 10; y = 0.03 - t * 0.11
         groove = 0.0035 * max(0.0, math.cos(t * 3 * 2 * math.pi)) * (0.2 < t < 0.92)
         gs.append((y, 0.0, 0.004 + 0.012 * t + 0.002 * math.sin(math.pi * t), 0.016 + 0.002 * math.sin(math.pi * t), 0.019 - groove * 0.4, 0.024 + 0.003 * math.sin(math.pi * t), 3.0))
     # grip sections in (y, ox, oz, back(+X)..): reuse asec but the grip's depth runs in Z: build in a frame rotated -90 about Y
@@ -843,11 +819,17 @@ def build_tool():
             ring.append(Vector((x, y, z)))
         rs.append(ring)
     k.rings(rs, C_RUB, RUBBER, True, True)
-    k.lathe([(0.0, 0.0), (0.0, 0.017), (-0.004, 0.019), (-0.012, 0.018), (-0.014, 0.0)], C_SLATE, HARD, segs=24, sx=0.95, sz=1.25, M=rotM(0, 0, 0, (0, -0.06, 0.016)), cap0=True, cap1=True)
-    k.sweep([(math.cos(math.radians(a)) * 0.009, -0.081 + math.sin(math.radians(a)) * 0.009, 0.026) for a in range(0, 360, 30)], 0.0022, C_HAZ, HAZ_M, segs=8, closed=True)
+    # contact shapes for the game's grip solver (fingers close until they meet these)
+    J['grip'] = [[g[0], g[2], g[3], g[4], g[5]] for g in gs]       # y, centre z, half width x, front, back
+    J['shell'] = [[0.092, AX + 0.004, 0.016, 0.02], [0.084, AX + 0.007, 0.024, 0.029], [0.06, AX + 0.011, 0.031, 0.037], [0.02, AX + 0.012, 0.034, 0.039],
+                  [-0.03, AX + 0.006, 0.032, 0.036], [-0.07, AX, 0.027, 0.029], [-0.098, AX - 0.002, 0.022, 0.023], [-0.106, AX - 0.002, 0.018, 0.018]]
+    J['trigger'] = {'c': [0, 0.012, -0.03], 'h': [0.008, 0.017, 0.0055], 'rx': 14}
+    J['guard'] = [[0, 0.03, -0.062], [0, 0.004, -0.07], [0, -0.032, -0.058], [0, -0.056, -0.034], [0, -0.064, -0.01]]
+    k.lathe([(0.0, 0.0), (0.0, 0.017), (-0.004, 0.019), (-0.012, 0.018), (-0.014, 0.0)], C_SLATE, HARD, segs=24, sx=0.95, sz=1.25, M=rotM(0, 0, 0, (0, -0.078, 0.016)), cap0=True, cap1=True)
+    k.sweep([(math.cos(math.radians(a)) * 0.009, -0.099 + math.sin(math.radians(a)) * 0.009, 0.026) for a in range(0, 360, 30)], 0.0022, C_HAZ, HAZ_M, segs=8, closed=True)
     # paddle trigger (sized for a glove) and a wide guard loop
     k.rbox((0, 0.012, -0.03), (0.016, 0.034, 0.011), C_HAZ, HAZ_M, rot=(14, 0, 0), bevel=0.004, seg=2)
-    k.sweep([(0, 0.03, -0.062), (0, 0.004, -0.07), (0, -0.032, -0.058), (0, -0.05, -0.03), (0, -0.052, -0.008)], 0.0045, C_SLATE, HARD, segs=8, cap=True)
+    k.sweep([(0, 0.03, -0.062), (0, 0.004, -0.07), (0, -0.032, -0.058), (0, -0.056, -0.034), (0, -0.064, -0.01)], 0.0045, C_SLATE, HARD, segs=8, cap=True)
     J['toolTip'] = [0, AX, -0.252]
     J['toolEmit'] = [0, AX, -0.2365]
     J['toolEmitR'] = 0.0045
@@ -924,7 +906,7 @@ if __name__ == '__main__':
     bake([helmet], occluders=[type('O', (), {'bm': tm})()], dist=0.12)
     for p in (th, sh, bo, tool): bake([p], dist=0.08)
     bake([sl], dist=0.03, strength=0.75)
-    bake([glove[0]], dist=0.05)
-    for g in glove[1:]: bake([g], dist=0.012, strength=0.45)
+    bake([glove[0]], dist=0.02, strength=0.6)
+    bake([glove[1]], dist=0.02, occluders=[glove[0]])
     export([torso, helmet, sl, *glove, th, sh, bo, tool], os.path.join(root, 'astronaut.glb'))
     with open(os.path.join(root, 'astronaut.json'), 'w') as f: json.dump(J, f, indent=1)
