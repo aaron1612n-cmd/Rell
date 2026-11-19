@@ -537,6 +537,7 @@ export function poseBody(a, P) {
     _W2.set(0.36, -0.09, 0.0); _F2.set(0.05, -1, 0.15); _T2.set(-0.3, 0, -1);
     const k = P.drop; blend3(_W, _W2, k); blend3(_F, _F2, k); blend3(_T, _T2, k);
   }
+  if (P.fixR) _W.add(P.fixR);   // giving way to a wall (suitBody.js)
   _P.set(0.8, -0.6, 0.35);
   solveArm(armR, _S, _W, _P, handBasis(_F, _T, _hq));
   if (P.empty) armR.glove.setCurl(0.34 + 0.06 * c + P.drop * 0.5, 0.35);
@@ -566,6 +567,7 @@ export function poseBody(a, P) {
     blend3(_W, _W2, k); blend3(_F, _F2.set(-1, 0.25, -0.8), k); blend3(_T, _T2.set(0.6, 0.6, -1), k);
     curl = THREE.MathUtils.lerp(curl, 0.6, k); spread *= 1 - k;
   }
+  if (P.fixL) _W.add(P.fixL);
   _P.set(0.85, -0.5, 0.5);
   solveArm(armL, _S, _W, _P, handBasis(_F, _T, _hq));
   armL.glove.setCurl(curl, spread);
@@ -678,6 +680,9 @@ export function fpTargets(o = {}) {
     _ff.set(-0.12, 0.5, -1); _ft.set(-1, 0.2, -0.15);
   }
   if (drop > 0) { R.W.y -= 0.42 * drop; R.W.z += 0.16 * drop; R.W.x += 0.06 * drop; _ff.lerp(_ft.set(0.1, -0.6, -1), drop * 0.6); if (!o.empty) _ft.set(0.25, 1, 0.3); else _ft.set(-1, 0.2, -0.15); }
+  // a wall closer than the hands: lower them out of the way, the way you'd pull your arms in (suitBody.js)
+  const tR = o.tuckR || 0, tL = o.tuckL || 0;
+  if (tR > 0) { R.W.y -= 0.24 * tR; R.W.z += 0.2 * tR; R.W.x += 0.03 * tR; _ff.y -= 0.5 * tR; }
   handBasis(_ff, _ft, R.Q);
   // left (mirrored space, +x is outward): open hand low left, palm down; reaches forward and in to clamp tags
   L.W.set(E.x + (0.19 - 0.07 * r) * nar - sw.x, E.y - 0.24 + 0.08 * r - bob + sw.y, E.z - 0.42 - 0.1 * r + sw.z);
@@ -689,6 +694,7 @@ export function fpTargets(o = {}) {
     _W2.set(E.x + 0.16 * nar, E.y - 0.3 - 0.06 * pull + (ph < 0.6 ? 0 : 0.04 * Math.sin((ph - 0.6) / 0.4 * Math.PI)), E.z - 0.5 + 0.2 * pull);
     L.W.lerp(_W2, rl); _ff.lerp(_F2.set(-0.7, -0.1, -0.6), rl); _ft.lerp(_T2.set(-0.2, 0.3, -1), rl);
   }
+  if (tL > 0) { L.W.y -= 0.24 * tL; L.W.z += 0.2 * tL; L.W.x += 0.03 * tL; _ff.y -= 0.5 * tL; }
   handBasis(_ff, _ft, L.Q);
   return FPT;
 }

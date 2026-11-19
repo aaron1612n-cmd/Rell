@@ -118,11 +118,13 @@ export class Bake {
       return set.filter((x, i) => i === 0 || x - set[i - 1] > 1e-3);
     });
     this.emit(gridBox(c, s, br), o);
+    if (o.collide) this.obb(c, s);
   }
   cyl(c, r, len, axis, o = {}) {
     const g = new THREE.CylinderGeometry(r, o.r2 ?? r, len, o.sides ?? 10, Math.max(1, Math.ceil(len / (o.seg ?? 0.8))), !!o.open);
     if (axis === 'x') g.rotateZ(Math.PI / 2); else if (axis === 'z') g.rotateX(Math.PI / 2);
     g.translate(c[0], c[1], c[2]); this.emit(g, o);
+    if (o.collide) { const d = 2 * Math.max(r, o.r2 ?? r); this.obb(c, axis === 'x' ? [len, d, d] : axis === 'z' ? [d, d, len] : [d, len, d]); }
   }
   // an arbitrary prebuilt geometry, already in place
   geo(g, o) { this.emit(g, o); }
