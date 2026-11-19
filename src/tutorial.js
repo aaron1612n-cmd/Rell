@@ -11,38 +11,64 @@ const TOUCH_IC = {
   look: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
 };
 const STEPS = [
-  { word: 'Thrust', key: 'W', touch: TOUCH_IC.stick, rings: [[22, 22, 95]] },
-  { word: 'Aim', key: 'Mouse', touch: TOUCH_IC.look, rings: [[95, 30, 112]] },
-  { word: 'Boost', key: 'Shift', touch: ICONS.boost, rings: [[118, 40, 232], [128, 45, 382]] },
-  { word: 'Brake', key: 'X', touch: ICONS.brake, zone: [134, 45, 468], r: 15 },
-  { word: 'Grab', key: 'F', touch: NAV_ICONS.grab, item: [138, 46, 494] },
-  { word: 'Deliver', icon: NAV_ICONS.depot },
+  { say: ['Hold W to fly into the ring', 'Drag the left thumb to fly into the ring'], word: 'Thrust', key: 'W', touch: TOUCH_IC.stick, rings: [[22, 22, 95]] },
+  { say: ['Move the mouse to turn toward the next ring', 'Drag the right side to turn toward the ring'], word: 'Aim', key: 'Mouse', touch: TOUCH_IC.look, rings: [[95, 30, 112]] },
+  { say: ['Hold Shift to boost through both rings', 'Hold the boost button to speed through'], word: 'Boost', key: 'Shift', touch: ICONS.boost, rings: [[118, 40, 232], [128, 45, 382]] },
+  { say: ['Press X to stop inside the bubble', 'Tap brake to stop inside the bubble'], word: 'Brake', key: 'X', touch: ICONS.brake, zone: [134, 45, 468], r: 15 },
+  { say: ['Point at the canister, press F to tow it', 'Aim at the canister, tap grab to tow it'], word: 'Grab', key: 'F', touch: NAV_ICONS.grab, item: [138, 46, 494] },
+  { say: ['Tow it into the depot to sell it', 'Tow it into the depot to sell it'], word: 'Deliver', icon: NAV_ICONS.depot },
   // depot, then outside: dock, take a job, suit up, cut a locker, come home
-  { word: 'Dock', icon: NAV_ICONS.depot, dock: true },
-  { word: 'Job', icon: JOB_ICONS.haul, job: true },
-  { word: 'Suit', key: 'G', touch: ICONS.exit, suit: true },
-  { word: 'Cut', key: 'Click', touch: ICONS.tool, cut: true },
-  { word: 'Return', key: 'G', touch: ICONS.exit, back: true },
+  { say: ['Fly into the depot bay to dock and shop', 'Fly into the depot bay to dock and shop'], word: 'Dock', icon: NAV_ICONS.depot, dock: true },
+  { say: ['Pick a job for bonus pay (keys 4 5 6)', 'Tap a job card for bonus pay'], word: 'Job', icon: JOB_ICONS.haul, job: true },
+  { say: ['Park by a wreck locker, press G to go outside', 'Park by a wreck locker, tap hatch to go outside'], word: 'Suit', key: 'G', touch: ICONS.exit, suit: true },
+  { say: ['Hold click on the locker to cut it open', 'Hold the tool button on the locker'], word: 'Cut', key: 'Click', touch: ICONS.tool, cut: true },
+  { say: ['Float back to your ship, press G to climb in', 'Float back to your ship, tap hatch to climb in'], word: 'Return', key: 'G', touch: ICONS.exit, back: true },
   // then the deep scan, and the walk-in station
-  { word: 'Scan', key: 'C', touch: '<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 000 10M17 7a7 7 0 010 10M4 4a11 11 0 000 16M20 4a11 11 0 010 16"/>', scan: true },
-  { word: 'Relay', icon: NAV_ICONS.relay, relay: true },
+  { say: ['Press C to deep-scan for hidden wrecks', 'Tap scan to reveal hidden wrecks'], word: 'Scan', key: 'C', touch: '<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 000 10M17 7a7 7 0 010 10M4 4a11 11 0 000 16M20 4a11 11 0 010 16"/>', scan: true },
+  { say: ['Fly to Kestrel Relay, go outside and enter its airlock', 'Fly to Kestrel Relay, go outside and enter its airlock'], word: 'Relay', icon: NAV_ICONS.relay, relay: true },
 ];
 
 export class Tutorial {
   constructor({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay }) {
     Object.assign(this, { scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
     this.el = document.createElement('div'); this.el.id = 'tut';
-    this.el.innerHTML = '<div class="g"><span class="k"></span><span class="w"></span><span class="pp"></span></div><button class="skip">Skip</button>';
+    this.el.innerHTML = '<div class="g"><span class="k"></span><span class="w"></span><span class="d"></span><span class="pp"></span></div><button class="skip">Skip</button>';
     document.body.appendChild(this.el);
-    this.g = this.el.querySelector('.g'); this.k = this.el.querySelector('.k'); this.w = this.el.querySelector('.w'); this.pp = this.el.querySelector('.pp');
+    this.g = this.el.querySelector('.g'); this.k = this.el.querySelector('.k'); this.w = this.el.querySelector('.w'); this.d = this.el.querySelector('.d'); this.pp = this.el.querySelector('.pp');
     this.el.querySelector('.skip').addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.finish(); });
     this.rings = new THREE.Group(); scene.add(this.rings);
     this.mat = new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
     this.hotMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.55, 0.2), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
     this.on = false; this.step = -1; this.t = 0;
+    this.buildIntro();
   }
 
+  // premise card: who you are and what the loop is, before the guided steps begin
+  buildIntro() {
+    const el = this.intro = document.createElement('div'); el.id = 'intro';
+    const touch = () => this.input.touchMode;
+    el.innerHTML = `<div class="c"><span class="mono">Salvage contract</span><h1>Low Orbit</h1>
+      <p>You're a salvager. Wrecks drift in orbit. Tow them to the depot and get paid.</p>
+      <ol><li>${svg(NAV_ICONS.wreck)}Find <span>follow the markers to wreckage</span></li>
+      <li>${svg(NAV_ICONS.grab)}Tow <span class="t"></span></li>
+      <li>${svg(NAV_ICONS.depot)}Sell <span>deliver to the depot, spend credits on upgrades</span></li></ol>
+      <div class="row"><button class="go">Start training</button><button class="no">Skip</button></div></div>`;
+    document.body.appendChild(el);
+    this.introT = el.querySelector('.t');
+    el.querySelector('.go').addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.begin(); });
+    el.querySelector('.no').addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.hideIntro(); this.finish(); });
+    addEventListener('keydown', (e) => { if (this.intro.classList.contains('show') && e.code === 'Enter') { e.preventDefault(); this.begin(); } });
+  }
+  hideIntro() { this.intro.classList.remove('show'); }
+  begin() { this.hideIntro(); this.go0(); }
+
   start() {
+    this.introT.textContent = this.input.touchMode ? 'aim at a wreck, tap Grab' : 'aim at a wreck, press F';
+    this.intro.classList.add('show');
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  go0() {
     this.on = true; this.el.classList.add('show'); this.done = false;
     this.rings.clear();
     // ring meshes for every ring step, laid out as a path so the next one is always in view
@@ -80,7 +106,7 @@ export class Tutorial {
     const st = STEPS[i]; if (!st) return this.finish(true);
     const touch = this.input.touchMode;
     this.k.innerHTML = st.icon ? svg(st.icon) : touch ? svg(st.touch) : `<kbd>${st.key}</kbd>`;
-    this.w.textContent = st.word;
+    this.w.textContent = st.word; this.d.textContent = st.say[touch ? 1 : 0];
     // progress pips: where you are in the whole run
     this.pp.innerHTML = STEPS.map((_, n) => `<i class="${n < i ? 'd' : n === i ? 'c' : ''}"></i>`).join('');
     if (i > 0) this.onStep?.();

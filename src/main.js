@@ -30,6 +30,7 @@ import { Salvage, addHitch } from './salvage.js';
 import { Econ } from './economy.js';
 import { Nav, NAV_ICONS } from './nav.js';
 import { Tutorial } from './tutorial.js';
+import { Objective } from './objective.js';
 import { Quality } from './quality.js';
 import { Career, JOB_ICONS } from './career.js';
 import { Settings, Menu } from './settings.js';
@@ -236,6 +237,7 @@ const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: 
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
 const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('fail'), onLost: () => toast('fail') });
 const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
+const objective = new Objective({ ship, salvage, world, nav, eva, career, input, tutorial, settings });
 const replayTutorial = () => { respawn(true); tutorial.start(); };
 help.onTutorial = replayTutorial;
 if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
@@ -591,7 +593,7 @@ function tickFrame(now) {
   hud.update(dt, ship, camera, innerWidth, innerHeight);
   nav.update(dt, camera, innerWidth, innerHeight, time);
   tutorial.update(dt, time, camera, innerWidth, innerHeight);
-  career.update(dt, ship, nav.docked);
+  career.update(dt, ship, nav.docked); objective.update(dt);
   events.update(dt, { busy: !econ.tut || tutorial.on || nav.docked || eva.active || respawnT > 0 }, camera, innerWidth, innerHeight);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
   quality.begin();
