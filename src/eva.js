@@ -134,7 +134,7 @@ export class Eva {
     this.cabin = this.cockpit.buildEvaCabin(o.env); this.cabin.traverse((m) => m.layers.set(1));
     // a soft cabin light (panel glow and the map light) so the open cockpit reads from outside; it is always in the
     // scene (layer 0, intensity 0 while shut) so the light count never changes and no shader recompiles
-    this.cabinLight = new THREE.PointLight(0xd8e2ea, 0, 1.9, 2); this.cabinLight.position.set(0, 0.66, -0.15); this.shipMesh.add(this.cabinLight);
+    this.cabinLight = new THREE.PointLight(0xd8e2ea, 0, 1.5, 2); this.cabinLight.position.set(0, 0.5, -0.42); this.shipMesh.add(this.cabinLight);
     this.cabinOn = false; this.glassOpen = false; this.hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
     // the canopy glass turns see-through while it's up, so you can see the cabin under it
     this.openGlass = new THREE.MeshPhysicalMaterial({ color: 0x4a7f94, emissive: 0x08202c, emissiveIntensity: 0.7, roughness: 0.04, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.03, transparent: true, opacity: 0.26, envMap: o.env, envMapIntensity: 2.2, side: THREE.DoubleSide, depthWrite: false });
@@ -316,7 +316,7 @@ export class Eva {
     if (on !== this.cabinOn) { this.cabinOn = on; if (on) this.shipMesh.add(this.cabin); else this.shipMesh.remove(this.cabin); }
     if (on !== this.glassOpen) { this.glassOpen = on; for (const g of this.shipMesh.userData.rig.glass || []) { g.material = on ? this.openGlass : mats.glass; g.renderOrder = on ? 2 : 0; } }
     if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
-    this.cabinLight.intensity = 1.6 * Math.min(1, ck.open * 3);
+    this.cabinLight.intensity = 0.9 * Math.min(1, ck.open * 3);
   }
 
   // kept for the shader warm-up in main.js: put the cabin in the world (or take it out)
