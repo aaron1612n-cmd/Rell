@@ -207,6 +207,13 @@ body.cockpit .btn:not(.down){background:rgba(7,9,13,.22);border-color:rgba(232,2
 @media (prefers-reduced-motion:reduce){#exitbtn.ping,#evause::before,.emk.home.hot i{animation:none}}
 
 /* ---- career, menu, events ---- */
+#fuel{display:flex;align-items:center;gap:8px;margin:7px 0 0 4px}#fuel s{display:block;width:clamp(90px,11vw,140px);height:2px;background:rgba(232,224,204,.16)}#fuel i{display:block;height:100%;background:var(--bone);transition:background .2s}
+#fuel.low i{background:var(--hazard);animation:eblink .7s infinite}
+#auto{position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 68px);display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;padding:8px 0;touch-action:none}
+#auto i{width:10px;height:10px;border:1.5px solid var(--dim);border-radius:50%;transition:.15s}
+#auto.on i{background:var(--hazard);border-color:var(--hazard);box-shadow:0 0 10px var(--hazard);animation:eblink .8s infinite}#auto.on span{color:var(--bone)}
+body.eva #auto{opacity:0!important;pointer-events:none}
+
 body.photo #hud,body.photo #touch,body.photo #nav,body.photo #dock,body.photo #jobs,body.photo #tut,body.photo #toast,body.photo #hint,body.photo #evw{display:none!important}
 #menubtn{position:absolute;right:calc(max(16px,env(safe-area-inset-right)) + 168px);top:max(10px,env(safe-area-inset-top));width:44px;height:44px;display:grid;place-items:center;pointer-events:auto;cursor:pointer;border:1.5px solid var(--dim);border-radius:50%;background:rgba(7,9,13,.35);transition:.15s;padding:0;color:inherit}
 #menubtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -235,9 +242,9 @@ body.photo #hud,body.photo #touch,body.photo #nav,body.photo #dock,body.photo #j
 .big svg{width:22px;height:22px;stroke:var(--hazard);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .big.go{background:var(--hazard);border-color:var(--hazard);color:var(--void)}.big.go svg{stroke:var(--void)}
 .big.warn:hover{border-color:var(--hazard)}
-@media (max-width:640px){.mgrid{grid-template-columns:1fr;gap:18px}.mcard{gap:14px;padding:14px 12px}.mcard header b{font-size:26px}#menubtn{right:auto;left:max(12px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 70px);width:38px;height:38px}#job{top:calc(max(16px,env(safe-area-inset-top)) + 120px)}}
+@media (max-width:640px){.mgrid{grid-template-columns:1fr;gap:18px}.mcard{gap:14px;padding:14px 12px}.mcard header b{font-size:26px}#menubtn{right:auto;left:max(12px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 100px);width:38px;height:38px}#job{top:calc(max(16px,env(safe-area-inset-top)) + 150px)}}
 body.paused #hint{display:none}
-#job{position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 72px);display:none;align-items:center;gap:10px;padding:8px 12px 8px 8px;border-left:2px solid var(--hazard);background:linear-gradient(90deg,rgba(7,9,13,.5),transparent)}
+#job{position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(16px,env(safe-area-inset-top)) + 106px);display:none;align-items:center;gap:10px;padding:8px 12px 8px 8px;border-left:2px solid var(--hazard);background:linear-gradient(90deg,rgba(7,9,13,.5),transparent)}
 #job.on{display:flex}
 #job>svg{width:24px;height:24px;stroke:var(--bone);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 #job b{display:block;font:600 14px ui-monospace,Menlo,monospace;letter-spacing:.06em}
@@ -267,6 +274,7 @@ body.eva #jobs{display:none!important}
 #toast{position:fixed;left:50%;top:calc(max(12px,env(safe-area-inset-top)) + 110px);transform:translate(-50%,-8px);display:flex;align-items:center;gap:12px;padding:10px 20px 10px 12px;border:1.5px solid var(--hazard);border-radius:30px;background:rgba(7,9,13,.7);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;pointer-events:none;z-index:4;transition:opacity .3s,transform .3s;font:700 18px ui-monospace,Menlo,monospace;letter-spacing:.06em}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 #toast svg{width:26px;height:26px;stroke:var(--hazard);fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+@media (max-width:640px){#job{top:calc(max(16px,env(safe-area-inset-top)) + 150px)}}
 @media (prefers-reduced-motion:reduce){#evw,#evw.run,#nav.jam{animation:none}#toast,#jobs,#menu{transition:none}}
 </style>
 </head>

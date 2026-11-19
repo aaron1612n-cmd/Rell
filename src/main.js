@@ -104,6 +104,28 @@ econ.apply(ship, salvage);
 const nav = new Nav({ world, salvage, econ, ship, input });
 nav.onBuy = () => econ.apply(ship, salvage);
 const career = new Career(econ);
+// fuel bar under the speed readout, and the autopilot chip under Impact
+ship.fuel = 1;
+{ const sp = document.getElementById('speed'); const f = document.createElement('div'); f.id = 'fuel'; f.innerHTML = '<span class="mono">Fuel</span><s><i></i></s>'; sp.appendChild(f);
+  const a = document.createElement('div'); a.id = 'auto'; a.innerHTML = '<i></i><span class="mono">Depot</span>'; document.getElementById('hud').appendChild(a); }
+const fuelFill = document.querySelector('#fuel i'), autoEl = document.getElementById('auto');
+let autopilot = false;
+function setAuto(v) { autopilot = v && !eva.active && !respawnT; autoEl.classList.toggle('on', autopilot); }
+addEventListener('keydown', (e) => { if (e.code === 'KeyN' && !e.repeat && !menu.open) setAuto(!autopilot); });
+autoEl.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); setAuto(!autopilot); });
+const _ap = new THREE.Vector3(), _apQ = new THREE.Quaternion();
+// straight-line approach to the depot dock: turn toward it, burn, brake to a stop; any stick input hands control back
+function autoCmd(cmd) {
+  const d = _ap.copy(depot.dockPt).sub(ship.pos), dist = d.length();
+  if (cmd.fwd || cmd.strafe || cmd.vert || Math.abs(cmd.dx) > 2 || Math.abs(cmd.dy) > 2 || cmd.yawKey || cmd.pitchKey || cmd.brake || eva.active || respawnT) { setAuto(false); return; }
+  if (dist < depot.dockR * 0.7 && ship.vel.length() < 3) { setAuto(false); return; }
+  d.normalize(); _apQ.copy(ship.quat).invert(); const l = d.clone().applyQuaternion(_apQ);
+  const ey = Math.atan2(l.x, -l.z), ex = Math.atan2(l.y, Math.hypot(l.x, l.z));
+  const cl = (v, m) => Math.max(-m, Math.min(m, v)), w = ship.angVel, G = 0.0105;
+  cmd.dx = (w.y + cl(ey * 2, 1.4)) / G; cmd.dy = (w.x - cl(ex * 2, 1.4)) / G;
+  const align = Math.abs(ey) < 0.3 && Math.abs(ex) < 0.3, vr = ship.vel.dot(d), vDes = Math.min(75, Math.max(dist > depot.dockR * 0.6 ? 5 : 0, Math.sqrt(2 * 9 * Math.max(0, dist - depot.dockR * 0.5))));
+  if (align && vr < vDes - 2) cmd.fwd = 1; else if (vr > vDes + 4) cmd.brake = true;
+}
 const settings = new Settings();
 const sound = new Sound(settings.get('volume'));
 input.onGrab = () => { if (!eva.active) salvage.grab(); };
@@ -512,6 +534,10 @@ function tickFrame(now) {
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
 
+  if (autopilot) autoCmd(cmd);
+  // boost burns fuel; empty tank, no boost. It trickles back in flight and refills at the dock.
+  if (cmd.boost && cmd.fwd > 0 && ship.fuel > 0) ship.fuel = Math.max(0, ship.fuel - dt * 0.045); else { cmd.boost = false; ship.fuel = Math.min(1, ship.fuel + dt * (nav.docked ? 0.4 : 0.012)); }
+  fuelFill.style.width = (ship.fuel * 100).toFixed(0) + '%'; fuelFill.parentNode.classList.toggle('low', ship.fuel < 0.2);
   acc += dt; let first = true, n = 0;
   while (acc >= STEP && n++ < 8) {
     ship.step(STEP, first ? cmd : { ...cmd, dx: 0, dy: 0, yawKey: cmd.yawKey, pitchKey: cmd.pitchKey });
@@ -560,4 +586,4 @@ function tickFrame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__game = { events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
