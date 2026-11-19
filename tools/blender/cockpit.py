@@ -13,8 +13,8 @@ from kit import *
 from mathutils import Vector, Matrix
 
 # interior paint: warm dark greys (cockpit paint), bone placards, black rubber, one hazard accent
-IG, IG_D, IG_L, IG_X = 0x3a3c3d, 0x26282a, 0x55585a, 0x1c1d1f
-PAD = 0x17181a
+IG, IG_D, IG_L, IG_X = 0x55595b, 0x3d4043, 0x75797b, 0x2a2c2e
+PAD = 0x24262a
 
 # ---- shared shape data (must match tools/blender/ship.py) -----------------------------
 PROFILE = [(-2.25, .10, .08), (-1.95, .26, .19), (-1.3, .50, .38), (-0.4, .70, .50), (.6, .82, .55), (1.6, .78, .52), (1.88, .58, .42)]
@@ -84,14 +84,47 @@ def inset(poly, d):
 k = Kit('cockpit', seed=11)
 k.maxlen = .05
 
-# ---- tub: an open shell under the canopy sill (normals face in) ------------------------
-def tub_ring(z):
-    cw, ch, y0 = can(z)
-    return [(cw * .99, y0 + .004), (cw * .93, y0 - .16), (cw * .74, .10), (-cw * .74, .10), (-cw * .93, y0 - .16), (-cw * .99, y0 + .004)]
-k.loft([(z, tub_ring(z)) for z in (-.80, -.62, -.3, 0, .3, .70)], IG_D, cap=False, closed=False, recalc=False, bevel=0)
-for z, s in ((.70, 1), (-.80, -1)):
-    pts = tub_ring(z)
-    k.poly(pts if s < 0 else list(reversed(pts)), .02, (0, 0, z + s * .01), IG_X, 'xy')
+# ---- tub: the well itself is part of the hull now (tools/blender/ship.py), so the outside and this view
+# are the same surface. Here are only the things fitted into it.
+
+# ---- seat: a moulded bucket on rails, padded, with a headrest and the ejection loop -------------------
+def seat_ring(z, w, y0, y1, bol):
+    """closed cross-section of the seat pan: flat base, cushion dip, raised side bolsters"""
+    return [Vector(p) for p in [(-w, y0, z), (w, y0, z), (w, y1 + bol, z), (w * .82, y1 + bol + .012, z), (w * .62, y1 + .004, z),
+                                (w * .3, y1, z), (0, y1 - .004, z), (-w * .3, y1, z), (-w * .62, y1 + .004, z), (-w * .82, y1 + bol + .012, z), (-w, y1 + bol, z)]]
+pan = [(-.16, .19, .135, .162, .0), (-.12, .205, .13, .168, .02), (0, .21, .13, .165, .04), (.16, .21, .13, .162, .045), (.30, .205, .13, .17, .04), (.34, .19, .13, .175, .02)]
+k.rings([seat_ring(z, w, a, b, c) for z, w, a, b, c in pan], lambda p, n: PAD if n.y > .5 and abs(p.x) < .15 else IG, HULL, cap0=True, cap1=True, wear=.15)
+def back_ring(u, w, t, bol, lift=0.0):
+    """cross-section of the seat back at height u (0 = pan, 1 = top), leaning back about 12 degrees"""
+    cy, cz = .16 + .52 * u, .345 + .11 * u
+    pts = [(-w, t / 2), (-w * .9, -t / 2 - bol), (-w * .62, -t / 2 - .006), (0, -t / 2 + .004), (w * .62, -t / 2 - .006), (w * .9, -t / 2 - bol), (w, t / 2), (w * .5, t / 2 + .012), (-w * .5, t / 2 + .012)]
+    return [Vector((x, cy + lift, cz + d)) for x, d in pts]
+k.rings([back_ring(u, w, t, b) for u, w, t, b in [(0, .19, .08, .01), (.25, .2, .075, .03), (.55, .19, .07, .035), (.72, .17, .065, .02), (.76, .12, .06, .0)]],
+        lambda p, n: PAD if n.z < -.5 and abs(p.x) < .13 else IG, HULL, cap0=True, cap1=True, wear=.15)
+k.rings([back_ring(u, w, t, b) for u, w, t, b in [(.8, .085, .09, .015), (.86, .11, .1, .03), (.96, .105, .1, .028), (1.0, .07, .08, .01)]],
+        lambda p, n: PAD if n.z < -.4 else IG_D, HULL, cap0=True, cap1=True, wear=.2)
+for sx in (-1, 1):
+    k.link((sx * .1, .78 * .52 + .16, .345 + .78 * .11), (sx * .07, .87 * .52 + .16, .345 + .87 * .11), .009, .009, IG_L, 8)   # headrest posts
+    k.link((sx * .15, .11, -.12), (sx * .15, .11, .4), .012, .012, IG_L, 8)                                                    # floor rails
+    k.link((sx * .15, .115, -.05), (sx * .17, .135, -.05), .01, .01, IG_L, 6)
+    k.link((sx * .15, .115, .3), (sx * .17, .135, .3), .01, .01, IG_L, 6)
+    # shoulder harness lying over the cushion, down to the lap buckle
+    k.link((sx * .08, .62, .43), (sx * .06, .30, .36), .006, .006, 0x4a4033, 4)
+# the ejection loop between the knees: the second hazard-striped thing in here
+k.link((-.035, .17, -.15), (0, .215, -.17), .007, .007, HAZ, 8); k.link((.035, .17, -.15), (0, .215, -.17), .007, .007, HAZ, 8)
+k.cyl((0, .18, .30), .03, .03, .012, 'y', 14, IG_L, bevel=.003)                                                                  # lap buckle
+# aft bulkhead behind the seat: avionics bay door, a fire bottle, and the O2 hose run
+k.box((0, .30, .675), (.36, .26, .03), IG, bevel=.008)
+k.panels((0, .30, .66), (.34, .24), 2, 1, 'z', -1, gap=.01, lift=.004, color=IG_L, vary=.1, bevel=.002)
+k.cyl((.22, .24, .62), .03, .03, .2, 'y', 12, 0x8a2a20, bevel=.006)
+k.link((-.2, .14, .55), (-.24, .30, .62), .011, .011, BLACK, 6)
+
+# ---- floor: ribbed tread plate and foot rests ----------------------------------------------
+for i in range(7):
+    k.box((0, .103, -.75 + i * .1), (.42, .006, .02), IG_X, bevel=.002, wear=.3)
+for sx in (-1, 1):
+    k.box((sx * .12, .14, -.62), (.12, .03, .08), IG_D, rot=(-30, 0, 0), bevel=.008)
+    k.box((sx * .12, .152, -.635), (.1, .006, .05), BLACK, rot=(-30, 0, 0), wear=0)
 
 # side wall padding + ribs along the tub
 for sx in (-1, 1):
@@ -179,16 +212,25 @@ k.loft(secs, IG_X, bevel=.006)
 k.box((0, .523, -.212), (.70, .012, .012), PAD, bevel=.004, wear=.2)
 
 # ---- forward deck under the windscreen (anti-glare) --------------------------------------
+# a moulded anti-glare deck with the avionics fairing running down its middle into the hood
 dsec = []
-for z in (-1.48, -1.25, -1.0, -.80):
-    cw, ch, y0 = can(z)
-    dsec.append((z, [(-cw * .985, y0 - .012), (cw * .985, y0 - .012), (cw * .985, y0 + .004), (-cw * .985, y0 + .004)]))
-k.loft(dsec, IG_X, bevel=0)
-# a couple of sensor bumps / defog vents on the deck
-for x, z in ((-.12, -.95), (.12, -.95)):
-    cw, ch, y0 = can(z)
-    k.box((x, y0 + .009, z), (.07, .01, .025), IG_D, bevel=.003)
-    for i in range(4): k.box((x - .024 + i * .016, y0 + .015, z), (.008, .003, .018), BLACK, wear=0)
+for z in (-1.48, -1.38, -1.25, -1.1, -1.0, -.9, -.80, -.72):
+    cw, ch, y0 = can(z); t = max(0, min(1, (z + 1.48) / .68)); hm = .055 * (t * t * (3 - 2 * t))
+    dsec.append((z, [(-cw * .985, y0 - .012), (cw * .985, y0 - .012), (cw * .985, y0 + .004), (cw * .62, y0 + .006),
+                     (cw * .34, y0 + .006 + hm * .8), (cw * .14, y0 + .006 + hm), (-cw * .14, y0 + .006 + hm), (-cw * .34, y0 + .006 + hm * .8), (-cw * .62, y0 + .006)]))
+k.loft(dsec, IG_X, bevel=.004)
+# defog vents either side of the fairing, a standby compass on it, dzus seams along it
+for sx in (-1, 1):
+    for z in (-1.15, -.92):
+        cw, ch, y0 = can(z)
+        k.box((sx * cw * .5, y0 + .011, z), (.08, .01, .03), IG_D, bevel=.003)
+        for i in range(4): k.box((sx * cw * .5 - .027 + i * .018, y0 + .017, z), (.009, .003, .02), BLACK, wear=0)
+cw, ch, y0 = can(-.95)
+k.cyl((0, y0 + .006 + .052, -.95), .028, .03, .03, 'y', 16, IG_D, bevel=.004)
+k.cyl((0, y0 + .006 + .07, -.95), .022, .022, .01, 'y', 16, 0x0c0d0e, wear=0)
+for z in (-1.3, -1.06):
+    cw, ch, y0 = can(z); t = (z + 1.48) / .68; hm = .055 * (t * t * (3 - 2 * t))
+    for sx in (-1, 1): k.cyl((sx * cw * .1, y0 + .008 + hm, z), .005, .005, .004, 'y', 6, BONE_D, wear=0)
 
 # ---- HUD: projector box on the hood and two posts holding the combiner --------------------
 k.box((0, .558, -.33), (.13, .03, .09), IG_D, bevel=.008)

@@ -4,8 +4,6 @@ import { suitMaterials, buildAstronaut, buildArm, poseFirstPerson, driveJets, he
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
 import { Hatch } from './hatch.js';
-import { EYE } from './cockpit.js';
-const _cabEye = new THREE.Vector3();
 
 // EVA: open the canopy, float out, fly a jetpack on a tether, work salvage and your own hull by hand,
 // then fly back into the seat. States: off (flying) -> out (canopy opens, you rise out) -> eva -> in (back
@@ -134,12 +132,10 @@ export class Eva {
     this.jetF = new THREE.Vector3(); this.jetW = new THREE.Vector3(); this.jetRel = new THREE.Vector3();
     // the cabin as seen from outside while the canopy is open
     this.cabin = this.cockpit.buildEvaCabin(o.env); this.cabin.traverse((m) => m.layers.set(1));
+    // a soft cabin light (panel glow and the map light) so the open cockpit reads from outside; it is always in the
+    // scene (layer 0, intensity 0 while shut) so the light count never changes and no shader recompiles
+    this.cabinLight = new THREE.PointLight(0xd8e2ea, 0, 1.9, 2); this.cabinLight.position.set(0, 0.66, -0.15); this.shipMesh.add(this.cabinLight);
     this.cabinOn = false; this.glassOpen = false; this.hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
-    this.swap = []; this.shipMesh.userData.body.traverse((m) => {
-      if (!m.isMesh) return;
-      for (let p = m; p; p = p.parent) if (/^(canopy|flap_)/.test(p.name)) return;   // hinged parts move, never cut
-      this.swap.push({ m, orig: m.material });
-    });
     // the canopy glass turns see-through while it's up, so you can see the cabin under it
     this.openGlass = new THREE.MeshPhysicalMaterial({ color: 0x4a7f94, emissive: 0x08202c, emissiveIntensity: 0.7, roughness: 0.04, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.03, transparent: true, opacity: 0.26, envMap: o.env, envMapIntensity: 2.2, side: THREE.DoubleSide, depthWrite: false });
 
@@ -314,30 +310,17 @@ export class Eva {
   camFov(f, dt) { this.camera.fov = THREE.MathUtils.damp(this.camera.fov, f, 5, dt); this.camera.updateProjectionMatrix(); this.camera.updateMatrixWorld(); }
 
   syncCabin() {
-    // The cutaway opens the whole canopy footprint, which is most of the nose: right for climbing in and
-    // out and for a camera at the seat, but from outside it read as a hollow, black ship. So it is only
-    // used through the hatch animation or with the camera near the cockpit; floating around outside,
-    // the open canopy sits over a closed hull.
-    const ck = this.cockpit;
-    const near = this.camera.position.distanceTo(this.shipMesh.localToWorld(_cabEye.copy(EYE))) < 2.6;
-    const on = ck.open > 0.001 && (this.state === 'out' || this.state === 'in' || near);
-    if (on !== this.cabinOn) this.setCabin(on);
-    // the canopy glass reads as tinted glass whenever the canopy is up (not only with the cabin cutaway)
-    const gl = ck.open > 0.001;
-    if (gl !== this.glassOpen) { this.glassOpen = gl; for (const g of this.shipMesh.userData.rig.glass || []) { g.material = gl ? this.openGlass : mats.glass; g.renderOrder = gl ? 2 : 0; } }
+    // The hull has a real cockpit well (tools/blender/ship.py), so nothing is cut away any more: whenever the
+    // canopy is up, the cabin (seat, panel, consoles, frame) is in the world and the glass turns to tinted glass.
+    const ck = this.cockpit, on = ck.open > 0.001;
+    if (on !== this.cabinOn) { this.cabinOn = on; if (on) this.shipMesh.add(this.cabin); else this.shipMesh.remove(this.cabin); }
+    if (on !== this.glassOpen) { this.glassOpen = on; for (const g of this.shipMesh.userData.rig.glass || []) { g.material = on ? this.openGlass : mats.glass; g.renderOrder = on ? 2 : 0; } }
     if (on) this.cabin.userData.hinge.rotation.x = ck.openAngle;
+    this.cabinLight.intensity = 1.6 * Math.min(1, ck.open * 3);
   }
 
-  // canopy open: the cabin copy goes into the world and the hull gets its cutaway material
-  setCabin(on) {
-    const ck = this.cockpit;
-    {
-      this.cabinOn = on;
-      const sw = (m) => (m === mats.glass ? this.hiddenMat : m === mats.shipHull ? ck.cutMat : m);
-      if (on) { this.shipMesh.add(this.cabin); for (const s of this.swap) s.m.material = Array.isArray(s.orig) ? s.orig.map(sw) : sw(s.orig); }
-      else { this.shipMesh.remove(this.cabin); for (const s of this.swap) s.m.material = s.orig; }
-    }
-  }
+  // kept for the shader warm-up in main.js: put the cabin in the world (or take it out)
+  setCabin(on) { this.cabinOn = on; if (on) this.shipMesh.add(this.cabin); else this.shipMesh.remove(this.cabin); }
 
   flyPilot(dt, cmd) {
     const p = this.pilot, ship = this.ship;
