@@ -34,12 +34,13 @@ function solid(site, node, obj, scale) {
 const _e = new THREE.Euler(), _m = new THREE.Matrix4();
 const local = (base, rotDeg, p) => new THREE.Vector3(...p).applyMatrix4(_m.makeRotationFromEuler(_e.set(...rotDeg.map((d) => d * Math.PI / 180), 'ZYX'))).add(new THREE.Vector3(...base));
 
-function radar(scale = 1) {
+function radar(scale = 1, mast = 0) {
   const g = new THREE.Group(), steel = mats.hull;
   const m = (geo, x, y, z) => { const o = new THREE.Mesh(geo, steel); o.position.set(x, y, z); o.castShadow = true; return o; };
   const col = (geo, c) => { const n = geo.attributes.position.count, a = new Float32Array(n * 3); const cc = new THREE.Color(c); for (let i = 0; i < n; i++) a.set([cc.r, cc.g, cc.b], i * 3); geo.setAttribute('color', new THREE.BufferAttribute(a, 3)); return geo; };
   g.add(m(col(new THREE.CylinderGeometry(0.5, 0.7, 1.2, 10), 0x5a6068), 0, 0.6, 0));
-  const head = new THREE.Group(); head.position.y = 1.3; g.add(head);
+  if (mast) { g.add(m(col(new THREE.CylinderGeometry(0.22, 0.38, mast, 10), 0x6a7078), 0, 1.2 + mast / 2, 0)); for (const a of [0, 2.1, 4.2]) { const l = m(col(new THREE.CylinderGeometry(0.05, 0.05, mast * 0.95, 5), 0x4a525c), Math.cos(a) * 0.8, 1.2 + mast * 0.46, Math.sin(a) * 0.8); l.rotation.set(Math.sin(a) * 0.14, 0, -Math.cos(a) * 0.14); g.add(l); } }
+  const head = new THREE.Group(); head.position.y = 1.3 + mast; g.add(head);
   head.add(m(col(new THREE.CylinderGeometry(0.35, 0.35, 0.5, 10), 0x8a8f96), 0, 0, 0));
   const bar = m(col(new THREE.BoxGeometry(7, 0.35, 0.35), 0x8a8f96), 0, 0.5, 0); head.add(bar);
   const face = m(col(new THREE.BoxGeometry(6.2, 1.5, 0.12), 0xb9b09c), 0, 1.05, 0.2); face.rotation.x = -0.25; head.add(face);
@@ -87,7 +88,7 @@ export class WorldAnim {
     }
     const dead = s.id === 'halves';
     if (best && !dead) {
-      const r = radar(s.id === 'depot' ? 0.9 : 1.1); r.position.copy(best.point).applyMatrix4(inv);
+      const r = radar(s.id === 'depot' ? 0.9 : 1.1, s.id === 'freighter' ? 9 : 0); r.position.copy(best.point).applyMatrix4(inv);
       this.radars.push({ obj: solid(s, best.object, pin(s, best.object, r), s.id === 'depot' ? 0.9 : 1.1), site: s, rate: s.id === 'depot' ? 0.7 : 0.25, w: 0 });
     }
     // beacons near both ends of the long axis

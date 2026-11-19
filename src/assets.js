@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { addHullDetail } from './hullDetail.js';
+import { addHullDetail, addHeatGlow } from './hullDetail.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import shipUrl from './assets/ship.glb?url';
@@ -13,7 +13,7 @@ import salvageUrl from './assets/salvage.glb?url';
 // so there are no textures: small downloads, nothing to decode on a phone.
 export const mats = {
   hull: addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.3 }), { scale: 0.22, grime: 0.8, bump: 1.4 }),
-  shipHull: addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.35 }), { scale: 0.5, grime: 0.6, scratch: 0.6, bump: 1.6 }),
+  shipHull: addHeatGlow(addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.35 }), { scale: 0.5, grime: 0.6, scratch: 0.6, bump: 1.6 })),
   lamp: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
   glass: new THREE.MeshStandardMaterial({ color: 0x0c1218, roughness: 0.14, metalness: 0.75 }),
 };

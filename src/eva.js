@@ -360,12 +360,14 @@ export class Eva {
     const max = boost ? CFG.maxBoost : CFG.max, sp = rel.length(); if (sp > max) rel.multiplyScalar(Math.max(max / sp, 1 - dt * 2));
     p.vel.copy(rel.applyQuaternion(_q)).add(ship.vel);
     this.fuel = Math.max(0, this.fuel - use * CFG.fuelUse * dt);
-    this.o2 = Math.max(0, this.o2 - CFG.o2Use * dt * (boost ? 1.4 : 1));
+    // inside a pressurised station: breathe, refill, no tether needed
+    const safe = this.safe = !!(this.relay && this.relay.air(p.pos));
+    if (safe) this.o2 = Math.min(1, this.o2 + dt * 0.12); else this.o2 = Math.max(0, this.o2 - CFG.o2Use * dt * (boost ? 1.4 : 1));
     this.thrSm.lerp(th, 1 - Math.exp(-10 * dt));
     this.boosting = boost; this.burn = th.length();
 
     // reel: winch back along the tether, no fuel needed
-    const reeling = cmd.reel || this.o2 <= 0.04;
+    const reeling = !safe && (cmd.reel || this.o2 <= 0.04);
     this.reeling = reeling;
     if (reeling) {
       const r = this.rope, tgt = r[Math.max(1, r.length - 4)].p;
@@ -390,7 +392,7 @@ export class Eva {
     // tether hard limit
     const anc = this.shipPoint(ANCHOR, _v3), off = _v.copy(p.pos).sub(anc), dist = off.length();
     this.tethDist = dist;
-    if (dist > CFG.tether) {
+    if (dist > CFG.tether && !safe) {
       off.divideScalar(dist); p.pos.copy(anc).addScaledVector(off, CFG.tether);
       const vn = _v2.copy(p.vel).sub(this.ship.vel).dot(off); if (vn > 0) { p.vel.addScaledVector(off, -vn * 1.3); if (vn > 1) { this.rig.kick(Math.min(0.4, vn * 0.1)); this.taut = 1; } }
     }
@@ -441,6 +443,7 @@ export class Eva {
   fxT() { return this.getFxT ? this.getFxT() : this.t; }
 
   stepRope(dt, cmd) {
+    if (this.safe) { this.ropeMesh.visible = false; this.ropeReset = true; return; }
     const r = this.rope, N = r.length, anc = this.shipPoint(ANCHOR, _v3), p = this.pilot;
     const hip = _v2.set(-0.27, -0.16, 0).applyQuaternion(p.quat).add(p.pos);
     if (this.unclip > 0) hip.lerp(anc, this.unclip * this.unclip);
@@ -584,6 +587,7 @@ export class Eva {
       // on a tall phone screen there's no room off to the side: swing in behind and back off a little
       const k = THREE.MathUtils.clamp((cam.aspect - 0.55) / 0.9, 0, 1);
       const want = _v2.set(THREE.MathUtils.lerp(0.16, 0.8, k), THREE.MathUtils.lerp(0.5, 0.55, k), THREE.MathUtils.lerp(3.2, 2.35, k)).applyQuaternion(p.quat).add(p.pos);
+      if (this.relay) this.relay.clampCam(p.pos, want);
       if (!this.tpInit) { this.camPos.copy(want); this.tpInit = true; }
       this.camPos.lerp(want, 1 - Math.exp(-8 * dt));
       cam.position.copy(this.camPos); cam.quaternion.slerp(p.quat, 1 - Math.exp(-10 * dt));

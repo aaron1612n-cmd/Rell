@@ -12,12 +12,15 @@ const KEY = 'rell.save';
 export class Econ {
   constructor() {
     this.credits = 0; this.up = { thrust: 0, winch: 0, hull: 0 }; this.tut = false; this.delivered = 0;
-    try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) { this.credits = s.credits | 0; Object.assign(this.up, s.up || {}); this.tut = !!s.tut; this.delivered = s.delivered | 0; } } catch {}
+    this.xp = 0; this.stats = { delivered: 0, jobs: 0, lockers: 0, cores: 0, storms: 0, dist: 0 }; this.career = { active: null, offers: null, seen: 0 };
+    try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) { this.credits = s.credits | 0; Object.assign(this.up, s.up || {}); this.tut = !!s.tut; this.delivered = s.delivered | 0; this.xp = s.xp | 0; Object.assign(this.stats, s.stats || {}); Object.assign(this.career, s.career || {}); } } catch {}
   }
-  save() { try { localStorage.setItem(KEY, JSON.stringify({ credits: this.credits, up: this.up, tut: this.tut, delivered: this.delivered })); } catch {} }
+  save() { try { localStorage.setItem(KEY, JSON.stringify({ credits: this.credits, up: this.up, tut: this.tut, delivered: this.delivered, xp: this.xp, stats: this.stats, career: this.career })); } catch {} }
   price(k) { const u = UPG[k], l = this.up[k]; return l >= u.max ? null : u.cost[l]; }
   buy(k) { const p = this.price(k); if (p === null || this.credits < p) return false; this.credits -= p; this.up[k]++; this.save(); return true; }
-  earn(v) { this.credits += v; this.delivered++; this.save(); }
+  earn(v) { this.credits += v; this.xp += v; this.delivered++; this.stats.delivered++; this.save(); }
+  bonus(v) { this.credits += v; this.xp += v; this.save(); }
+  reset() { try { localStorage.removeItem(KEY); } catch {} }
 
   apply(ship, salvage) {
     const t = 1 + 0.15 * this.up.thrust;

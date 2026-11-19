@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ICONS } from './input.js';
 import { NAV_ICONS } from './nav.js';
+import { JOB_ICONS } from './career.js';
 
 // Wordless first run: ghost rings in space teach thrust, aim, boost, brake, grab and deliver.
 // One word per step, a key (or touch icon) floats by the target. Skippable; replay from the help card.
@@ -16,15 +17,24 @@ const STEPS = [
   { word: 'Brake', key: 'X', touch: ICONS.brake, zone: [134, 45, 468], r: 15 },
   { word: 'Grab', key: 'F', touch: NAV_ICONS.grab, item: [138, 46, 494] },
   { word: 'Deliver', icon: NAV_ICONS.depot },
+  // depot, then outside: dock, take a job, suit up, cut a locker, come home
+  { word: 'Dock', icon: NAV_ICONS.depot, dock: true },
+  { word: 'Job', icon: JOB_ICONS.haul, job: true },
+  { word: 'Suit', key: 'G', touch: ICONS.exit, suit: true },
+  { word: 'Cut', key: 'Click', touch: ICONS.tool, cut: true },
+  { word: 'Return', key: 'G', touch: ICONS.exit, back: true },
+  // then the deep scan, and the walk-in station
+  { word: 'Scan', key: 'C', touch: '<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 000 10M17 7a7 7 0 010 10M4 4a11 11 0 000 16M20 4a11 11 0 010 16"/>', scan: true },
+  { word: 'Relay', icon: NAV_ICONS.relay, relay: true },
 ];
 
 export class Tutorial {
-  constructor({ scene, ship, salvage, world, econ, input, reduced }) {
-    Object.assign(this, { scene, ship, salvage, world, econ, input, reduced });
+  constructor({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay }) {
+    Object.assign(this, { scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
     this.el = document.createElement('div'); this.el.id = 'tut';
-    this.el.innerHTML = '<div class="g"><span class="k"></span><span class="w"></span></div><button class="skip">Skip</button>';
+    this.el.innerHTML = '<div class="g"><span class="k"></span><span class="w"></span><span class="pp"></span></div><button class="skip">Skip</button>';
     document.body.appendChild(this.el);
-    this.g = this.el.querySelector('.g'); this.k = this.el.querySelector('.k'); this.w = this.el.querySelector('.w');
+    this.g = this.el.querySelector('.g'); this.k = this.el.querySelector('.k'); this.w = this.el.querySelector('.w'); this.pp = this.el.querySelector('.pp');
     this.el.querySelector('.skip').addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.finish(); });
     this.rings = new THREE.Group(); scene.add(this.rings);
     this.mat = new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
@@ -71,6 +81,10 @@ export class Tutorial {
     const touch = this.input.touchMode;
     this.k.innerHTML = st.icon ? svg(st.icon) : touch ? svg(st.touch) : `<kbd>${st.key}</kbd>`;
     this.w.textContent = st.word;
+    // progress pips: where you are in the whole run
+    this.pp.innerHTML = STEPS.map((_, n) => `<i class="${n < i ? 'd' : n === i ? 'c' : ''}"></i>`).join('');
+    if (i > 0) this.onStep?.();
+    this.base = this.econ.stats.lockers; this.jobBase = this.econ.stats.jobs;
     this.g.classList.remove('pop'); void this.g.offsetWidth; this.g.classList.add('pop');
   }
 
@@ -83,8 +97,16 @@ export class Tutorial {
     this.done = won;
   }
 
+  lockerPos() { const n = this.lockers.nearest(this.ship.pos); return n ? n.L.wp : this.world.site.meridian.pos; }
+
   target() {
     const st = STEPS[this.step];
+    if (st.dock) return this.world.site.depot.dockPt;
+    if (st.job) return this._v || (this._v = new THREE.Vector3());
+    if (st.suit || st.cut) return this.eva.active && this.eva.state === 'eva' ? this.lockerPos() : this.lockerPos();
+    if (st.back) return this._v || (this._v = new THREE.Vector3());
+    if (st.relay) return this.world.site.relay.group.position;
+    if (st.scan) return this._v || (this._v = new THREE.Vector3());
     if (st.rings) return this.activeRing().position;
     if (st.zone) return this.zone.position;
     if (st.item) return this.item.body.pos;
@@ -105,7 +127,15 @@ export class Tutorial {
       if (this.zone.position.distanceTo(ship.pos) < st.r && ship.vel.length() < 2.5) { this.zone.visible = false; this.go(this.step + 1); }
     } else if (st.item) {
       if (this.salvage.ropes.some((r) => r.item === this.item)) this.go(this.step + 1);
-    }
+    } else if (st.dock) { if (this.nav.docked) this.go(this.step + 1); }
+    else if (st.job) { if (this.career.c.active || this.career.econ.stats.jobs > this.jobBase) this.go(this.step + 1); }
+    else if (st.suit) {
+      // wrecks are far from the depot: skip the outside lesson only if no locker is left anywhere
+      if (this.eva.state === 'eva') this.go(this.step + 1); else if (!this.lockers.nearest(ship.pos)) this.go(this.step + 3);
+    } else if (st.cut) { if (this.econ.stats.lockers > this.base) this.go(this.step + 1); else if (this.eva.state === 'off') this.go(this.step - 1); }
+    else if (st.back) { if (this.eva.state === 'off') this.go(this.step + 1); }
+    else if (st.scan) { if (this.scan.t >= 0) this.go(this.step + 1); }
+    else if (st.relay) { if (this.eva.state === 'eva' && this.relay.air(this.eva.pilot.pos) && this.relay.roomAt(this.relay.local(this.eva.pilot.pos, new THREE.Vector3()), 0.18) !== 2) this.finish(true); }
     if (!this.on) return;
     // rings: the current one glows hazard, later ones are faint ghosts
     const cur = STEPS[this.step].rings ? this.activeRing() : null;
@@ -119,7 +149,10 @@ export class Tutorial {
     }
     this.zoneMat.uniforms.uA.value = STEPS[this.step].zone ? 0.55 + 0.2 * Math.sin(time * 4) : 0.15;
     // glyph follows the target, clamped on screen
-    const p = this.target().clone().project(camera);
+    const st2 = STEPS[this.step];
+    let p;
+    if (st2.job || st2.scan) { p = null; } else if (st2.back) { p = this.eva.state === 'eva' ? this.eva.shipPoint(this._seat || (this._seat = new THREE.Vector3(0, 0.5, 0)), new THREE.Vector3()).project(camera) : null; } else p = this.target().clone().project(camera);
+    if (!p) { this.g.style.transform = `translate(${(w / 2).toFixed(0)}px,${(this.input.touchMode ? 300 : h - 345).toFixed(0)}px)`; return; }
     let x = (p.x * 0.5 + 0.5) * w + Math.min(90, w * 0.12), y = (-p.y * 0.5 + 0.5) * h - 20;
     if (p.z > 1 || x < 80 || x > w - 80 || y < 90 || y > h - 120) { x = w / 2; y = h * 0.68; }
     this.g.style.transform = `translate(${x.toFixed(0)}px,${y.toFixed(0)}px)`;

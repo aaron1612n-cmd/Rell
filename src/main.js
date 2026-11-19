@@ -31,6 +31,12 @@ import { Econ } from './economy.js';
 import { Nav, NAV_ICONS } from './nav.js';
 import { Tutorial } from './tutorial.js';
 import { Quality } from './quality.js';
+import { Career, JOB_ICONS } from './career.js';
+import { Settings, Menu } from './settings.js';
+import { Events } from './events.js';
+import { Sound } from './audio.js';
+import { DeepScan } from './deepscan.js';
+import { Drones } from './drones.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -64,6 +70,7 @@ shipMesh.traverse((o) => { if (o.isMesh || o.isSprite || o.isPoints) o.layers.se
 camera.layers.enable(1); sun.shadow.camera.layers.enable(1);
 const cockpit = new Cockpit({ renderer, camera, shipModel, env: scene.environment, sunDir: SUN_DIR, world, coarse, reduced });
 await Promise.all([cockpit.load(), loadSuit()]);
+addEventListener('keydown', (e) => { if (e.code === 'KeyO' && !e.repeat) document.body.classList.toggle('photo'); });
 addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat) { if (eva.active) eva.toggleView(); else cockpit.toggle(); } });
 { const vb = document.getElementById('viewbtn'); vb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.view}</svg>`;
   vb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (eva.active) eva.toggleView(); else cockpit.toggle(); }); }
@@ -88,19 +95,45 @@ const econ = new Econ();
 const salvage = new Salvage({
   scene, world, ship, models: { salvage: salvageModel }, coarse,
   onImpact: (h, m) => onShipHit(h, Math.min(3, m * 0.3)),
-  onDeliver: (it, v) => { econ.earn(v); nav.pop(v); tutorial.delivered(); depotFlash = 1; },
+  onDeliver: (it, v) => { sound.deliver(); econ.earn(v); career.onDeliver(it, v); nav.pop(v); tutorial.delivered(); depotFlash = 1; },
   onEvent: (e, it, p) => {
-    if (e === 'snap') { sparks({ point: p, normal: _c.copy(ship.pos).sub(p).normalize(), speed: 10 }, 40); rig.kick(0.35); hud.pulse(0.12); cockpit.alert(0.5); }
-    if (e === 'hook') rig.kick(0.05);
+    if (e === 'snap') { sound.snap(); sparks({ point: p, normal: _c.copy(ship.pos).sub(p).normalize(), speed: 10 }, 40); rig.kick(0.35); hud.pulse(0.12); cockpit.alert(0.5); }
+    if (e === 'hook') { rig.kick(0.05); sound.hook(); }
     if (e === 'miss') hud.miss();
   },
 });
 econ.apply(ship, salvage);
 const nav = new Nav({ world, salvage, econ, ship, input });
 nav.onBuy = () => econ.apply(ship, salvage);
-const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced });
-if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
-help.onTutorial = () => { respawn(true); tutorial.start(); };
+const career = new Career(econ);
+// fuel bar under the speed readout, and the autopilot chip under Impact
+ship.fuel = 1;
+{ const sp = document.getElementById('speed'); const f = document.createElement('div'); f.id = 'fuel'; f.innerHTML = '<span class="mono">Fuel</span><s><i></i></s>'; sp.appendChild(f);
+  const a = document.createElement('div'); a.id = 'auto'; a.innerHTML = '<i></i><span class="mono">Depot</span>'; document.getElementById('hud').appendChild(a); }
+const fuelFill = document.querySelector('#fuel i'), autoEl = document.getElementById('auto');
+let autopilot = false;
+let scan;
+{ const a = document.createElement('div'); a.id = 'scan'; a.innerHTML = '<i></i><span class="mono">Scan</span>'; document.getElementById('hud').appendChild(a);
+  const go = () => { if (!eva.active && !menu.open) scan.fire(); };
+  addEventListener('keydown', (e) => { if (e.code === 'KeyC' && !e.repeat) go(); }); a.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); go(); }); window.__scanChip = a; }
+function setAuto(v) { autopilot = v && !eva.active && !respawnT; autoEl.classList.toggle('on', autopilot); }
+addEventListener('keydown', (e) => { if (e.code === 'KeyN' && !e.repeat && !menu.open) setAuto(!autopilot); });
+autoEl.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); setAuto(!autopilot); });
+const _ap = new THREE.Vector3(), _apQ = new THREE.Quaternion();
+// straight-line approach to the depot dock: turn toward it, burn, brake to a stop; any stick input hands control back
+function autoCmd(cmd) {
+  const d = _ap.copy(depot.dockPt).sub(ship.pos), dist = d.length();
+  if (cmd.fwd || cmd.strafe || cmd.vert || Math.abs(cmd.dx) > 2 || Math.abs(cmd.dy) > 2 || cmd.yawKey || cmd.pitchKey || cmd.brake || eva.active || respawnT) { setAuto(false); return; }
+  if (dist < depot.dockR * 0.7 && ship.vel.length() < 3) { setAuto(false); return; }
+  d.normalize(); _apQ.copy(ship.quat).invert(); const l = d.clone().applyQuaternion(_apQ);
+  const ey = Math.atan2(l.x, -l.z), ex = Math.atan2(l.y, Math.hypot(l.x, l.z));
+  const cl = (v, m) => Math.max(-m, Math.min(m, v)), w = ship.angVel, G = 0.0105;
+  cmd.dx = (w.y + cl(ey * 2, 1.4)) / G; cmd.dy = (w.x - cl(ex * 2, 1.4)) / G;
+  const align = Math.abs(ey) < 0.3 && Math.abs(ex) < 0.3, vr = ship.vel.dot(d), vDes = Math.min(75, Math.max(dist > depot.dockR * 0.6 ? 5 : 0, Math.sqrt(2 * 9 * Math.max(0, dist - depot.dockR * 0.5))));
+  if (align && vr < vDes - 2) cmd.fwd = 1; else if (vr > vDes + 4) cmd.brake = true;
+}
+const settings = new Settings();
+const sound = new Sound(settings.get('volume'));
 input.onGrab = () => { if (!eva.active) salvage.grab(); };
 let depotFlash = 0;
 
@@ -108,7 +141,7 @@ world.onSiteEvent = (e, site) => {
   const d = site.pos.distanceTo(ship.pos);
   if (e === 'unstable') { rig.kick(d < 400 ? 0.4 : 0.05); if (d < 400) cockpit.alert(0.6); }
   if (e === 'collapse') {
-    shock(site);
+    shock(site); if (d < 1500) sound.boom();
     const near = 1 - THREE.MathUtils.clamp((d - site.radius * 0.3) / 260, 0, 1);
     if (near > 0) {
       rig.kick(Math.min(1, near * 1.4)); hud.pulse(0.45 * near); cockpit.alert(near);
@@ -173,13 +206,14 @@ function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h;
   // keep the ship readable on tall phone screens
-  camera.fov = rig.baseFov = w / h < 0.8 ? 80 : 66; camera.updateProjectionMatrix();
+  camera.fov = rig.baseFov = (w / h < 0.8 ? 80 : 66) + settings.get('fov'); camera.updateProjectionMatrix();
   look.setSize(w, h, renderer.getPixelRatio()); cockpit.setSize(w, h);
   world.stars.material.uniforms.uPR.value = renderer.getPixelRatio();
 }
 addEventListener('resize', resize); resize();
 // adaptive quality (quality.js): render scale, MSAA, shadow map size, bloom/haze step with frame time
 const quality = new Quality({ renderer, look, sun, hazePass, world, coarse, onResize: resize });
+if (settings.get('quality') !== 'auto') quality.setMode(settings.get('quality'));
 
 // ---- effects ----------------------------------------------------------------------------
 // Quality tier: phones get fewer particles, no heat haze and no bloom (particles add their own halo there).
@@ -191,13 +225,45 @@ const haze = coarse ? null : new GpuParticles(500, 'haze'); if (haze) hazeScene.
 const engU = Engine.uniforms(coarse);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _ax = new THREE.Vector3(), _u = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion();
 const R = Math.random, rs = () => R() - 0.5;
-let fxT = 0, boostSm = 0, heat = 0, offT = 1, onT = 0, wasBoost = false, gx = 0, gy = 0, gr = 0, flashL = 0;
+let fxT = 0, boostSm = 0, heat = 0, hullHeat = 0, offT = 1, onT = 0, wasBoost = false, gx = 0, gy = 0, gr = 0, flashL = 0;
 // ---- EVA: bolted lockers on the wrecks, hull damage on the ship, the pilot outside ------------
 const lockers = new Lockers(scene, world, { coarse });
 const damage = new HullDamage(shipMesh, shipModel);
 const eva = new Eva({ scene, camera, world, ship, shipMesh, cockpit, input, fx, rig, coarse, reduced, lockers, damage, env: scene.environment, sunDir: SUN_DIR, hud,
-  onStow: (L) => { econ.earn(L.value); nav.pop(L.value); } });
+  onStow: (L) => { econ.bonus(L.value); career.onLocker(L.value); nav.pop(L.value); } });
 eva.getFxT = () => fxT;
+const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
+scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
+const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: () => toast('fail'), onLost: () => toast('fail') });
+const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
+const replayTutorial = () => { respawn(true); tutorial.start(); };
+help.onTutorial = replayTutorial;
+if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
+const events = new Events({ scene, ship, fx, rig, hud, cockpit, nav, sun, coarse, reduced,
+  onHit: (h, m) => onShipHit(h, m),
+  onStorm: (clean, kind) => { career.onStorm(clean); if (clean) { econ.bonus(120); nav.pop(120); } toast(kind === 'meteor' ? 'meteor' : 'flare'); } });
+events.getFxT = () => fxT;
+// toasts: icon + number, one at a time
+const toastEl = document.createElement('div'); toastEl.id = 'toast'; document.body.appendChild(toastEl);
+let toastT = 0;
+function toast(kind, n) {
+  const ic = { job: JOB_ICONS.haul, done: JOB_ICONS.clean, rank: JOB_ICONS.up, fail: JOB_ICONS.quick, meteor: JOB_ICONS.meteor, flare: JOB_ICONS.flare }[kind];
+  const txt = kind === 'done' ? '+' + n : kind === 'rank' ? n : kind === 'meteor' || kind === 'flare' ? '+120' : '';
+  toastEl.innerHTML = `<svg viewBox="0 0 24 24">${ic}</svg>${txt ? `<span>${txt}</span>` : ''}`;
+  toastEl.classList.add('show'); toastT = 2.4;
+  if (kind === 'done') sound.chime(false); else if (kind === 'rank') sound.chime(true);
+}
+career.toast = toast;
+events.onWarn = () => sound.warn(); tutorial.onStep = () => sound.step();
+const menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
+const applySettings = (k) => {
+  input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
+  if (!k || k === 'quality') quality.setMode(settings.get('quality'));
+  if (k === 'fov') resize();
+  document.getElementById('hint').style.display = settings.get('hints') ? '' : 'none';
+};
+settings.onChange = (k) => { if (k === 'volume') sound.setVolume(settings.get('volume')); else applySettings(k); }; menu.onToggle = (o) => sound.setPaused(o); applySettings();
+
 look.composer.insertPass(eva.pass, look.composer.passes.indexOf(cockpit.pass) + 1);
 input.onExit = () => eva.request();
 { const xb = document.getElementById('exitbtn'); xb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.exit}</svg>`;
@@ -255,6 +321,7 @@ function engineFx(dt) {
   boostSm = THREE.MathUtils.damp(boostSm, f.boost ? 1 : 0, 8, dt);
   // metal heats slowly and cools slower still
   const ht = main * (0.6 + 0.5 * boostSm); heat += (ht - heat) * Math.min(1, dt * (ht > heat ? 0.9 : 0.22));
+  { const sp = Math.min(1, ship.vel.length() / 40), tgt = Math.min(1, boostSm * 0.85 + sp * sp * 0.25); hullHeat += (tgt - hullHeat) * Math.min(1, dt * (tgt > hullHeat ? 0.5 : 0.18)); mats.shipHull.userData.heat.uHeat.value = hullHeat; }
   engU.heat.uHeat.value = heat; engU.heat.uBoost.value = boostSm;
   engU.inner.uPower.value = main * (0.85 + 0.35 * boostSm) * flick; engU.inner.uTime.value = fxT;
 
@@ -418,7 +485,7 @@ function navFx(t) {
 
 let respawnT = 0;
 function onShipHit(hit, otherMass) {
-  const s = hit.speed;
+  const s = hit.speed; sound.hit(s);
   sparks(hit, Math.min(40, Math.floor(s * 2.5)));
   if (s > 2) { rig.kick(Math.min(1, s / 28)); hud.pulse(Math.min(0.35, s / 70)); }
   if (s > 4) cockpit.alert(Math.min(1, s / 18));
@@ -471,10 +538,16 @@ function tickFrame(now) {
   const rawDt = (now - last) / 1000, dt = Math.min(0.05, rawDt); last = now; time += dt;
   quality.tick(rawDt);
   const raw = input.consume();
+  raw.dx *= settings.get('sens'); raw.dy *= settings.get('sens');
+  if (menu.open) { look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); return; }
   const cmd = eva.holdShip ? HOLD : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
 
+  if (autopilot) autoCmd(cmd);
+  // boost burns fuel; empty tank, no boost. It trickles back in flight and refills at the dock.
+  if (cmd.boost && cmd.fwd > 0 && ship.fuel > 0) ship.fuel = Math.max(0, ship.fuel - dt * 0.045); else { cmd.boost = false; ship.fuel = Math.min(1, ship.fuel + dt * (nav.docked ? 0.4 : 0.012)); }
+  fuelFill.style.width = (ship.fuel * 100).toFixed(0) + '%'; fuelFill.parentNode.classList.toggle('low', ship.fuel < 0.2);
   acc += dt; let first = true, n = 0;
   while (acc >= STEP && n++ < 8) {
     ship.step(STEP, first ? cmd : { ...cmd, dx: 0, dy: 0, yawKey: cmd.yawKey, pitchKey: cmd.pitchKey });
@@ -502,6 +575,11 @@ function tickFrame(now) {
   cockpit.update(dt, ship, rig);
   partsFx(dt);
   eva.update(dt, raw);
+  relay.update(dt, time, camera.position, eva, ship);
+  scan.update(dt, time); { const c = window.__scanChip; c.classList.toggle('on', scan.t >= 0); c.classList.toggle('cool', scan.t < 0 && scan.cool > 0); }
+  drones.enabled = econ.tut && !tutorial.on; drones.update(dt, time);
+  world.dust.lines.visible = !eva.safe || eva.state !== 'eva';
+  { let rs2 = 0; for (let i = 0; i < rcsSm.length; i++) rs2 += rcsSm[i]; sound.update(dt, { main: ship.fx.main, boost: boostSm, rcs: rs2, strain: salvage.ropes.reduce((m, r) => Math.max(m, r.item.strainVis || 0), 0), eva: eva.active, o2low: eva.o2 < 0.25 }); }
   if (eva.state === 'eva' && (time % 0.1) < dt) cockpit.drawInstruments(0.1, ship);
   world.updateVisual(time, camera.position);
   worldAnim.update(dt, time);
@@ -513,10 +591,13 @@ function tickFrame(now) {
   hud.update(dt, ship, camera, innerWidth, innerHeight);
   nav.update(dt, camera, innerWidth, innerHeight, time);
   tutorial.update(dt, time, camera, innerWidth, innerHeight);
+  career.update(dt, ship, nav.docked);
+  events.update(dt, { busy: !econ.tut || tutorial.on || nav.docked || eva.active || respawnT > 0 }, camera, innerWidth, innerHeight);
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
   quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   quality.end();
 }
 requestAnimationFrame(frame);
 
-window.__game = { worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };

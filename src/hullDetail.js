@@ -137,3 +137,27 @@ export function addHullDetail(mat, { scale = 0.35, grime = 0.55, scratch = 0.5, 
   mat.needsUpdate = true;
   return mat;
 }
+
+// Re-entry style glow on the leading edges and tail while boosting. Chains onto addHullDetail's shader hook and
+// reuses its object-space position and normal (nose is -z).
+export function addHeatGlow(mat) {
+  const u = { uHeat: { value: 0 } }; mat.userData.heat = u;
+  const prev = mat.onBeforeCompile;
+  mat.customProgramCacheKey = () => 'hulldetail+heat';
+  mat.onBeforeCompile = (sh, r) => {
+    prev(sh, r); Object.assign(sh.uniforms, u);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uHeat;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        {
+          vec3 hn = normalize(vON);
+          float lead = smoothstep(-.1, -.8, hn.z) * (.55 + .45 * smoothstep(-.4, -1.8, vOP.z));
+          float aft = smoothstep(1.1, 2.1, vOP.z) * .6;
+          float edge = smoothstep(.35, .95, abs(hn.x)) * smoothstep(1.8, -.6, abs(vOP.x)) * .5;
+          float h = clamp(uHeat * (lead + aft + edge), 0., 1.5) * (.85 + .15 * sin(vOP.x * 9. + vOP.z * 7. + uHeat * 30.));
+          totalEmissiveRadiance += mix(vec3(.75, .08, .02), vec3(1.7, .75, .25), clamp(h, 0., 1.)) * h * 1.3;
+        }`);
+  };
+  mat.needsUpdate = true;
+  return mat;
+}
