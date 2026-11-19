@@ -228,7 +228,20 @@ export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
   const holoRing = B.sink.lamp.pos.length;
   B.cyl([-19.2, -1.62, 0], 1.12, 0.04, 'y', { kind: 'lamp', color: L.cyan, k: 2.4, room: LB.idx, sides: 24 });
   for (const z of [-3.6, -2.2, 2.2, 3.6]) console_([-14.6, -2.2, z], LB, [-1, 0], 1.3, C.slate, 0.6);
-  for (let i = 0; i < 5; i++) { P([-24.45, -0.4, -3.4 + i * 1.5], [0.5, 4.2, 1.2], C.dark, LB, { seg: 1 }); }
+  // server cabinets: slate frame, a stack of drawer fronts with handles, vents and status LEDs, cable trunking overhead
+  for (let i = 0; i < 5; i++) {
+    const z = -3.4 + i * 1.5, fx = -24.17;
+    P([-24.45, -0.4, z], [0.5, 4.2, 1.2], C.slate, LB, { seg: 0.7 });
+    P([-24.18, -0.4, z - 0.56], [0.06, 4.2, 0.08], C.steel, LB, { seg: 9 }); P([-24.18, -0.4, z + 0.56], [0.06, 4.2, 0.08], C.steel, LB, { seg: 9 });
+    P([-24.18, 1.78, z], [0.07, 0.1, 1.2], C.orange, LB, { seg: 9 });
+    for (let k = 0; k < 9; k++) {
+      const y = -2.15 + k * 0.4;
+      P([fx, y, z], [0.05, 0.32, 1.0], k % 3 === 1 ? C.cream : C.bone, LB, { seg: 9 });
+      P([fx + 0.04, y - 0.07, z], [0.04, 0.03, 0.55], C.dark, LB, { seg: 9 });
+      LAMP([fx + 0.035, y + 0.08, z + 0.38], [0.02, 0.04, 0.04], (i + k) % 4 === 0 ? L.amber : (i * 3 + k) % 5 === 0 ? L.cyan : L.green, LB, 2);
+      LAMP([fx + 0.035, y + 0.08, z + 0.3], [0.02, 0.04, 0.04], L.green, LB, 1.4);
+    }
+  }
   solid([-24.45, -0.4, 0], [0.5, 4.2, 7.4]);
   const racks = [];
   for (let i = 0; i < 5; i++) racks.push({ c: [-24.18, -0.4, -3.4 + i * 1.5] });
@@ -250,7 +263,7 @@ export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
   };
   for (const s of consoles) plane1(s.c, s.n, s.w, s.h, s.R, s.tilt);
   plane1([-24.17, 1.1, 0], [1, 0, 0], 6.8, 0.8, LB, 0);   // status strip over the racks
-  const nb = screenGeos.length; for (const r of racks) plane1([-24.19, -0.7, r.c[2]], [1, 0, 0], 1.0, 3.0, LB, 0);
+  const nb = screenGeos.length; for (const r of racks) plane1([-24.13, -0.4, r.c[2] - 0.46], [1, 0, 0], 0.1, 3.5, LB, 0);
   const ledGeos = screenGeos.splice(nb); for (const g of ledGeos) { const u = g.attributes.uv; for (let i = 0; i < u.count; i++) u.setXY(i, u.getX(i) * 2, u.getY(i) * 7); }
   // wall-mounted display in the cargo hold and in the quarters
   plane1([5.9 - 0.0, 1.0, -20.85], [-1, 0, 0], 3.4, 1.4, CG, 0); plane1([22.0, 1.0, 0.0], [-1, 0, 0], 0.01, 0.01, QU, 0);
@@ -327,9 +340,18 @@ export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
   for (const sg of [-1, 1]) { X([sg * 5.45, 3.9, 0], [0.12, 1.4, 0.12], 0x7d7a72, { noObb: true }); X([sg * 5.45, 4.6, 0], [0.4, 0.12, 0.4], 0x7d7a72, { noObb: true }); }
   // arm mast + dish on the lab roof; the dish turns (animated)
   X([-19.2, 3.6, 2.4], [0.4, 1.5, 0.4], 0x8e949a);
-  // solar boom off the quarters
-  X([24.6, 0, 0], [3.0, 0.4, 0.4], 0x6c6f73);
-  X([-26.1, 0, -2.6], [2.0, 0.3, 0.3], 0x6c6f73, { noObb: true });
+  // rounded end caps on the three wings, so the outline isn't just boxes: half ellipsoids with a collar ring
+  const dome = (at, ax, sg, rx, ry, rz, col = 0xa9a69b) => {
+    const g = new THREE.SphereGeometry(1, 36, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+    if (ax === 'x') g.rotateZ(-sg * Math.PI / 2); else g.rotateX(sg * Math.PI / 2);
+    g.scale(rx, ry, rz); g.translate(...at); B.geo(g, { kind: 'hull', color: col });
+    const t = new THREE.TorusGeometry(1, 0.07, 6, 48); if (ax === 'x') t.rotateY(Math.PI / 2); t.scale(ax === 'x' ? 1 : rx * 0.98, ry * 0.98, ax === 'x' ? rz * 0.98 : 1);
+    t.translate(...at); B.geo(t, { kind: 'hull', color: 0x4a525c });
+  };
+  dome([23.05, 0, 0], 'x', 1, 2.6, 3.1, 4.6); dome([-25.05, 0, 0], 'x', -1, 2.8, 3.1, 5.0); dome([0, 0, -27.2], 'z', -1, 6.5, 4.0, 2.4);
+  // antenna masts off the domes, the boom now clear of them
+  X([27.4, 0, 0], [3.2, 0.3, 0.3], 0x6c6f73, { noObb: true }); X([29.0, 0, 0], [0.12, 2.6, 0.12], 0x8e949a, { noObb: true });
+  X([-28.4, 0, -2.6], [3.0, 0.25, 0.25], 0x6c6f73, { noObb: true });
 
   // ---- finish: build meshes ----------------------------------------------------------------------
   const G = B.finish();

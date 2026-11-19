@@ -23,7 +23,7 @@ function buildDrone() {
   }
   const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.3, 12), dark); nozzle.rotation.x = Math.PI / 2; nozzle.position.z = 0.78; g.add(nozzle);
   g.traverse((m) => { if (m.isMesh) m.castShadow = true; });
-  g.userData = { eyeM, arms };
+  g.scale.setScalar(1.7); g.userData = { eyeM, arms };
   return g;
 }
 
