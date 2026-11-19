@@ -31,6 +31,9 @@ import { Econ } from './economy.js';
 import { Nav, NAV_ICONS } from './nav.js';
 import { Tutorial } from './tutorial.js';
 import { Quality } from './quality.js';
+import { Career, JOB_ICONS } from './career.js';
+import { Settings, Menu } from './settings.js';
+import { Events } from './events.js';
 
 const canvas = document.getElementById('view');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -88,7 +91,7 @@ const econ = new Econ();
 const salvage = new Salvage({
   scene, world, ship, models: { salvage: salvageModel }, coarse,
   onImpact: (h, m) => onShipHit(h, Math.min(3, m * 0.3)),
-  onDeliver: (it, v) => { econ.earn(v); nav.pop(v); tutorial.delivered(); depotFlash = 1; },
+  onDeliver: (it, v) => { econ.earn(v); career.onDeliver(it, v); nav.pop(v); tutorial.delivered(); depotFlash = 1; },
   onEvent: (e, it, p) => {
     if (e === 'snap') { sparks({ point: p, normal: _c.copy(ship.pos).sub(p).normalize(), speed: 10 }, 40); rig.kick(0.35); hud.pulse(0.12); cockpit.alert(0.5); }
     if (e === 'hook') rig.kick(0.05);
@@ -98,9 +101,8 @@ const salvage = new Salvage({
 econ.apply(ship, salvage);
 const nav = new Nav({ world, salvage, econ, ship, input });
 nav.onBuy = () => econ.apply(ship, salvage);
-const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced });
-if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
-help.onTutorial = () => { respawn(true); tutorial.start(); };
+const career = new Career(econ);
+const settings = new Settings();
 input.onGrab = () => { if (!eva.active) salvage.grab(); };
 let depotFlash = 0;
 
@@ -173,13 +175,14 @@ function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h;
   // keep the ship readable on tall phone screens
-  camera.fov = rig.baseFov = w / h < 0.8 ? 80 : 66; camera.updateProjectionMatrix();
+  camera.fov = rig.baseFov = (w / h < 0.8 ? 80 : 66) + settings.get('fov'); camera.updateProjectionMatrix();
   look.setSize(w, h, renderer.getPixelRatio()); cockpit.setSize(w, h);
   world.stars.material.uniforms.uPR.value = renderer.getPixelRatio();
 }
 addEventListener('resize', resize); resize();
 // adaptive quality (quality.js): render scale, MSAA, shadow map size, bloom/haze step with frame time
 const quality = new Quality({ renderer, look, sun, hazePass, world, coarse, onResize: resize });
+if (settings.get('quality') !== 'auto') quality.setMode(settings.get('quality'));
 
 // ---- effects ----------------------------------------------------------------------------
 // Quality tier: phones get fewer particles, no heat haze and no bloom (particles add their own halo there).
@@ -196,8 +199,35 @@ let fxT = 0, boostSm = 0, heat = 0, offT = 1, onT = 0, wasBoost = false, gx = 0,
 const lockers = new Lockers(scene, world, { coarse });
 const damage = new HullDamage(shipMesh, shipModel);
 const eva = new Eva({ scene, camera, world, ship, shipMesh, cockpit, input, fx, rig, coarse, reduced, lockers, damage, env: scene.environment, sunDir: SUN_DIR, hud,
-  onStow: (L) => { econ.earn(L.value); nav.pop(L.value); } });
+  onStow: (L) => { econ.bonus(L.value); career.onLocker(L.value); nav.pop(L.value); } });
 eva.getFxT = () => fxT;
+const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav });
+const replayTutorial = () => { respawn(true); tutorial.start(); };
+help.onTutorial = replayTutorial;
+if (!econ.tut) setTimeout(() => tutorial.start(), reduced ? 300 : 2600);
+const events = new Events({ scene, ship, fx, rig, hud, cockpit, nav, sun, coarse, reduced,
+  onHit: (h, m) => onShipHit(h, m),
+  onStorm: (clean, kind) => { career.onStorm(clean); if (clean) { econ.bonus(120); nav.pop(120); } toast(kind === 'meteor' ? 'meteor' : 'flare'); } });
+events.getFxT = () => fxT;
+// toasts: icon + number, one at a time
+const toastEl = document.createElement('div'); toastEl.id = 'toast'; document.body.appendChild(toastEl);
+let toastT = 0;
+function toast(kind, n) {
+  const ic = { job: JOB_ICONS.haul, done: JOB_ICONS.clean, rank: JOB_ICONS.up, fail: JOB_ICONS.quick, meteor: JOB_ICONS.meteor, flare: JOB_ICONS.flare }[kind];
+  const txt = kind === 'done' ? '+' + n : kind === 'rank' ? n : kind === 'meteor' || kind === 'flare' ? '+120' : '';
+  toastEl.innerHTML = `<svg viewBox="0 0 24 24">${ic}</svg>${txt ? `<span>${txt}</span>` : ''}`;
+  toastEl.classList.add('show'); toastT = 2.4;
+}
+career.toast = toast;
+const menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
+const applySettings = (k) => {
+  input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
+  if (!k || k === 'quality') quality.setMode(settings.get('quality'));
+  if (k === 'fov') resize();
+  document.getElementById('hint').style.display = settings.get('hints') ? '' : 'none';
+};
+settings.onChange = applySettings; applySettings();
+
 look.composer.insertPass(eva.pass, look.composer.passes.indexOf(cockpit.pass) + 1);
 input.onExit = () => eva.request();
 { const xb = document.getElementById('exitbtn'); xb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.exit}</svg>`;
@@ -471,6 +501,8 @@ function tickFrame(now) {
   const rawDt = (now - last) / 1000, dt = Math.min(0.05, rawDt); last = now; time += dt;
   quality.tick(rawDt);
   const raw = input.consume();
+  raw.dx *= settings.get('sens'); raw.dy *= settings.get('sens');
+  if (menu.open) { look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); return; }
   const cmd = eva.holdShip ? HOLD : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
@@ -513,10 +545,13 @@ function tickFrame(now) {
   hud.update(dt, ship, camera, innerWidth, innerHeight);
   nav.update(dt, camera, innerWidth, innerHeight, time);
   tutorial.update(dt, time, camera, innerWidth, innerHeight);
+  career.update(dt, ship, nav.docked);
+  events.update(dt, { busy: !econ.tut || tutorial.on || nav.docked || eva.active || respawnT > 0 }, camera, innerWidth, innerHeight);
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
   quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   quality.end();
 }
 requestAnimationFrame(frame);
 
-window.__game = { worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
