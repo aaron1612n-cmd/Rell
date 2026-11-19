@@ -96,7 +96,75 @@ zs.append(PROFILE[-1][0])
 for s in SEAMS:
     zs += [s - .014, s + .014]
 zs = sorted(set(zs))
-k.rings([hull_ring(z) for z in zs], hull_color, HULL, cap0=True, cap1=True)
+
+# ---- cockpit well ----------------------------------------------------------------------
+# The cockpit is a real opening in the skin, not a hole cut at runtime: inside the canopy footprint each
+# hull ring dips into a coaming, a shelf for the canopy rail, side walls and a floor, so the hull is one
+# closed surface and you can never see through it. Footprint numbers are the linear canopy table that
+# cockpit.py and cockpit.js use, so the interior and the runtime frame cuts sit on this exactly.
+CAN_L = [(-1.5, .16, .10), (-1.0, .38, .30), (-.3, .46, .38), (.3, .42, .30), (.72, .30, .12)]
+def lin(tab, z):
+    for a, b in zip(tab, tab[1:]):
+        if a[0] <= z <= b[0]:
+            t = (z - a[0]) / (b[0] - a[0]); return tuple(a[i] + (b[i] - a[i]) * t for i in range(1, len(a)))
+    return tab[0][1:] if z < tab[0][0] else tab[-1][1:]
+def well_can(z):
+    cw, ch = lin(CAN_L, z); return cw, ch, lin(PROFILE, z)[1] - .08
+def hull_pt(t, z):
+    w, h = hull_wh(z); n = hermite(NEXP, z)[0]; c, s = math.cos(t), math.sin(t)
+    x = w * sgp(c, 2 / n); y = h * sgp(s, 2 / n) * (1.0 if s > 0 else 0.96)
+    if s > 0: x *= 1 - 0.10 * s
+    return x, y
+def t_at_x(x, z):
+    """angle on the upper right of the hull ring whose point has this x (x >= 0)"""
+    lo, hi = 0.0, math.pi / 2
+    for _ in range(40):
+        m = (lo + hi) / 2
+        if hull_pt(m, z)[0] > x: lo = m
+        else: hi = m
+    return (lo + hi) / 2
+def skin_y(x, z): return hull_pt(t_at_x(abs(x), z), z)[1]
+WZ0, WZ1, DECK_Z, AFT_Z = -1.49, .70, -.80, .70     # well from the windscreen tip to the aft bulkhead
+FLOOR = .10
+def well_ring(z, open_=None, floor=None, M=34):
+    cw, ch, y0 = well_can(z)
+    f = open_ if open_ is not None else (1.0 if WZ0 <= z <= WZ1 else 0.0)
+    if floor is None: floor = FLOOR if DECK_Z < z <= AFT_Z else y0 - .03
+    xo = cw + .035
+    t0 = t_at_x(xo, z)
+    arc = [hull_pt(t0 - (math.pi + 2 * t0) * k_ / M, z) for k_ in range(M + 1)]      # right sill, under the belly, left sill
+    sy = skin_y(xo, z)
+    half = [(cw + .008, sy - .006), (cw + .008, y0 - .008), (cw - .045, y0 - .008),       # coaming lip, inner face, rail shelf
+            (cw * .91, max(floor, y0 - .07)), (cw * .87, max(floor, y0 - .17)), (cw * .74, floor), (cw * .4, floor - .008)]
+    prof_ = [(-x, y) for x, y in half] + [(0, floor - .012)] + [(x, y) for x, y in reversed(half)]   # left to right
+    out = [Vector((x, y, z)) for x, y in arc]
+    for i, (x, y) in enumerate(prof_):
+        xs = -xo + 2 * xo * (i + 1) / (len(prof_) + 1)       # the same point spread over the closed skin
+        out.append(Vector((x * f + xs * (1 - f), y * f + skin_y(xs, z) * (1 - f), z)))
+    return out
+
+IN_W, IN_F, IN_S = 0x484b4e, 0x3a3d40, 0x6a6e70
+def well_color(p, nrm):
+    if WZ0 - .01 <= p.z <= WZ1 + .01:
+        cw, ch, y0 = well_can(p.z)
+        if abs(p.x) < cw + .02 and p.y < skin_y(min(abs(p.x), cw + .035), p.z) - .004:
+            if p.y > y0 - .02 and abs(p.x) > cw - .05: return IN_S              # shelf the canopy rail sits on
+            return IN_F if p.y < FLOOR + .02 or p.y < y0 - .02 and nrm.y > .8 else IN_W
+    return hull_color(p, nrm)
+
+# ring stations: the regular hull spacing, packed tight through the well, with doubled stations where the
+# forward and aft bulkheads drop straight down
+st = [(z, None, None) for z in zs if not (WZ0 - .03 < z < WZ1 + .04)]
+st += [(WZ0 - .03, 0.0, None), (WZ0, 1.0, None)]
+z = WZ0 + .07
+while z < DECK_Z - .01: st.append((round(z, 4), 1.0, None)); z += .07
+st += [(DECK_Z, 1.0, well_can(DECK_Z)[2] - .03), (DECK_Z, 1.0, FLOOR)]
+z = DECK_Z + .08
+while z < AFT_Z - .01: st.append((round(z, 4), 1.0, FLOOR)); z += .08
+st += [(AFT_Z, 1.0, FLOOR), (AFT_Z, 1.0, well_can(AFT_Z)[2] - .008), (AFT_Z + .04, 0.0, None)]
+st += [(s_ + d, 1.0, None) for s_ in SEAMS if WZ0 < s_ < WZ1 for d in (-.014, .014)]   # keep the flank seams crisp
+st.sort(key=lambda e: e[0])
+k.rings([well_ring(z, o, fl) for z, o, fl in st], well_color, HULL, cap0=True, cap1=True)
 
 # ---- canopy --------------------------------------------------------------------------
 CAN = [(-1.5, .16, .10), (-1.0, .38, .30), (-.3, .46, .38), (.3, .42, .30), (.72, .30, .12)]
@@ -143,7 +211,7 @@ for sx in (-1, 1):
 def spine_ring(z, wd, hh):
     base = hull_wh(z)[1] * .93 - .04
     return [Vector((wd * sgp(math.cos(2 * math.pi * j / 20), 2 / 2.6), base + hh * (.5 + .5 * sgp(math.sin(2 * math.pi * j / 20), 2 / 2.6)), z)) for j in range(20)]
-sp_z = [(.25, .02, .02), (.45, .17, .06), (.8, .26, .18), (1.2, .28, .22), (1.6, .24, .20), (1.88, .18, .13)]
+sp_z = [(.72, .05, .03), (.8, .22, .14), (.95, .26, .18), (1.2, .28, .22), (1.6, .24, .20), (1.88, .18, .13)]
 k.rings([spine_ring(z, wd, hh) for z, wd, hh in sp_z], lambda p, n: BONE_D if (int((p.z + 3) / .21) % 2 == 0) else shade(BONE_D, .8), HULL, cap0=True, cap1=True)
 for z in (.85, 1.1, 1.35):       # clamp bands
     k.rings([[Vector((x * 1.04, y + .005, z + dz)) for x, y, _ in spine_ring(z, .28, .21)] for dz in (-.04, .04)], RUST, HULL, cap0=True, cap1=True)
