@@ -91,7 +91,8 @@ function armSpheres(arm) {
   const S = (o, x, y, z, r) => ({ o, l: new THREE.Vector3(x, y, z), r, w: new THREE.Vector3() });
   const out = [S(arm.upper, 0, -0.16, 0, 0.085), S(arm.mid, 0, 0, 0, 0.085), S(arm.fore, 0, -0.13, 0, 0.075),
     S(arm.wrist, 0, -0.03, 0, 0.065), S(arm.wrist, -0.005, -0.1, -0.015, 0.07)];
-  if (arm.tool) out.push(S(arm.tool, -0.01, 0.0, -0.03, 0.085), S(arm.tool, -0.01, 0.03, -0.18, 0.06));
+  // the two-handed cutter: body, barrel, nozzle and the fore grip (tool space)
+  if (arm.tool) out.push(S(arm.tool, 0, 0.06, 0.02, 0.07), S(arm.tool, 0, 0.065, -0.14, 0.065), S(arm.tool, 0, 0.07, -0.3, 0.045), S(arm.tool, 0, 0.07, -0.46, 0.04), S(arm.tool, 0, -0.03, -0.2, 0.04));
   return out;
 }
 

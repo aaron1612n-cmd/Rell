@@ -332,6 +332,8 @@ export class Hatch {
       if (F && o.fpW > 0) { Out.S.lerp(F.S, o.fpW); Out.W.lerp(F.W, o.fpW); Out.Q.slerp(F.Q, o.fpW); Out.P.lerp(F.P, o.fpW); }
       Out.W.lerp(G.W, o.grab); Out.Q.slerp(G.Q, o.grab); Out.P.lerp(G.P, o.grab).normalize();
       solveArm(arm, Out.S, Out.W, Out.P, Out.Q);
+      // first person, the left glove takes the cutter's fore grip as the view-model pose takes over
+      if (sx < 0) arm.glove.hold = fpT ? o.fpW * fpT.two * (1 - o.grab) : 0;
     });
   }
 
