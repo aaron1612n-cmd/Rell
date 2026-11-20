@@ -31,6 +31,24 @@ function patch(m) {
   m.customProgramCacheKey = () => 'ironwakeroom';
   return m;
 }
+// walls and floors: every 2 m tile is mirrored and shaded by its own hash, with a slow grime field over the
+// top, so long walls stop reading as one tile stamped over and over
+function patchTiles(m, key) {
+  patch(m); const base = m.onBeforeCompile;
+  m.onBeforeCompile = (s) => {
+    base(s);
+    s.fragmentShader = s.fragmentShader.replace('#include <map_fragment>', `
+      vec2 iwCell = floor(vMapUv); vec2 iwF = fract(vMapUv);
+      float iwH = fract(sin(dot(iwCell, vec2(127.1, 311.7))) * 43758.5453), iwH2 = fract(iwH * 17.31 + .17);
+      if (iwH > .5) iwF.x = 1. - iwF.x; if (iwH2 > .5) iwF.y = 1. - iwF.y;
+      vec4 sampledDiffuseColor = textureGrad(map, iwCell + iwF, dFdx(vMapUv), dFdy(vMapUv));
+      vec2 iwG = vMapUv * .19; float iwN = sin(iwG.x * 1.7 + sin(iwG.y * 2.3)) * sin(iwG.y * 1.3 + 1.7 * sin(iwG.x * .7));
+      sampledDiffuseColor.rgb *= (.9 + .16 * iwH2) * (.88 + .12 * iwN);
+      diffuseColor *= sampledDiffuseColor;`);
+  };
+  m.customProgramCacheKey = () => 'ironwaketile' + key;
+  return m;
+}
 
 export function buildIronwake(site, { Part }) {
   const B = new Bake();
@@ -241,8 +259,8 @@ export function buildIronwake(site, { Part }) {
   // ---- finish ----
   const G = B.finish();
   const M = {
-    wall: patch(new THREE.MeshBasicMaterial({ map: wallTexture(), vertexColors: true })),
-    floor: patch(new THREE.MeshBasicMaterial({ map: floorTexture(), vertexColors: true })),
+    wall: patchTiles(new THREE.MeshBasicMaterial({ map: wallTexture(), vertexColors: true }), 'w'),
+    floor: patchTiles(new THREE.MeshBasicMaterial({ map: floorTexture(), vertexColors: true }), 'f'),
     lamp: patch(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })),
     screen: patch(new THREE.MeshBasicMaterial({ map: screenTexture(), vertexColors: true, toneMapped: false })),
     glass: new THREE.MeshBasicMaterial({ color: 0x9cc8ff, transparent: true, opacity: 0.06, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),

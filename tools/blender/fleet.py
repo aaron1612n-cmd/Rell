@@ -734,7 +734,7 @@ def mule():
     H = Hull(tab, 44, bot=.9, shoulder=.08, chine=.06)
     seams = [-16, -12, -9, -4, 1, 6, 10, 14, 18]
     liv = livery(H, 0xe1a73a, belly=0x3b3732, accent=0x15171b, cell=2.0, seams=seams, seamw=.05, tipz=-20.6, tip=SLATE_D,
-                 stripe=lambda p, yn: (-9 < p.z < -4.5 and int((p.z + p.y * .8) / .9) % 2 == 0) or (-3.5 < p.z < 6 and abs(yn) < .2),
+                 stripe=lambda p, yn: (-8.2 < p.z < -7.4) or (-6.2 < p.z < -5.4) or (-3.5 < p.z < 6 and abs(yn) < .2),
                  windows=lambda p, yn: .3 < yn < .62 and -19.6 < p.z < -16.6 and abs(p.x) < 3.2)
     skin(S, H, stations(-21, 21, .5, [s + d for s in seams for d in (-.05, .05)]), liv)
     # big push plate on the nose with bumpers
@@ -820,7 +820,7 @@ def prospector():
     H = Hull(tab, 44, bot=.85, shoulder=.1, keel=.2, hump=lambda z, x: 3.6 * smooth(4, 7, -abs(x) + 9) * smooth(-24, -20, z) * smooth(-2, -6, z))
     seams = [-26, -18, -10, -2, 6, 14, 22, 30]
     liv = livery(H, 0x7d6f5c, belly=0x3a3530, accent=0xf2b33d, cell=2.6, seams=seams, seamw=.07, tipz=-34.6, tip=0x1b1b1b, wear=.22,
-                 stripe=lambda p, yn: (p.z < -28 and int((p.x + p.y + 40) / 1.2) % 2 == 0),
+                 stripe=lambda p, yn: (-31 < p.z < -29.6) or (-28 < p.z < -27.2),
                  windows=lambda p, yn: yn > .62 and -20.5 < p.z < -18.2)
     skin(S, H, stations(-35, 35, .9, [s + d for s in seams for d in (-.07, .07)]), liv)
     # drill head: a rotating-looking cone with teeth, on a collar

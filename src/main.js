@@ -368,6 +368,7 @@ eva.markTarget = (p) => {
 scan.onSweep = (o, r) => story.onSweep(o, r);
 objective.ext = { systems, breakup, drones, story, SYS };
 const menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
+fleet.menu = menu;   // the Ships panel releases the mouse without popping the pause menu
 const applySettings = (k) => {
   input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
   if (!k || k === 'quality') quality.setMode(settings.get('quality'));
@@ -655,7 +656,7 @@ function tickFrame(now) {
   const raw = input.consume();
   raw.dx *= settings.get('sens'); raw.dy *= settings.get('sens');
   if (menu.open) { look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); return; }
-  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
+  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock || fleet.panelOpen ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
 
