@@ -164,7 +164,44 @@ while z < AFT_Z - .01: st.append((round(z, 4), 1.0, FLOOR)); z += .08
 st += [(AFT_Z, 1.0, FLOOR), (AFT_Z, 1.0, well_can(AFT_Z)[2] - .008), (AFT_Z + .04, 0.0, None)]
 st += [(s_ + d, 1.0, None) for s_ in SEAMS if WZ0 < s_ < WZ1 for d in (-.014, .014)]   # keep the flank seams crisp
 st.sort(key=lambda e: e[0])
-k.rings([well_ring(z, o, fl) for z, o, fl in st], well_color, HULL, cap0=True, cap1=True)
+# the stern: the skin turns in over a rolled lip and steps down into a recessed engine-bay bulkhead (radial rings,
+# so it shades like a real dished plate instead of one flat fan), dressed below with a thrust frame
+HR = [well_ring(z, o, fl) for z, o, fl in st]
+last = HR[-1]; ZA = last[0].z
+cy = (max(v.y for v in last) + min(v.y for v in last)) / 2
+def shrink(ring, f, z, dy=0.0):
+    return [Vector((v.x * f, cy + (v.y - cy) * f + dy, z)) for v in ring]
+BAY_Z = ZA - .07
+stern = [shrink(last, .965, ZA + .012), shrink(last, .925, ZA + .014), shrink(last, .9, ZA - .01), shrink(last, .885, BAY_Z),
+         shrink(last, .8, BAY_Z - .004), shrink(last, .62, BAY_Z - .012), shrink(last, .4, BAY_Z - .02), shrink(last, .18, BAY_Z - .024), shrink(last, .05, BAY_Z - .026)]
+def stern_color(p, nrm):
+    if p.z < ZA - .02 or abs(p.x) > .9: return well_color(p, nrm)
+    if p.z > ZA - .015: return BONE_D if p.z > ZA + .008 else shade(BONE_D, .6)     # the rolled lip
+    return shade(SLATE, .9 + .2 * hsh(int((p.x + 2) * 6), int((p.y + 2) * 6)))      # bay wall and bulkhead
+k.rings(HR + stern, lambda p, n: stern_color(p, n) if p.z > ZA - .03 else well_color(p, n), HULL, cap0=True, cap1=True)
+bw, bh = max(v.x for v in last) * .8, (max(v.y for v in last) - min(v.y for v in last)) / 2 * .8
+BZ = BAY_Z - .02
+# heat-shield tiles over the bulkhead, a central service hatch with its ring of bolts, two fuel/coolant lines
+k.panels((0, cy + .02, BZ), (bw * 1.5, bh * 1.3), 4, 3, plane='z', sign=1, gap=.014, lift=.01, color=SLATE_L, vary=.22, bevel=.003)
+k.lathe_z([(BZ + .004, 0), (BZ + .004, .085), (BZ + .022, .09), (BZ + .03, .08), (BZ + .03, 0)], (0, cy + .03, 0), shade(BONE_D, .8), HULL, 28)
+k.lathe_z([(BZ + .03, 0), (BZ + .03, .055), (BZ + .036, .05), (BZ + .036, 0)], (0, cy + .03, 0), BLACK, HULL, 24)
+for i in range(10):
+    a = 2 * math.pi * i / 10
+    k.cyl((math.cos(a) * .072, cy + .03 + math.sin(a) * .072, BZ + .032), .006, .006, .008, 'z', 8, SLATE_L)
+k.lamp((0, cy + .03 + .1, BZ + .02), (.05, .012, .01), AMBER)
+# thrust frame: struts from the bulkhead hard points out to each engine pod's aft collar, with a cross brace
+for sx in (-1, 1):
+    hp = (sx * bw * .55, cy - bh * .35, BZ + .01)
+    hp2 = (sx * bw * .55, cy + bh * .45, BZ + .01)
+    k.box(hp, (.07, .06, .03), SLATE_L, bevel=.008)
+    k.box(hp2, (.07, .06, .03), SLATE_L, bevel=.008)
+    pod_lo, pod_hi = (sx * .38, -.14, 1.62), (sx * .38, .14, 1.62)
+    k.link(hp, pod_lo, .018, .016, SLATE_L, 10)
+    k.link(hp2, pod_hi, .018, .016, SLATE_L, 10)
+    k.link((hp[0], hp[1], hp[2] + .01), (hp2[0], hp2[1], hp2[2] + .01), .012, .012, SLATE, 8)
+    # a pair of feed lines running from the bulkhead into the pod
+    k.link((sx * .12, cy - bh * .6, BZ + .005), (sx * .36, -.2, 1.6), .011, .011, 0x6a5a48, 8)
+    k.link((sx * .16, cy - bh * .66, BZ + .005), (sx * .38, -.24, 1.6), .008, .008, BLACK, 8)
 
 # ---- canopy --------------------------------------------------------------------------
 CAN = [(-1.5, .16, .10), (-1.0, .38, .30), (-.3, .46, .38), (.3, .42, .30), (.72, .30, .12)]
