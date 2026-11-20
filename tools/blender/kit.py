@@ -217,7 +217,9 @@ class Kit:
                 try: faces.append(self.bm.faces.new((V[i][j], V[i + 1][j], V[i + 1][k_], V[i][k_])))
                 except ValueError: pass
         caps = []
-        for flag, ring in ((cap0, V[0]), (cap1, V[-1])):
+        # the two caps face opposite ways: the last ring's cap is wound backwards so that, after the outward
+        # check below, both caps face out (with the same order both, the last one always pointed inward)
+        for flag, ring in ((cap0, V[0]), (cap1, V[-1][::-1])):
             if flag:
                 try: caps.append(self.bm.faces.new(ring))
                 except ValueError: pass
