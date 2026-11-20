@@ -325,7 +325,7 @@ function toast(kind, n) {
 career.toast = toast;
 events.onWarn = () => sound.warn(); tutorial.onStep = () => sound.step();
 const stnEl = document.getElementById('stn'); let stnT = 0, stnM = '';
-const tips = new Tips({ econ, settings, isBusy: () => tutorial.on || menu.open || hangar.open });
+const tips = new Tips({ econ, settings, isBusy: () => tutorial.on || menu.open || hangar.open || !!document.querySelector('#comms.show')?.getClientRects().length });
 const hangar = new Hangar({ econ, systems, sound, onBuy: () => applyUpgrades() });
 tutorial.hangar = hangar; hangar.onToggle = (v) => { if (v) tutorial.hangarSeen = true; };
 nav.onDock = (v) => { hangar.setDocked(v); if (v) { tips.show('hangar'); tips.show('story'); } };
