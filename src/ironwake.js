@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { K } from './gpufx.js';
-import { Bake, T, wallTexture, floorTexture, screenTexture, ledTexture } from './bake.js';
+import { Bake, T, floorTexture, screenTexture, ledTexture } from './bake.js';
 
 // The Ironwake's walkable decks, built in code like Kestrel Relay (bake.js): a hangar bay open to space on the
 // starboard flank, a cycling airlock, a corridor to a junction (crew mess one way, engineering the other), a
@@ -31,17 +31,53 @@ function patch(m) {
   m.customProgramCacheKey = () => 'ironwakeroom';
   return m;
 }
+// a 4 m bay of a ship's inner skin: two heavy frames with rivet rows, plates of different heights between them,
+// stringers, a vent grille and a stencil, grime running down from the seams. Mirrored per bay in the shader.
+function hullWallTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  let sd2 = 7; const r = () => { sd2 = (sd2 * 1664525 + 1013904223) >>> 0; return sd2 / 4294967296; };
+  x.fillStyle = '#cdc8bc'; x.fillRect(0, 0, 512, 512);
+  // plates: three columns between the frames, each cut at its own heights
+  const cols = [[22, 182], [182, 330], [330, 490]];
+  for (const [x0, x1] of cols) {
+    let y = 0; while (y < 512) {
+      const h = 70 + r() * 150, tone = 196 + r() * 22 | 0;
+      x.fillStyle = `rgb(${tone},${tone - 4},${tone - 12})`; x.fillRect(x0, y, x1 - x0, Math.min(h, 512 - y));
+      x.fillStyle = 'rgba(25,22,18,.55)'; x.fillRect(x0, y, x1 - x0, 2);
+      x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(x0, y + 2, x1 - x0, 1);
+      y += h;
+    }
+    x.fillStyle = 'rgba(25,22,18,.5)'; x.fillRect(x1 - 1, 0, 2, 512);
+  }
+  for (let i = 0; i < 3000; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '40,36,30' : '255,250,240'},${r() * 0.06})`; x.fillRect(r() * 512, r() * 512, 1 + r() * 4, 1 + r() * 2); }
+  // frames at the bay edge (0) and in the middle: shaded like a T-section, rivets down both flanges
+  for (const fx of [0, 246]) {
+    const g = x.createLinearGradient(fx, 0, fx + 22, 0); g.addColorStop(0, '#8e8a80'); g.addColorStop(0.3, '#b9b4a8'); g.addColorStop(0.7, '#a29e93'); g.addColorStop(1, '#6e6a62');
+    x.fillStyle = g; x.fillRect(fx, 0, 22, 512); x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(fx + 22, 0, 4, 512);
+    x.fillStyle = 'rgba(40,36,30,.6)'; for (let y = 8; y < 512; y += 18) { x.beginPath(); x.arc(fx + 5, y, 1.8, 0, 7); x.arc(fx + 17, y + 9, 1.8, 0, 7); x.fill(); }
+  }
+  // a stringer across at waist height and a vent grille
+  x.fillStyle = '#9d988c'; x.fillRect(0, 300, 512, 12); x.fillStyle = 'rgba(0,0,0,.3)'; x.fillRect(0, 312, 512, 3);
+  x.fillStyle = '#2a2a2a'; x.fillRect(372, 380, 90, 56); x.fillStyle = '#5a5850'; for (let i = 0; i < 7; i++) x.fillRect(376, 384 + i * 7.5, 82, 3);
+  // stencil
+  x.fillStyle = 'rgba(30,30,30,.55)'; x.font = 'bold 22px monospace'; x.fillText('FR 41', 56, 270); x.font = '14px monospace'; x.fillText('NO STEP', 210 + 60, 140);
+  x.fillStyle = 'rgba(232,86,26,.75)'; x.fillRect(56, 278, 64, 6);
+  // grime streaks from the seams and the stringer
+  for (let i = 0; i < 22; i++) { const gx = r() * 512, gy = r() < 0.5 ? 315 : r() * 300, gr = x.createLinearGradient(gx, gy, gx, gy + 160); gr.addColorStop(0, `rgba(60,50,40,${0.12 + r() * 0.2})`); gr.addColorStop(1, 'rgba(60,50,40,0)'); x.fillStyle = gr; x.fillRect(gx, gy, 2 + r() * 7, 160); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+
 // walls and floors: every 2 m tile is mirrored and shaded by its own hash, with a slow grime field over the
 // top, so long walls stop reading as one tile stamped over and over
-function patchTiles(m, key) {
+function patchTiles(m, key, scale = 1) {
   patch(m); const base = m.onBeforeCompile;
   m.onBeforeCompile = (s) => {
     base(s);
-    s.fragmentShader = s.fragmentShader.replace('#include <map_fragment>', `
-      vec2 iwCell = floor(vMapUv); vec2 iwF = fract(vMapUv);
+    s.fragmentShader = s.fragmentShader.replace('#include <map_fragment>', `#define IWS ${scale.toFixed(3)}
+      vec2 iwUv = vMapUv * IWS; vec2 iwCell = floor(iwUv); vec2 iwF = fract(iwUv);
       float iwH = fract(sin(dot(iwCell, vec2(127.1, 311.7))) * 43758.5453), iwH2 = fract(iwH * 17.31 + .17);
       if (iwH > .5) iwF.x = 1. - iwF.x; if (iwH2 > .5) iwF.y = 1. - iwF.y;
-      vec4 sampledDiffuseColor = textureGrad(map, iwCell + iwF, dFdx(vMapUv), dFdy(vMapUv));
+      vec4 sampledDiffuseColor = textureGrad(map, iwCell + iwF, dFdx(iwUv), dFdy(iwUv));
       vec2 iwG = vMapUv * .19; float iwN = sin(iwG.x * 1.7 + sin(iwG.y * 2.3)) * sin(iwG.y * 1.3 + 1.7 * sin(iwG.x * .7));
       sampledDiffuseColor.rgb *= (.9 + .16 * iwH2) * (.88 + .12 * iwN);
       diffuseColor *= sampledDiffuseColor;`);
@@ -259,7 +295,7 @@ export function buildIronwake(site, { Part }) {
   // ---- finish ----
   const G = B.finish();
   const M = {
-    wall: patchTiles(new THREE.MeshBasicMaterial({ map: wallTexture(), vertexColors: true }), 'w'),
+    wall: patchTiles(new THREE.MeshBasicMaterial({ map: hullWallTexture(), vertexColors: true }), 'w', 0.5),
     floor: patchTiles(new THREE.MeshBasicMaterial({ map: floorTexture(), vertexColors: true }), 'f'),
     lamp: patch(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })),
     screen: patch(new THREE.MeshBasicMaterial({ map: screenTexture(), vertexColors: true, toneMapped: false })),
