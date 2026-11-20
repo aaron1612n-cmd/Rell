@@ -115,6 +115,10 @@ export class Admin {
 
   save() { const o = {}; for (const k of PERSIST) o[k] = this.s[k]; try { localStorage.setItem(KEY, JSON.stringify(o)); } catch {} }
   set(k, v) { this.s[k] = v; this.save(); this.onSet(k); }
+  copy(t) {
+    const ok = () => this.say('Copied'), fallback = () => { const ta = this.bodyEl.querySelector('textarea'); if (ta) { ta.value = t; ta.select(); this.say('Copy it from the box'); } else console.log(t); };
+    try { navigator.clipboard.writeText(t).then(ok, fallback); } catch { fallback(); }
+  }
   say(t, kind = 'info') { this.g.toast(kind, t); }
 
   // ---- wrap the live systems so the switches reach them ----------------------------------------
@@ -248,7 +252,7 @@ export class Admin {
         { t: 'seg', label: 'Drones', opts: [['auto', 'Normal'], ['on', 'Always'], ['off', 'None']], get: () => s.drones, set: (v) => this.set('drones', v) },
         { t: 'grid', items: [
           this.btn('Drone here', () => this.spawnDrone()), this.btn('Stun all', () => { for (const d of drones.list) if (d.mode !== 'dead') drones.stun(d, 12); }),
-          this.btn('Wreck all', () => { for (const d of drones.list) if (d.mode !== 'dead') drones.destroy(d); }, 'hot'),
+          this.btn('Wreck all', () => { for (const d of drones.list) if (d.mode !== 'dead') drones.destroy(d, new THREE.Vector3()); }, 'hot'),
         ] },
         { t: 'h', text: 'Hazards' },
         this.tog('events', 'Random storms', 'Meteor showers and solar flares on their own'),
@@ -363,7 +367,7 @@ export class Admin {
         { t: 'seg', label: 'Quality', opts: [['auto', 'Auto'], ['low', 'Low'], ['high', 'High']], get: () => settings.get('quality'), set: (v) => settings.set('quality', v) },
         { t: 'kv', live: 'dbg' },
         { t: 'grid', items: [
-          this.btn('Copy position', () => { const p = this.body().pos; navigator.clipboard?.writeText(p.toArray().map((n) => n.toFixed(1)).join(', ')); this.say('Copied'); }),
+          this.btn('Copy position', () => { const p = this.body().pos; this.copy(p.toArray().map((n) => n.toFixed(1)).join(', ')); }),
           this.btn('Log state', () => { console.log('[admin]', { ship: { pos: ship.pos.toArray(), vel: ship.vel.toArray(), hull: ship.hull, fuel: ship.fuel, mode: ship.mode }, econ, fleet: fleet.list(), admin: this.s }); this.say('Logged to console'); }),
         ] },
       ];
@@ -373,7 +377,7 @@ export class Admin {
         { t: 'h', text: 'Move a save' },
         { t: 'grid', items: [
           this.btn('Download', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(this.snapshot())], { type: 'application/json' })); a.download = 'low-orbit-save.json'; a.click(); }),
-          this.btn('Copy text', () => { navigator.clipboard?.writeText(JSON.stringify(this.snapshot())); this.say('Save copied'); }),
+          this.btn('Copy text', () => { this.copy(JSON.stringify(this.snapshot())); }),
           { t: 'file', label: 'Load file', fn: (f) => f && f.text().then((t) => this.restore(t)) },
         ] },
         { t: 'paste' },
