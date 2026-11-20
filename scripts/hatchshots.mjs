@@ -14,7 +14,7 @@ p.on('console', (m) => { if (m.type() === 'error' || m.text().startsWith('[hatch
 p.on('pageerror', (e) => console.log('pageerror:', e.message));
 await p.goto('http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 90000 });
 await p.waitForTimeout(3000);
-await p.evaluate((v) => { const g = window.__game; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); if (v === 'fp') g.cockpit.toggle(); }, view);
+await p.evaluate((v) => { const g = window.__game; g.rig.introDur = 0; g.ship.vel.set(0, 0, 0); if (g.tutorial.on) g.tutorial.finish(); g.tutorial.hideIntro?.(); if (v === 'fp') g.cockpit.toggle(); }, view);
 await p.waitForTimeout(view === 'fp' ? 2500 : 800);
 const at = async (state, t, name) => {
   await p.waitForFunction(([s, t]) => { const e = window.__game.eva; return e.state !== s || e.hatch.t >= t; }, [state, t], { timeout: 300000, polling: 16 });

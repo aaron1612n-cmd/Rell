@@ -372,7 +372,7 @@ export class Eva {
     p.vel.copy(rel.applyQuaternion(_q)).add(ship.vel);
     this.fuel = Math.max(0, this.fuel - use * CFG.fuelUse * dt);
     // inside a pressurised station: breathe, refill, no tether needed
-    const safe = this.safe = !!(this.relay && this.relay.air(p.pos));
+    const safe = this.safe = !!((this.relay && this.relay.air(p.pos)) || this.habitats?.some((h) => h.air(p.pos)));
     if (safe) this.o2 = Math.min(1, this.o2 + dt * 0.12); else this.o2 = Math.max(0, this.o2 - CFG.o2Use / (ship.o2Cap || 1) * dt * (boost ? 1.4 : 1));
     this.thrSm.lerp(th, 1 - Math.exp(-10 * dt));
     this.boosting = boost; this.burn = th.length();
@@ -608,7 +608,7 @@ export class Eva {
       // on a tall phone screen there's no room off to the side: swing in behind and back off a little
       const k = THREE.MathUtils.clamp((cam.aspect - 0.55) / 0.9, 0, 1);
       const want = _v2.set(THREE.MathUtils.lerp(0.16, 0.8, k), THREE.MathUtils.lerp(0.5, 0.55, k), THREE.MathUtils.lerp(3.2, 2.35, k)).applyQuaternion(p.quat).add(p.pos);
-      if (this.relay) this.relay.clampCam(p.pos, want);
+      if (this.relay) this.relay.clampCam(p.pos, want); if (this.habitats) for (const h of this.habitats) if (h.near) h.clampCam(p.pos, want);
       if (!this.tpInit) { this.camPos.copy(want); this.tpInit = true; }
       this.camPos.lerp(want, 1 - Math.exp(-8 * dt));
       cam.position.copy(this.camPos); cam.quaternion.slerp(p.quat, 1 - Math.exp(-10 * dt));

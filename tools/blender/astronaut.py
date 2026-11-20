@@ -765,64 +765,80 @@ def zsec(k, secs, color, mat, segs=32, cap0=True, cap1=True, M=None):
     return k.rings(rs, color, mat, cap0, cap1)
 
 
-def build_tool():
-    """Plasma cutter, redesigned as one sculpted tool: a flowing monocoque shell whose rear swells into the
-    integrated power cell, a ribbed heat-sink barrel that runs out into a ceramic nozzle with a copper tip,
-    a rubber overmoulded grip with finger grooves and a paddle trigger with a guard.
-    Origin at the centre of the grip; barrel along -Z, grip down -Y."""
-    k = P('tool', 29)
-    AX = 0.058                       # barrel axis height
-    shell_c = lambda p_, n_: (C_SLATE if p_.y < AX - 0.012 else (C_HAZ if (0.046 < p_.z < 0.058 and p_.y > AX - 0.012) else (C_SHELL_D if p_.z < -0.04 else C_SHELL)))
-    fs = zsec(k, [(0.092, 0, AX + 0.004, 0.016, 0.02, 2.4), (0.084, 0, AX + 0.007, 0.024, 0.029, 2.8), (0.06, 0, AX + 0.011, 0.031, 0.037, 3.1), (0.02, 0, AX + 0.012, 0.034, 0.039, 3.3),
-              (-0.03, 0, AX + 0.006, 0.032, 0.036, 3.3), (-0.07, 0, AX, 0.027, 0.029, 3.0), (-0.098, 0, AX - 0.002, 0.022, 0.023, 2.6), (-0.106, 0, AX - 0.002, 0.018, 0.018, 2.3)], shell_c, HARD, segs=44)
-    k.bm.normal_update()
-    for fc in fs:
-        if fc.is_valid and 0.046 < fc.calc_center_median().z < 0.058 and fc.calc_center_median().y > AX - 0.012: fc.material_index = HAZ_M
-    # dorsal rail with a low sight blade, a three-cell charge indicator in the swell, a cell latch
-    k.rbox((0, AX + 0.0495, 0.03), (0.01, 0.004, 0.075), C_METAL_D, METAL, bevel=0.0014)
-    for i in range(3): k.box((0.0, AX + 0.0495, 0.062 - i * 0.012), (0.012, 0.0014, 0.0075), color=C_AMBER, mat=LAMP, wear=0)
-    k.rbox((0, AX + 0.057, -0.045), (0.006, 0.008, 0.008), C_BLACK, HARD, bevel=0.001)
-    for sx in (1, -1):
-        for i in range(5):                # louvred vents (the game puffs heat out of these)
-            k.rbox((sx * 0.0332, AX - 0.002, 0.022 - i * 0.014), (0.0026, 0.026, 0.0055), C_BLACK, HARD, bevel=0.0008)
-        for (z, y) in ((0.052, AX + 0.02), (0.052, AX - 0.024), (-0.056, AX + 0.01), (-0.056, AX - 0.018)):
-            k.tube((sx * 0.0325, y, z), 0.0034, 0.0034, 0.0035, 'x', C_METAL, METAL, segs=8)
-        k.rbox((sx * 0.0338, AX + 0.02, 0.0), (0.0016, 0.004, 0.02), C_AMBER if sx > 0 else C_SLATE_L, LAMP if sx > 0 else METAL, bevel=0.0006)
-    # feed hose: from the cell down the left flank into the barrel collar, corrugated
-    k.sweep([(-0.026, AX + 0.016, 0.07), (-0.044, AX + 0.02, 0.03), (-0.045, AX + 0.016, -0.05), (-0.032, AX + 0.01, -0.108), (-0.012, AX + 0.004, -0.122)], 0.0058, C_BLACK, RUBBER, segs=12, ripple=0.14, rip_n=22)
-    # barrel: collar, then one continuous ribbed heat-sink tube (smooth rib profile), ceramic nozzle, copper tip
-    B = lambda z: rotM(90, 0, 0, (0, AX, z))     # local -Y runs forward (-Z)
-    k.lathe([(0.0, 0.0), (0.0, 0.0225), (-0.004, 0.0245), (-0.024, 0.0245), (-0.03, 0.0215), (-0.03, 0.0)], C_METAL_D, METAL, segs=36, M=B(-0.1), cap0=True, cap1=True)
-    k.lathe([(-0.0015, 0.0216), (-0.0075, 0.0232), (-0.013, 0.0232), (-0.0185, 0.0216)], C_HAZ, HAZ_M, segs=36, M=B(-0.1))     # hazard sleeve on the collar
-    prof = [(0.0, 0.012)]
-    for i in range(0, 41):
-        y = -0.0 - i * 0.0018
-        r = 0.0176 - 0.0014 * (i / 40) + 0.0028 * max(0.0, math.cos(i / 40 * 7 * 2 * math.pi)) ** 1.5
-        prof.append((y, r))
-    k.lathe(prof, C_METAL, METAL, segs=32, M=B(-0.13), cap0=True)
-    k.lathe([(0.0, 0.0165), (-0.006, 0.0172), (-0.03, 0.0125), (-0.036, 0.0105), (-0.038, 0.0085)], C_CERAMIC, HARD, segs=28, M=B(-0.19), cap0=True)
-    k.lathe([(0.0, 0.0084), (-0.006, 0.007), (-0.009, 0.0058), (-0.009, 0.0035), (-0.006, 0.0025)], C_COPPER, METAL, segs=24, M=B(-0.228))
-    # grip: raked, rubber overmold with finger grooves on the front, palm swell at the back, pommel + lanyard ring
+def grip_sections(dy=0.0, dz=0.0):
+    """the rubber grip: raked, finger grooves on the front, palm swell at the back. (y, ox, oz, half width, front, back, n)"""
     gs = []
     for i in range(11):
         t = i / 10; y = 0.03 - t * 0.11
         groove = 0.0035 * max(0.0, math.cos(t * 3 * 2 * math.pi)) * (0.2 < t < 0.92)
-        gs.append((y, 0.0, 0.004 + 0.012 * t + 0.002 * math.sin(math.pi * t), 0.016 + 0.002 * math.sin(math.pi * t), 0.019 - groove * 0.4, 0.024 + 0.003 * math.sin(math.pi * t), 3.0))
-    # grip sections in (y, ox, oz, back(+X)..): reuse asec but the grip's depth runs in Z: build in a frame rotated -90 about Y
+        gs.append((y + dy, 0.0, 0.004 + 0.012 * t + 0.002 * math.sin(math.pi * t) + dz, 0.016 + 0.002 * math.sin(math.pi * t), 0.019 - groove * 0.4, 0.024 + 0.003 * math.sin(math.pi * t), 3.0))
+    return gs
+
+
+def grip_mesh(k, gs, color, mat):
     rs = []
     for (y, ox, oz, wx, front, back, n) in gs:
         ring = []
         for j in range(32):
             th = 2 * math.pi * j / 32; c, s = math.cos(th), math.sin(th)
-            z = oz + (back if s > 0 else front) * sgp(s, 2 / n)
-            x = wx * sgp(c, 2 / n)
-            ring.append(Vector((x, y, z)))
+            ring.append(Vector((wx * sgp(c, 2 / n), y, oz + (back if s > 0 else front) * sgp(s, 2 / n))))
         rs.append(ring)
-    k.rings(rs, C_RUB, RUBBER, True, True)
-    # contact shapes for the game's grip solver (fingers close until they meet these)
+    k.rings(rs, color, mat, True, True)
+
+
+def build_tool():
+    """Plasma cutter, two-handed: a long sculpted monocoque body whose rear swells into the power cell, a carry
+    handle over the top, a long ribbed heat-sink barrel inside three guard rails running out to a ceramic nozzle
+    with a copper tip, a rubber pistol grip with a paddle trigger and guard at the back, and a second grip
+    clamped under the barrel for the other hand.
+    Origin at the centre of the rear grip; barrel along -Z, grip down -Y."""
+    k = P('tool', 29)
+    AX = 0.07                        # barrel axis height
+    DZ = -0.075                      # the body and barrel sit this far forward of the rear grip (built at 0, moved)
+    v0 = set(k.bm.verts)
+    shell_c = lambda p_, n_: (C_SLATE if p_.y < AX - 0.016 else (C_HAZ if (0.1 < p_.z < 0.116 and p_.y > AX - 0.016) else (C_SHELL_D if p_.z < -0.08 else C_SHELL)))
+    SH = [(0.172, 0, AX + 0.005, 0.021, 0.026, 2.4), (0.162, 0, AX + 0.008, 0.031, 0.038, 2.8), (0.13, 0, AX + 0.012, 0.042, 0.05, 3.1), (0.07, 0, AX + 0.013, 0.045, 0.052, 3.3),
+          (0.0, 0, AX + 0.012, 0.045, 0.052, 3.3), (-0.07, 0, AX + 0.007, 0.042, 0.047, 3.3), (-0.13, 0, AX + 0.001, 0.035, 0.038, 3.0), (-0.162, 0, AX - 0.001, 0.029, 0.03, 2.6), (-0.172, 0, AX - 0.001, 0.024, 0.024, 2.3)]
+    fs = zsec(k, SH, shell_c, HARD, segs=48)
+    k.bm.normal_update()
+    for fc in fs:
+        if fc.is_valid and 0.1 < fc.calc_center_median().z < 0.116 and fc.calc_center_median().y > AX - 0.016: fc.material_index = HAZ_M
+    top = AX + 0.064
+    # carry handle over the top, a dorsal rail with the charge indicator, a cell latch
+    k.sweep([(0, top - 0.004, 0.12), (0, top + 0.03, 0.098), (0, top + 0.04, 0.06), (0, top + 0.04, -0.04), (0, top + 0.026, -0.08), (0, top - 0.008, -0.1)], 0.0085, C_SLATE, HARD, segs=12, cap=True)
+    for z in (0.11, -0.092): k.rbox((0, top - 0.002, z), (0.022, 0.012, 0.03), C_METAL_D, METAL, bevel=0.003)
+    for i in range(4): k.box((0.0, top + 0.001, 0.05 - i * 0.022), (0.016, 0.0016, 0.012), color=C_AMBER, mat=LAMP, wear=0)
+    k.rbox((0, top + 0.006, 0.05 - 1.5 * 0.022), (0.026, 0.004, 0.1), C_METAL_D, METAL, bevel=0.0014)
+    for sx in (1, -1):
+        for i in range(6):                # louvred vents (the game puffs heat out of these)
+            k.rbox((sx * 0.0445, AX - 0.002, 0.04 - i * 0.018), (0.0034, 0.034, 0.007), C_BLACK, HARD, bevel=0.001)
+        for (z, y) in ((0.1, AX + 0.028), (0.1, AX - 0.032), (-0.1, AX + 0.014), (-0.1, AX - 0.024)):
+            k.tube((sx * 0.043, y, z), 0.0042, 0.0042, 0.004, 'x', C_METAL, METAL, segs=8)
+        k.rbox((sx * 0.0452, AX + 0.026, 0.0), (0.002, 0.005, 0.03), C_AMBER if sx > 0 else C_SLATE_L, LAMP if sx > 0 else METAL, bevel=0.0007)
+    # feed hose: from the cell down the left flank into the barrel collar, corrugated
+    k.sweep([(-0.034, AX + 0.02, 0.14), (-0.058, AX + 0.026, 0.07), (-0.06, AX + 0.02, -0.08), (-0.044, AX + 0.012, -0.17), (-0.016, AX + 0.005, -0.19)], 0.0072, C_BLACK, RUBBER, segs=12, ripple=0.14, rip_n=34)
+    # barrel: collar, ribbed heat-sink tube inside three guard rails, ceramic nozzle, copper tip
+    B = lambda z: rotM(90, 0, 0, (0, AX, z))     # local -Y runs forward (-Z)
+    k.lathe([(0.0, 0.0), (0.0, 0.031), (-0.005, 0.034), (-0.034, 0.034), (-0.042, 0.029), (-0.042, 0.0)], C_METAL_D, METAL, segs=40, M=B(-0.165), cap0=True, cap1=True)
+    k.lathe([(-0.002, 0.03), (-0.01, 0.0322), (-0.018, 0.0322), (-0.026, 0.03)], C_HAZ, HAZ_M, segs=40, M=B(-0.165))     # hazard sleeve on the collar
+    prof = [(0.0, 0.014)]
+    for i in range(0, 101):
+        y = -i * 0.0021
+        r = 0.0215 - 0.002 * (i / 100) + 0.0034 * max(0.0, math.cos(i / 100 * 15 * 2 * math.pi)) ** 1.5
+        prof.append((y, r))
+    k.lathe(prof, C_METAL, METAL, segs=32, M=B(-0.205), cap0=True)
+    for a_ in (90, 210, 330):                      # guard rails round the heat sink, collar to nozzle
+        c_, s_ = math.cos(math.radians(a_)), math.sin(math.radians(a_)); r_ = 0.033
+        k.sweep([(c_ * r_, AX + s_ * r_, -0.19), (c_ * r_, AX + s_ * r_, -0.41)], 0.0042, C_SLATE_L, METAL, segs=8, cap=True)
+    k.lathe([(0.0, 0.0), (0.0, 0.038), (-0.012, 0.038), (-0.012, 0.0)], C_METAL_D, METAL, segs=40, M=B(-0.405), cap0=True, cap1=True)    # front ring holding the rails
+    k.lathe([(0.0, 0.0215), (-0.008, 0.0225), (-0.04, 0.016), (-0.048, 0.013), (-0.05, 0.011)], C_CERAMIC, HARD, segs=28, M=B(-0.417), cap0=True)
+    k.lathe([(0.0, 0.011), (-0.008, 0.0092), (-0.012, 0.0076), (-0.012, 0.0046), (-0.008, 0.0032)], C_COPPER, METAL, segs=24, M=B(-0.467))
+    bmesh.ops.translate(k.bm, verts=[v for v in k.bm.verts if v not in v0], vec=(0, 0, DZ))
+    # rear grip: raked rubber overmould + pommel and lanyard ring
+    gs = grip_sections()
+    grip_mesh(k, gs, C_RUB, RUBBER)
     J['grip'] = [[g[0], g[2], g[3], g[4], g[5]] for g in gs]       # y, centre z, half width x, front, back
-    J['shell'] = [[0.092, AX + 0.004, 0.016, 0.02], [0.084, AX + 0.007, 0.024, 0.029], [0.06, AX + 0.011, 0.031, 0.037], [0.02, AX + 0.012, 0.034, 0.039],
-                  [-0.03, AX + 0.006, 0.032, 0.036], [-0.07, AX, 0.027, 0.029], [-0.098, AX - 0.002, 0.022, 0.023], [-0.106, AX - 0.002, 0.018, 0.018]]
+    J['shell'] = [[z + DZ, cy, a, b] for (z, cx, cy, a, b, n) in SH]
     J['trigger'] = {'c': [0, 0.012, -0.03], 'h': [0.008, 0.017, 0.0055], 'rx': 14}
     J['guard'] = [[0, 0.03, -0.062], [0, 0.004, -0.07], [0, -0.032, -0.058], [0, -0.056, -0.034], [0, -0.064, -0.01]]
     k.lathe([(0.0, 0.0), (0.0, 0.017), (-0.004, 0.019), (-0.012, 0.018), (-0.014, 0.0)], C_SLATE, HARD, segs=24, sx=0.95, sz=1.25, M=rotM(0, 0, 0, (0, -0.078, 0.016)), cap0=True, cap1=True)
@@ -830,9 +846,16 @@ def build_tool():
     # paddle trigger (sized for a glove) and a wide guard loop
     k.rbox((0, 0.012, -0.03), (0.016, 0.034, 0.011), C_HAZ, HAZ_M, rot=(14, 0, 0), bevel=0.004, seg=2)
     k.sweep([(0, 0.03, -0.062), (0, 0.004, -0.07), (0, -0.032, -0.058), (0, -0.056, -0.034), (0, -0.064, -0.01)], 0.0045, C_SLATE, HARD, segs=8, cap=True)
-    J['toolTip'] = [0, AX, -0.252]
-    J['toolEmit'] = [0, AX, -0.2365]
-    J['toolEmitR'] = 0.0045
+    # fore grip for the other hand: the same rubber grip under the front of the body, on a mounting block
+    FY, FZ = 0.012, -0.2
+    k.rbox((0, AX - 0.036, FZ - 0.002), (0.03, 0.026, 0.04), C_SLATE, HARD, bevel=0.005)
+    for sx in (1, -1): k.tube((sx * 0.015, AX - 0.036, FZ - 0.002), 0.004, 0.004, 0.005, 'x', C_METAL, METAL, segs=10)
+    grip_mesh(k, grip_sections(FY, FZ), C_RUB, RUBBER)
+    k.lathe([(0.0, 0.0), (0.0, 0.017), (-0.004, 0.019), (-0.01, 0.018), (-0.012, 0.0)], C_SLATE, HARD, segs=24, sx=0.95, sz=1.25, M=rotM(0, 0, 0, (0, -0.078 + FY, 0.016 + FZ)), cap0=True, cap1=True)
+    J['fore'] = [0, FY, FZ]
+    J['toolTip'] = [0, AX, -0.494 + DZ]
+    J['toolEmit'] = [0, AX, -0.4755 + DZ]
+    J['toolEmitR'] = 0.0058
     return k
 
 

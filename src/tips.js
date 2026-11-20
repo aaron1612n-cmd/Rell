@@ -21,6 +21,8 @@ export class Tips {
     Object.assign(this, { econ, settings, isBusy });
     this.el = document.createElement('div'); this.el.id = 'tip'; document.body.appendChild(this.el);
     this.q = []; this.t = 0;
+    // tap to dismiss (phones: it sits over the view)
+    this.el.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.t = Math.min(this.t, 0.01); });
   }
 
   show(key, force = false) {

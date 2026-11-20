@@ -410,6 +410,24 @@ body.hangar #tip,body.photo #tip,body.photo #suit,body.photo #sys,body.photo #ha
 #toast.long{font-size:15px;letter-spacing:.04em}
 #toast.warn{border-color:var(--hazard);color:var(--bone)}
 @media (prefers-reduced-motion:reduce){#hangar .card,#hangar,#tip,#hangarbtn{transition:none}#sys i,#suit.low p:first-child s i{animation:none}}
+
+/* phones: every pop-up is a slim strip that covers as little of the view as possible. Portrait: just above the
+   thumb controls. Landscape: top centre, between the left chips and the right buttons. Tap any of them to dismiss. */
+body.touch #toast{top:calc(max(10px,env(safe-area-inset-top)) + 58px);gap:7px;padding:5px 12px 5px 8px;border-width:1px;font-size:12px;letter-spacing:.04em;max-width:calc(100vw - 150px);white-space:nowrap}
+body.touch #toast span{overflow:hidden;text-overflow:ellipsis}
+body.touch #toast.long{font-size:11px}
+body.touch #toast svg{width:16px;height:16px;flex:none}
+body.touch #comms,body.touch #tip{left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right));width:auto;max-width:none;top:auto;bottom:calc(max(16px,env(safe-area-inset-bottom)) + 166px);padding:6px 10px 7px;gap:1px;text-align:left;border-right:0;border-left:2px solid var(--hazard);transform:translateY(8px);pointer-events:none}
+body.touch #comms.show,body.touch #tip.show{transform:none;pointer-events:auto}
+body.touch #comms .mono,body.touch #tip b{font-size:9px;letter-spacing:.14em}
+body.touch #comms{display:block}body.touch #comms b{display:inline;margin-left:8px;font-size:12px;letter-spacing:.04em}
+body.touch #comms p,body.touch #tip span{margin:0;font-size:12px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media (orientation:landscape) and (max-height:520px){
+  body.touch #comms,body.touch #tip{left:50%;right:auto;width:min(44vw,380px);bottom:auto;top:max(8px,env(safe-area-inset-top));transform:translate(-50%,-6px)}
+  body.touch #comms.show,body.touch #tip.show{transform:translate(-50%,0)}
+  body.touch #comms p,body.touch #tip span{font-size:11px}
+  body.touch #toast{top:calc(max(8px,env(safe-area-inset-top)) + 64px)}
+}
 </style>
 </head>
 <body>

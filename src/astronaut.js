@@ -191,24 +191,29 @@ export function buildGlove(M) {
   const setJ = (b, flex, abd = 0, twist = 0) => b.quaternion.copy(b.userData.rest).multiply(_gq.setFromEuler(_ge.set(abd, twist, -flex)));
   // the pose the tool's grip gives (filled by fitGrip): per chain [flex0, flex1, flex2, abd, twist]
   let grip = null, holding = () => false;
+  // a weight 0..1 from holding() blends the free hand into the grip pose (the left hand taking the fore grip)
+  const flat = chains.flat(), freeQ = flat.map(() => new THREE.Quaternion()), _bq = new THREE.Quaternion();
   const setCurl = (c, spread = 0, trig = null) => {
-    if (grip && holding()) {
-      grip.forEach((a, ci) => {
-        const t = ci === 0 && trig !== null ? Math.max(0, trig - 0.72) / 0.28 : 0;
-        chains[ci].forEach((b, k) => setJ(b, a[k] + (ci === 0 ? [0.04, 0.12, 0.1][k] * t : 0), k === 0 ? a[3] : 0, k === 0 ? a[4] : 0));
-      });
-      return;
+    const w = grip ? Math.min(1, Math.max(0, +holding())) : 0;
+    if (w < 1) {
+      // a pressurised glove: never quite flat, never a tight fist; the little finger curls the most
+      for (let i = 0; i < 4; i++) {
+        const ci = i === 0 && trig !== null ? trig : c, k = 1 + (i - 1.5) * 0.05;
+        const [a, b, d] = chains[i];
+        setJ(a, 0.1 + ci * 1.2 * k, -chains[i].fan * (0.75 * ci - 0.6 * spread));
+        setJ(b, 0.16 + ci * 1.4 * k);
+        setJ(d, 0.1 + ci * 0.85 * k);
+      }
+      const [ta, tb, td] = chains[4];
+      setJ(ta, 0.05 + c * 0.32, -0.1 * c, 0.15 * c); setJ(tb, 0.12 + c * 0.45); setJ(td, 0.12 + c * 0.6);
+      if (w <= 0) return;
+      flat.forEach((b, i) => freeQ[i].copy(b.quaternion));
     }
-    // a pressurised glove: never quite flat, never a tight fist; the little finger curls the most
-    for (let i = 0; i < 4; i++) {
-      const ci = i === 0 && trig !== null ? trig : c, k = 1 + (i - 1.5) * 0.05;
-      const [a, b, d] = chains[i];
-      setJ(a, 0.1 + ci * 1.2 * k, -chains[i].fan * (0.75 * ci - 0.6 * spread));
-      setJ(b, 0.16 + ci * 1.4 * k);
-      setJ(d, 0.1 + ci * 0.85 * k);
-    }
-    const [ta, tb, td] = chains[4];
-    setJ(ta, 0.05 + c * 0.32, -0.1 * c, 0.15 * c); setJ(tb, 0.12 + c * 0.45); setJ(td, 0.12 + c * 0.6);
+    grip.forEach((a, ci) => {
+      const t = ci === 0 && trig !== null ? Math.max(0, trig - 0.72) / 0.28 : 0;
+      chains[ci].forEach((b, k) => setJ(b, a[k] + (ci === 0 ? [0.04, 0.12, 0.1][k] * t : 0), k === 0 ? a[3] : 0, k === 0 ? a[4] : 0));
+    });
+    if (w < 1) flat.forEach((b, i) => { _bq.copy(b.quaternion); b.quaternion.slerpQuaternions(freeQ[i], _bq, w); });
   };
   // close every finger onto the tool until it meets the grip (sdf: glove-space point -> distance to the tool)
   const fitGrip = (sdf, isHolding, plan) => {
@@ -265,7 +270,7 @@ export function buildGlove(M) {
 // The tool gets its own copies of the metal and shell materials so its barrel can heat up: a glow that
 // spreads back from the nozzle over the fin stack as `heat` (0..1) climbs, dull red to orange.
 const AX = J.toolTip[1];
-const HEAT_AT = new THREE.Vector3(0, AX, -0.215);
+const HEAT_AT = new THREE.Vector3(0, AX, J.toolEmit[2] + 0.07);   // the end of the heat sink, behind the nozzle
 function heatMaterial(base, U) {
   const m = base.clone();
   m.onBeforeCompile = (sh) => {
@@ -309,7 +314,7 @@ export function buildTool(M) {
   const hot = new THREE.Object3D(); hot.position.copy(HEAT_AT); g.add(hot);
   // the cheek-plate vent slots (both sides), where the heat dumps as a puff of gas
   const vents = [];
-  for (const sx of [1, -1]) for (let i = 0; i < 5; i++) vents.push({ p: new THREE.Vector3(sx * 0.034, AX - 0.002, 0.022 - i * 0.014), d: new THREE.Vector3(sx, 0, 0) });
+  for (const sx of [1, -1]) for (let i = 0; i < 6; i++) vents.push({ p: new THREE.Vector3(sx * 0.047, AX - 0.002, -0.035 - i * 0.018), d: new THREE.Vector3(sx, 0, 0) });
   g.userData = { emitter, tip, flare: fl, heatU: U, hot, vents };
   return g;
 }
@@ -351,12 +356,13 @@ const lerpRows = (rows, key, v) => {   // rows sorted by descending key
 };
 const sedist = (x, z, a, b, n) => ((Math.abs(x / a) ** n + Math.abs(z / b) ** n) ** (1 / n) - 1) * Math.min(a, b);
 const _tq = new THREE.Vector3(), _trM = new THREE.Matrix4().makeRotationX(-J.trigger.rx * Math.PI / 180);
-function toolSdf(p, shell = true) {
+function toolSdf(p, shell = true, trigger = true) {
   const G = J.grip, gy0 = G[0][0], gy1 = G[G.length - 1][0];
   const [, oz, wx, fr, bk] = lerpRows(G, 0, Math.min(gy0, Math.max(gy1, p.y)));
   let d = Math.max(sedist(p.x, p.z - oz, wx, p.z < oz ? fr : bk, 3), p.y - gy0 - 0.01, gy1 - p.y);
   const S = J.shell, [, cy, a, b] = lerpRows(S, 0, Math.min(S[0][0], Math.max(S[S.length - 1][0], p.z)));
   if (shell) d = Math.min(d, Math.max(sedist(p.x, p.y - cy, a, b, 3), p.z - S[0][0], S[S.length - 1][0] - p.z));
+  if (!trigger) return d;
   const T = J.trigger; _tq.set(p.x - T.c[0], p.y - T.c[1], p.z - T.c[2]).applyMatrix4(_trM);
   d = Math.min(d, Math.max(Math.abs(_tq.x) - T.h[0], Math.abs(_tq.y) - T.h[1], Math.abs(_tq.z) - T.h[2]));
   return d;
@@ -371,6 +377,44 @@ export function holdTool(glove, tool) {
   const inv = new THREE.Matrix4(), P = new THREE.Vector3();
   tool.updateMatrix(); inv.copy(tool.matrix).invert();
   glove.fitGrip((p, ci) => toolSdf(P.copy(p).applyMatrix4(inv), ci === 4), () => tool.parent === glove.group && tool.visible, GRIP_PLAN);
+}
+
+// The cutter is held in both hands: the right on the pistol grip, the left on the fore grip under the front of the
+// body, which is the same grip shape moved by J.fore. So a hand on the fore grip sits exactly as the right hand sits
+// on the rear one, moved along with it, and (for the left) mirrored across the tool's centre plane.
+const TOOL_M = new THREE.Matrix4().compose(V(TOOL_AT), new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 - TOOL_RAKE, 0, 0)), new THREE.Vector3(1, 1, 1));
+const GLOVE_IN_TOOL = TOOL_M.clone().invert();
+const MX = new THREE.Matrix4().makeScale(-1, 1, 1);
+const FORE_L = MX.clone().multiply(new THREE.Matrix4().makeTranslation(...J.fore)).multiply(GLOVE_IN_TOOL);   // left glove, tool space
+const _tm = new THREE.Matrix4(), _tm2 = new THREE.Matrix4(), _tsc = new THREE.Vector3();
+// the right glove's wrist pose (arm space = body space) that puts the tool at tool matrix T (body space)
+export function rightFromTool(T, W, Q) { _tm.multiplyMatrices(T, GLOVE_IN_TOOL).decompose(W, Q, _tsc); }
+// the tool matrix (body space) for a right wrist pose
+export function toolFromRight(W, Q, out) { return out.compose(W, Q, _tsc.set(1, 1, 1)).multiply(TOOL_M); }
+// the left glove's wrist pose (its own mirrored arm space) on the fore grip of a tool at T (body space)
+export function leftFromTool(T, W, Q) { _tm2.multiplyMatrices(MX, T).multiply(FORE_L).decompose(W, Q, _tsc); }
+// a tool matrix from where its rear grip is and where the barrel points (body space)
+const _tx = new THREE.Vector3(), _ty = new THREE.Vector3(), _tz = new THREE.Vector3();
+export function aimTool(grip, dir, up, out) {
+  _tz.copy(dir).normalize().negate(); _tx.crossVectors(up, _tz).normalize(); _ty.crossVectors(_tz, _tx);
+  return out.makeBasis(_tx, _ty, _tz).setPosition(grip);
+}
+// keep the fore grip within the left arm's reach: slide the tool (its grip `grip`, body space) back toward the
+// left shoulder (body space) until the left wrist can get there
+const _lw = new THREE.Vector3(), _lq = new THREE.Quaternion(), _lt = new THREE.Matrix4();
+function reachFore(grip, dir, up, shoulderL, maxL) {
+  for (let i = 0; i < 4; i++) {
+    aimTool(grip, dir, up, _lt); leftFromTool(_lt, _lw, _lq); _lw.x = -_lw.x;    // left wrist, body space
+    const d = _lw.distanceTo(shoulderL) - maxL; if (d <= 0) return;
+    grip.addScaledVector(_lw.sub(shoulderL).normalize(), -d);
+  }
+}
+const REACH = (SUIT.ua + SUIT.fa) * 0.98;
+// the left glove closes on the fore grip (no trigger there: the index wraps it too)
+const GRIP_PLAN_L = GRIP_PLAN.map((g) => ({ ...g }));
+function fitFore(glove) {
+  const P = new THREE.Vector3();
+  glove.fitGrip((p) => toolSdf(P.copy(p).applyMatrix4(GLOVE_IN_TOOL), false, false), () => glove.hold || 0, GRIP_PLAN_L);
 }
 
 // one arm: a single sleeve skinned to the shoulder, a half-way elbow bone and the forearm (posed by IK, not nested),
@@ -392,7 +436,7 @@ export function buildArm(M, side = 1, withTool = false) {
   let tool = null;
   if (withTool) {
     tool = buildTool(M); holdTool(glove, tool);
-  }
+  } else if (side < 0) fitFore(glove);
   return { root, upper, mid, fore, wrist, glove, tool, side };
 }
 
@@ -406,6 +450,7 @@ function aimBone(obj, from, to, pole) {
   const x = _c.crossVectors(y, z);
   _m.makeBasis(x, y, z); obj.quaternion.setFromRotationMatrix(_m); obj.position.copy(from);
 }
+const _wy = new THREE.Vector3(), _ws = new THREE.Vector3(), _wE = new THREE.Vector3(), _wf = new THREE.Vector3();
 export function solveArm(arm, S, W, pole, hand) {
   const a = SUIT.ua, b = SUIT.fa;
   const d = _e.subVectors(W, S); let L = d.length();
@@ -414,10 +459,21 @@ export function solveArm(arm, S, W, pole, hand) {
   const dir = d.clone().normalize();
   const x = (a * a - b * b + L * L) / (2 * L), h = Math.sqrt(Math.max(0, a * a - x * x));
   const pp = pole.clone().addScaledVector(dir, -pole.dot(dir)).normalize();
+  // the elbow can swing round the shoulder-wrist line: swing it (a little) to where the forearm runs most nearly
+  // the way the hand points, so the wrist never folds over at a broken-looking angle (a suit glove barely bends)
+  const hy = _wy.set(0, -1, 0).applyQuaternion(hand), side = _ws.crossVectors(dir, pp);
+  let best = 1e9, bt = 0;
+  for (let th = -1.2; th <= 1.2001; th += 0.1) {
+    _wE.copy(S).addScaledVector(dir, x).addScaledVector(pp, h * Math.cos(th)).addScaledVector(side, h * Math.sin(th));
+    const bend = Math.acos(THREE.MathUtils.clamp(_wf.subVectors(Wc, _wE).normalize().dot(hy), -1, 1));
+    const c = Math.max(0, bend - 0.35) ** 2 * 4 + bend * bend * 0.3 + th * th * 0.5;
+    if (c < best) { best = c; bt = th; }
+  }
+  pp.multiplyScalar(Math.cos(bt)).addScaledVector(side, Math.sin(bt));
   const E = S.clone().addScaledVector(dir, x).addScaledVector(pp, h);
   // twist: forearm leans its +Z the way the back of the hand faces, so the forearm detail sits on the outside
-  aimBone(arm.upper, S, E, pole);
-  aimBone(arm.fore, E, Wc, _c.set(0, 0, 0).add(pole));
+  aimBone(arm.upper, S, E, pp);
+  aimBone(arm.fore, E, Wc, _c.copy(pp));
   arm.mid.position.copy(E); arm.mid.quaternion.copy(arm.upper.quaternion).slerp(arm.fore.quaternion, 0.5);
   arm.wrist.position.copy(Wc); arm.wrist.quaternion.copy(hand);
   return E;
@@ -503,13 +559,13 @@ export function restPose() {
 const _S = new THREE.Vector3(), _W = new THREE.Vector3(), _P = new THREE.Vector3(), _F = new THREE.Vector3(), _T = new THREE.Vector3(), _hq = new THREE.Quaternion();
 const _W2 = new THREE.Vector3(), _F2 = new THREE.Vector3(), _T2 = new THREE.Vector3(), _sp = new THREE.Vector3(), _mm = new THREE.Matrix4();
 const blend3 = (a, b, k) => a.lerp(b, THREE.MathUtils.clamp(k, 0, 1));
-// a point on the right hand's tool, in body (= right arm) space: where the left hand takes hold to steady it
-const SUPPORT_PT = new THREE.Vector3(0, AX - 0.03, -0.085);
-function supportPoint(armR, out) {
-  const t = armR.tool; armR.root.updateWorldMatrix(true, true);
-  _mm.copy(armR.root.matrixWorld).invert().multiply(t.matrixWorld);
-  return out.copy(SUPPORT_PT).applyMatrix4(_mm);
-}
+// two-handed holds (body space): where the rear grip sits and where the barrel points, relaxed and aimed
+const HOLD = {
+  low: { grip: new THREE.Vector3(0.2, -0.17, -0.25), at: new THREE.Vector3(-0.1, -0.75, -1.4) },
+  aim: { grip: new THREE.Vector3(0.19, -0.05, -0.27), at: new THREE.Vector3(-0.04, 0.1, -1.7) },
+};
+const _hg = new THREE.Vector3(), _hd = new THREE.Vector3(), _hu = new THREE.Vector3(0, 1, 0), _hT = new THREE.Matrix4(), _hq2 = new THREE.Quaternion(), _hw2 = new THREE.Vector3();
+const _shL = new THREE.Vector3(-SUIT.shoulder.x, SUIT.shoulder.y, SUIT.shoulder.z);
 
 export function poseBody(a, P) {
   const { armR, armL, legR, legL, body, head, torso } = a.userData;
@@ -521,25 +577,28 @@ export function poseBody(a, P) {
   body.rotation.set(0.1 + P.lean.x, P.lean.y, P.lean.z);
   _S.copy(SUIT.shoulder); _S.y += 0.005 * br;
 
-  // right: the tool hand. relaxed at the hip-front .. raised and aimed; kicked by the cutter's recoil
+  // right: the tool hand. Holding the cutter, the pose is the tool's: rear grip low at the hip .. raised and aimed,
+  // kicked by the recoil, and the right glove is wherever that puts the rear grip
   const r = P.reach, rc = P.recoil;
+  const two = P.empty ? 0 : (1 - P.drop) * (1 - Math.max(P.reel, P.grab));
   if (!P.empty) {
-    _W.set(0.2 - r * 0.06, -0.14 + r * 0.27 + s * 0.01, -0.3 - r * 0.12).add(P.armR);
-    _W.y += rc.y; _W.z += rc.z;
-    _F.set(-0.1 * r, -0.3 + r * (0.3 + Math.tan(TOOL_RAKE)) + rc.x * 1.2, -1).normalize(); _T.set(-0.25, 1, -0.1);
+    _hg.lerpVectors(HOLD.low.grip, HOLD.aim.grip, r).add(P.armR); _hg.y += rc.y + s * 0.006 * (1 - r); _hg.z += rc.z;
+    _hd.lerpVectors(HOLD.low.at, HOLD.aim.at, r).sub(_hg); _hd.y += rc.x * 1.2 * _hd.length();
+    reachFore(_hg, _hd, _hu, _shL, REACH);
+    aimTool(_hg, _hd, _hu, _hT); rightFromTool(_hT, _W, _hq);
   } else {
     // empty: floats open like the left
     _W.set(0.25 - c * 0.01, -0.21 - s * 0.012, -0.22).add(P.armR);
-    _F.set(0.25, -0.6, -1).normalize(); _T.set(-1, 0.3, 0);
+    _F.set(0.25, -0.6, -1).normalize(); _T.set(-1, 0.3, 0); handBasis(_F, _T, _hq);
   }
   // reaching down to the holster (and back up) as the tool is drawn or put away
   if (P.drop > 0) {
     _W2.set(0.36, -0.09, 0.0); _F2.set(0.05, -1, 0.15); _T2.set(-0.3, 0, -1);
-    const k = P.drop; blend3(_W, _W2, k); blend3(_F, _F2, k); blend3(_T, _T2, k);
+    const k = P.drop; blend3(_W, _W2, k); _hq.slerp(handBasis(_F2, _T2, _hq2), Math.min(1, k));
   }
   if (P.fixR) _W.add(P.fixR);   // giving way to a wall (suitBody.js)
   _P.set(0.8, -0.6, 0.35);
-  solveArm(armR, _S, _W, _P, handBasis(_F, _T, _hq));
+  solveArm(armR, _S, _W, _P, _hq);
   if (P.empty) armR.glove.setCurl(0.34 + 0.06 * c + P.drop * 0.5, 0.35);
   else armR.glove.setCurl(0.9 + 0.06 * P.trig, 0, 0.72 + 0.28 * P.trig);
 
@@ -561,15 +620,16 @@ export function poseBody(a, P) {
     blend3(_W, _W2, k); blend3(_F, _F2.set(-0.6, -0.4, -0.2), k); blend3(_T, _T2.copy(_sp), k);
     curl = THREE.MathUtils.lerp(curl, ph < 0.6 ? 0.95 : 0.35, k);
   }
-  // cutting: the left hand comes under the tool to steady it
-  if (P.support > 0 && !P.empty) {
-    const k = P.support; supportPoint(armR, _W2); _W2.x = -_W2.x; _W2.y -= 0.02;
-    blend3(_W, _W2, k); blend3(_F, _F2.set(-1, 0.25, -0.8), k); blend3(_T, _T2.set(0.6, 0.6, -1), k);
-    curl = THREE.MathUtils.lerp(curl, 0.6, k); spread *= 1 - k;
+  handBasis(_F, _T, _hq);
+  // holding the cutter: the left hand is on its fore grip (wherever the right hand actually put the tool)
+  armL.glove.hold = two;
+  if (two > 0) {
+    toolFromRight(armR.wrist.position, armR.wrist.quaternion, _hT); leftFromTool(_hT, _hw2, _hq2);
+    _W.lerp(_hw2, two); _hq.slerp(_hq2, two);
   }
   if (P.fixL) _W.add(P.fixL);
   _P.set(0.85, -0.5, 0.5);
-  solveArm(armL, _S, _W, _P, handBasis(_F, _T, _hq));
+  solveArm(armL, _S, _W, _P, _hq);
   armL.glove.setCurl(curl, spread);
 
   // legs: a slow loose drift, swung by inertia, straightened and drawn together while boosting
@@ -667,49 +727,50 @@ const FPT = ['R', 'L'].reduce((o, k) => (o[k] = { S: FP_SHOULDER.clone(), W: new
 // arm dips out of view to the holster), empty (no tool in the right hand), reel (0..1) + reelPh
 export function fpTargets(o = {}) {
   const E = SUIT.eye, nar = o.narrow ?? 1, sw = o.sway || _zero, bob = o.bob || 0, r = o.reach || 0, rc = o.recoil || _zero, drop = o.drop || 0;
-  const R = FPT.R, L = FPT.L;
-  R.S.copy(FP_SHOULDER); L.S.copy(FP_SHOULDER);
+  const R = FPT.R, L = FPT.L, rl = o.reel || 0;
+  // two hands on the cutter unless the left is busy (clamping a tag, hauling the tether) or the tool is away
+  const two = FPT.two = o.empty ? 0 : (1 - drop) * (1 - Math.max(r, rl));
+  R.S.copy(FP_SHOULDER);
+  // the left shoulder cheats in toward the middle while it holds the fore grip, so the arm can reach it
+  L.S.copy(FP_SHOULDER).addScaledVector(_T.set(-0.15, 0.08, -0.08), two);
   if (!o.empty) {
-    // the cutter is held canted in toward the reticle (it crosses the view about a metre out), so you see its
-    // flank, the canister and your fist on the grip instead of looking straight down its back end
-    R.W.set(E.x + 0.2 * nar + (o.kick || 0), E.y - 0.21 - 0.06 * (1 - nar) + bob + sw.y + rc.y, E.z - 0.4 + (o.firing ? 0.012 : 0) + sw.z + rc.z); R.W.x += sw.x;
-    _ff.set(E.x - 0.24, E.y + 0.04, E.z - 1.2).sub(R.W).normalize(); _ff.y += Math.sin(TOOL_RAKE) + rc.x * 1.4; _ft.set(0.25, 1, 0.3);
+    // the cutter sits low and a little right, its barrel running out to the reticle, both gloves on it
+    _hg.set(E.x + 0.22 * nar + (o.kick || 0) + sw.x, E.y - 0.32 - 0.05 * (1 - nar) + bob + sw.y + rc.y, E.z - 0.44 + (o.firing ? 0.012 : 0) + sw.z + rc.z);
+    // the barrel converges on a point a little ahead and left, so you see its left flank and the hand on the fore grip
+    _hd.set(E.x + -0.3, E.y + -0.1, E.z - 1.4).sub(_hg); _hd.y += rc.x * 1.4 * _hd.length();
+    _sp.set(-L.S.x, L.S.y, L.S.z);
+    reachFore(_hg, _hd, _hu, _sp, REACH);
+    aimTool(_hg, _hd, _hu, _hT); rightFromTool(_hT, R.W, R.Q);
   } else {
     // empty hand: open, low right, the mirror of the left
     R.W.set(E.x + 0.19 * nar + sw.x, E.y - 0.24 + bob + sw.y, E.z - 0.42 + sw.z);
-    _ff.set(-0.12, 0.5, -1); _ft.set(-1, 0.2, -0.15);
+    handBasis(_ff.set(-0.12, 0.5, -1), _ft.set(-1, 0.2, -0.15), R.Q);
   }
-  if (drop > 0) { R.W.y -= 0.42 * drop; R.W.z += 0.16 * drop; R.W.x += 0.06 * drop; _ff.lerp(_ft.set(0.1, -0.6, -1), drop * 0.6); if (!o.empty) _ft.set(0.25, 1, 0.3); else _ft.set(-1, 0.2, -0.15); }
+  if (drop > 0) { R.W.y -= 0.42 * drop; R.W.z += 0.16 * drop; R.W.x += 0.06 * drop; R.Q.slerp(handBasis(_ff.set(0.1, -0.6, -1), _ft.set(-1, 0.2, -0.15), _hq2), drop * 0.6); }
   // a wall closer than the hands: lower them out of the way, the way you'd pull your arms in (suitBody.js)
-  const tR = o.tuckR || 0, tL = o.tuckL || 0;
-  if (tR > 0) { R.W.y -= 0.24 * tR; R.W.z += 0.2 * tR; R.W.x += 0.03 * tR; _ff.y -= 0.5 * tR; }
-  handBasis(_ff, _ft, R.Q);
+  const tR = o.tuckR || 0, tL = Math.max(o.tuckL || 0, tR * two);
+  if (tR > 0) { R.W.y -= 0.24 * tR; R.W.z += 0.2 * tR; R.W.x += 0.03 * tR; R.Q.multiply(_hq2.setFromAxisAngle(_T.set(1, 0, 0), -0.5 * tR)); }
   // left (mirrored space, +x is outward): open hand low left, palm down; reaches forward and in to clamp tags
   L.W.set(E.x + (0.19 - 0.07 * r) * nar - sw.x, E.y - 0.24 + 0.08 * r - bob + sw.y, E.z - 0.42 - 0.1 * r + sw.z);
   _ff.set(-0.12 - 0.2 * r, 0.5 + 0.1 * r, -1); _ft.set(-1, 0.2, -0.15);
-  const rl = o.reel || 0;
   if (rl > 0) {
     // hand over hand on the tether: grab low and ahead, haul back toward the hip, let go, reach again
     const ph = (o.reelPh || 0) % 1, pull = ph < 0.6 ? ph / 0.6 : 1 - (ph - 0.6) / 0.4;
     _W2.set(E.x + 0.16 * nar, E.y - 0.3 - 0.06 * pull + (ph < 0.6 ? 0 : 0.04 * Math.sin((ph - 0.6) / 0.4 * Math.PI)), E.z - 0.5 + 0.2 * pull);
     L.W.lerp(_W2, rl); _ff.lerp(_F2.set(-0.7, -0.1, -0.6), rl); _ft.lerp(_T2.set(-0.2, 0.3, -1), rl);
   }
-  if (tL > 0) { L.W.y -= 0.24 * tL; L.W.z += 0.2 * tL; L.W.x += 0.03 * tL; _ff.y -= 0.5 * tL; }
+  if (tL > 0 && two < 1) { const k = tL * (1 - two); L.W.y -= 0.24 * k; L.W.z += 0.2 * k; L.W.x += 0.03 * k; _ff.y -= 0.5 * k; }
   handBasis(_ff, _ft, L.Q);
+  if (two > 0) {
+    toolFromRight(R.W, R.Q, _hT); leftFromTool(_hT, _hw2, _hq2);
+    L.W.lerp(_hw2, two); L.Q.slerp(_hq2, two);
+  }
   return FPT;
 }
 export function poseFirstPerson(armR, armL, o = {}) {
   const T = fpTargets(o);
   solveArm(armR, T.R.S, T.R.W, T.R.P, T.R.Q);
-  // steadying the cutter: the left hand comes in under it (its shoulder cheats in toward the middle to reach)
-  const k = o.support || 0;
-  if (k > 0 && !o.empty && armR.tool) {
-    supportPoint(armR, _W2); _W2.x = -_W2.x; _W2.y -= 0.022;
-    T.L.S.lerp(_sp.copy(FP_SHOULDER).add(_T.set(-0.16, 0.1, -0.06)), k);
-    T.L.W.lerp(_W2, k);
-    _ff.set(-1, 0.25, -0.8); _ft.set(0.6, 0.6, -1); handBasis(_ff, _ft, _hq);
-    T.L.Q.slerp(_hq, k);
-  }
+  armL.glove.hold = T.two;
   solveArm(armL, T.L.S, T.L.W, T.L.P, T.L.Q);
 }
 
