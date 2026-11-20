@@ -231,11 +231,11 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
 #ships .cd em{font-style:normal;font-size:10.5px;color:var(--bone);font-variant-numeric:tabular-nums}#ships .cd em.own{color:var(--hazard)}
 #ships .cd.unk b,#ships .cd.unk img{opacity:.4;filter:grayscale(1) brightness(.4)}
 #ships .dt{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:18px clamp(16px,3vw,36px) 40px;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(220px,1fr);gap:8px 28px;align-content:start}
-#ships .hero{grid-column:1/-1;position:relative;aspect-ratio:16/7;background:#0d0f13;overflow:hidden;border:1px solid rgba(232,224,204,.1)}
-#ships .hero img{width:100%;height:100%;object-fit:cover;display:block}
+#ships .hero{grid-column:1/-1;position:relative;height:clamp(170px,38vh,400px);background:#0d0f13;overflow:hidden;border:1px solid rgba(232,224,204,.1)}
+#ships .hero.noimg{height:110px}#ships .hero img{width:100%;height:100%;object-fit:cover;display:block}
 #ships .hero .nm{position:absolute;left:16px;bottom:12px;font:700 clamp(30px,5vw,58px)/.9 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.01em;text-shadow:0 2px 18px #000}
-#ships .hero .tg{position:absolute;right:12px;top:12px;white-space:nowrap;font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:4px 8px;background:var(--hazard);color:#0a0b0e;font-weight:700}
-#ships .hero .tg.dim{background:rgba(232,224,204,.85)}
+#ships .hero .stg{position:absolute;right:12px;top:12px;white-space:nowrap;font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:4px 8px;background:var(--hazard);color:#0a0b0e;font-weight:700}
+#ships .hero .stg.dim{background:rgba(232,224,204,.85)}
 #ships .meta{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:6px 0 0}
 #ships .note{font:400 15px/1.45 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;color:rgba(232,224,204,.86);margin:8px 0 0;max-width:46ch}
 #ships .bars{display:grid;gap:9px;margin-top:12px}
@@ -256,7 +256,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
   #ships .cd{grid-template-columns:1fr;width:118px;flex:none;padding:6px;border-left:0;border-bottom:3px solid transparent}#ships .cd.on{border-bottom-color:var(--hazard)}
   #ships .cd img,#ships .cd .ph{width:106px;height:60px;grid-row:auto}#ships .cd b{font-size:13px}#ships .cd small{display:none}
   #ships .dt{grid-template-columns:1fr;padding:12px 14px calc(30px + env(safe-area-inset-bottom))}
-  #ships .hero{aspect-ratio:16/9}
+  #ships .hero{height:clamp(150px,50vw,260px)}#ships .hero.noimg{height:84px}
 }
 `; document.head.appendChild(css);
     const el = this.el = document.createElement('div'); el.id = 'helm';
@@ -424,6 +424,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
     const ship = this.ship;
     // vessels: the flown one takes the stick; the rest wind down (and sit still once stopped)
     for (const S of this.ships) {
+      if (S.owned && !S.sold && !S.inWorld) { if (S.spec.cat === 'yard' && S.V.pos.distanceToSquared(S.home) < 1) this.place(S, 0); this.show(S, true); }   // owned some other way (admin, a save)
       if (S.sold || !S.inWorld) continue;
       const V = S.V, moving = V.vel.lengthSq() > 1e-4 || V.w.lengthSq() > 1e-8;
       if (this.helm === S) { const n = Math.max(1, Math.ceil(dt / (1 / 60))); for (let i = 0; i < n; i++) { V.step(dt / n, i ? { ...cmd, dx: 0, dy: 0 } : cmd); this.collide(S, dt / n); } this.place(S, dt); }
@@ -626,7 +627,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       const tag = s.flying ? 'At the helm' : s.docked ? 'Docked' : s.owned && !s.skiff ? 'Owned' : s.cat === 'derelict' && s.found && !s.owned ? 'Found' : s.cat === 'yard' ? 'For sale' : '';
       const spec = unk ? `<dt>Length</dt><dd>${s.len} m</dd><dt>Salvage</dt><dd>~${fmtCr(s.salvage)} Cr</dd>` :
         `<dt>Size</dt><dd>${s.len} × ${s.beam} m</dd><dt>Mass</dt><dd>${fmtMass(s.dry)} dry · ${fmtMass(s.prop)} prop</dd><dt>Crew</dt><dd>${s.crew} · ${s.berths} berths</dd><dt>Drive</dt><dd>${s.drive}</dd><dt>Reactor</dt><dd>${s.reactor}</dd><dt>Hull</dt><dd>${fmtCr(s.hull)} pts · ${s.armor} mm</dd>${s.owned || (s.cat === 'derelict' && s.found) ? `<dt>State</dt><dd>${Math.round((s.cond ?? 1) * 100)}% hull · ${Math.round((s.fuel ?? 1) * 100)}% prop</dd>` : ''}`;
-      det = `<div class="hero">${th[s.id] && !unk ? `<img src="${th[s.id]}" alt="">` : ''}<div class="nm">${unk ? 'Unknown hull' : s.name}</div>${tag ? `<span class="tg ${s.cat === 'yard' && !s.owned ? 'dim' : ''}">${tag}</span>` : ''}</div>
+      det = `<div class="hero ${th[s.id] && !unk ? '' : 'noimg'}">${th[s.id] && !unk ? `<img src="${th[s.id]}" alt="">` : ''}<div class="nm">${unk ? 'Unknown hull' : s.name}</div>${tag ? `<span class="stg ${s.cat === 'yard' && !s.owned ? 'dim' : ''}">${tag}</span>` : ''}</div>
         <div><p class="meta">${s.cls} · ${s.maker} · ${s.built}</p>${unk ? '' : `<p class="note">${s.note}</p>`}
         ${unk ? '' : `<div class="bars">${bar('Accel', 0, D.accel / top.acc, (D.accel / G0).toFixed(2) + ' g')}${bar('Turn', 0, s.turn / top.turn, s.turn + '°/s')}${bar('Top spd', 0, s.maxSpd / top.spd, s.maxSpd + ' m/s')}${bar('Range', 0, D.dv / top.dv, D.dv.toFixed(1) + ' km/s')}${bar('Cargo', 0, Math.log10(1 + s.cargo) / top.cargo, fmtMass(s.cargo))}</div>`}</div>
         <div><dl class="spec">${spec}</dl><div class="act">${act}</div></div>`;

@@ -6,7 +6,7 @@ const [dir = '/tmp/s/s2', mob] = process.argv.slice(2);
 const fs = await import('node:fs'); fs.mkdirSync(dir, { recursive: true });
 const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const mobile = !!mob;
-const ctx = mobile ? await b.newContext({ ...(await import('/opt/node-tools/node_modules/playwright/index.js').catch(() => ({}))), viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true }) : await b.newContext({ viewport: { width: 1280, height: 720 } });
+const ctx = mobile ? await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true }) : await b.newContext({ viewport: { width: 1280, height: 720 } });
 const p = await ctx.newPage();
 let errs = 0;
 p.on('console', (m) => { if (m.type() === 'error' || m.text().startsWith('[t]')) { if (m.type() === 'error') errs++; console.log('console:', m.text()); } });

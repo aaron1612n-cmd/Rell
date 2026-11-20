@@ -45,6 +45,7 @@ import { Breakup } from './breakup.js';
 import { Story } from './story.js';
 import { Fleet } from './fleet.js';
 import { Site, Part } from './sites.js';
+import { Admin } from './admin.js';
 import fleetUrl from './assets/fleet.glb?url';
 
 const canvas = document.getElementById('view');
@@ -651,11 +652,15 @@ function frame(now) {
   try { tickFrame(now); } catch (e) { console.error(e); }
 }
 function tickFrame(now) {
-  const rawDt = (now - last) / 1000, dt = Math.min(0.05, rawDt); last = now; time += dt;
+  const rawDt = (now - last) / 1000; last = now;
   quality.tick(rawDt);
-  const raw = input.consume();
-  raw.dx *= settings.get('sens'); raw.dy *= settings.get('sens');
+  const raw0 = input.consume();
+  raw0.dx *= settings.get('sens'); raw0.dy *= settings.get('sens');
   if (menu.open) { look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); return; }
+  // admin console: free cam takes the controls, freeze holds the world still, time scale stretches dt
+  const raw = admin.input(raw0);
+  if (admin.frozen) { admin.update(rawDt); look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); admin.afterRender(rawDt); return; }
+  const dt = admin.stepOnce ? 1 / 60 : Math.min(0.05, rawDt) * admin.scale; time += dt;
   const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock || fleet.panelOpen ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
@@ -665,13 +670,14 @@ function tickFrame(now) {
   if (cmd.boost && cmd.fwd > 0 && ship.fuel > 0 && ship.eff.boost) ship.fuel = Math.max(0, ship.fuel - dt * 0.045 / (ship.tank || 1)); else { cmd.boost = false; ship.fuel = Math.min(1, ship.fuel + dt * (nav.docked ? 0.4 : 0.012)); }
   fuelFill.style.width = (ship.fuel * 100).toFixed(0) + '%'; fuelFill.parentNode.classList.toggle('low', ship.fuel < 0.2);
   acc += dt; let first = true, n = 0;
-  while (acc >= STEP && n++ < 8) {
+  const maxN = 8 * Math.max(1, Math.ceil(admin.scale));
+  while (acc >= STEP && n++ < maxN) {
     ship.step(STEP, first ? cmd : { ...cmd, dx: 0, dy: 0, yawKey: cmd.yawKey, pitchKey: cmd.pitchKey });
     world.update(STEP, ship, fleet.dock ? () => {} : onShipHit);
     salvage.step(STEP, depot);
     acc -= STEP; first = false;
   }
-  if (n >= 8) acc = 0;
+  if (n >= maxN) acc = 0;
   fleet.update(dt, raw, time);
 
   world.refreshActive(ship.pos);
@@ -716,10 +722,15 @@ function tickFrame(now) {
   if ((saveT += dt) > 5) { saveT = 0; saveShip(); }
   events.update(dt, { busy: !econ.tut || tutorial.on || nav.docked || eva.active || helm || !!fleet.dock || respawnT > 0 }, camera, innerWidth, innerHeight);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
+  admin.update(rawDt);
   quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   quality.end();
+  admin.afterRender(rawDt);
 }
+const admin = new Admin({ ship, econ, fleet, eva, salvage, world, drones, events, story, career, tutorial, systems, settings, menu, nav, look, renderer, quality, scene, camera, cockpit, sun, depot, damage,
+  toast, blast, respawn, setAuto, applyUpgrades, replayTutorial, saveShip });
+menu.onAdmin = () => admin.toggle(true);
 requestAnimationFrame(frame);
 
-window.__game = { fleet, story, breakup, systems, hangar, tips, relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { admin, fleet, story, breakup, systems, hangar, tips, relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };

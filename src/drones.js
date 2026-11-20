@@ -58,7 +58,7 @@ function buildArm(mt) {
   return arm;
 }
 
-function buildDrone() {
+export function buildDrone() {
   const mt = mats(), g = new THREE.Group();
   // main hull: side profile (z forward = -z, y up), extruded 1.1 m wide, chined nose
   const hull = new THREE.Mesh(extrudeSide([[-1.05, -0.18], [-0.92, 0.2], [-0.45, 0.5], [0.55, 0.48], [0.95, 0.18], [0.92, -0.25], [0.55, -0.48], [-0.35, -0.5]], 1.0, 0.1), mt.hull);

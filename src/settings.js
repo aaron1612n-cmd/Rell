@@ -7,6 +7,7 @@ const IC = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
   play: '<path d="M8 5l11 7-11 7z"/>',
   redo: '<path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v4h4"/>',
+  key: '<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="17" r="2"/>',
   trash: '<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/>',
 };
 
@@ -73,6 +74,7 @@ export class Menu {
       <footer>
         <button class="big go" data-a="resume">${svg(IC.play)}<span>Resume</span></button>
         <button class="big" data-a="tut">${svg(IC.redo)}<span>Tutorial</span></button>
+        <button class="big" data-a="admin">${svg(IC.key)}<span>Admin</span></button>
         <button class="big warn" data-a="reset">${svg(IC.trash)}<span>${this.armed ? 'Sure?' : 'Reset'}</span></button>
       </footer></div>`;
     for (const i of this.el.querySelectorAll('input[type=range]')) {
@@ -83,6 +85,7 @@ export class Menu {
     for (const b of this.el.querySelectorAll('[data-a]')) b.addEventListener('click', () => {
       const a = b.dataset.a;
       if (a === 'resume') this.toggle(false);
+      else if (a === 'admin') { this.toggle(false); this.onAdmin?.(); }
       else if (a === 'tut') { this.toggle(false); this.onTutorial(); }
       else if (a === 'reset') { if (!this.armed) { this.armed = true; this.render(); setTimeout(() => { this.armed = false; }, 3000); } else { this.armed = false; this.onReset(); this.toggle(false); } }
     });
