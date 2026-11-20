@@ -16,7 +16,7 @@ const F = (() => {
   for (let i = 0; i < b.length; i += 2) { const v = ((b[i] << 24) >> 24) * k; q.fill(v, o, o + b[i + 1]); o += b[i + 1]; }
   return { q, NX, NY, NZ, c: sdf.cell, ox: sdf.org[0], oy: sdf.org[1], oz: sdf.org[2], band: sdf.band };
 })();
-function field(x, y, z) {
+export function field(x, y, z) {
   const gx = (x - F.ox) / F.c, gy = (y - F.oy) / F.c, gz = (z - F.oz) / F.c;
   if (gx < 0 || gy < 0 || gz < 0 || gx >= F.NX - 1 || gy >= F.NY - 1 || gz >= F.NZ - 1) return F.band;
   const ix = gx | 0, iy = gy | 0, iz = gz | 0, fx = gx - ix, fy = gy - iy, fz = gz - iz, NX = F.NX, S = NX * F.NY, q = F.q;
