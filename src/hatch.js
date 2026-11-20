@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EYE, PITCH, canopyAt } from './cockpit.js';
 import { SUIT, solveArm, handBasis, fpTargets } from './astronaut.js';
 import { K } from './gpufx.js';
+import { field } from './suitBody.js';
 
 // Getting out of the seat and back in, as one continuous move rather than a camera lerp.
 //
@@ -40,7 +41,34 @@ const sm = (a, b, t) => { const k = clamp01((t - a) / (b - a)); return k * k * (
 const smr = (a, b, t) => { const k = clamp01((t - a) / (b - a)); return k * k * k * (k * (6 * k - 15) + 10); };
 const bez = (a, c, b, k, out) => out.copy(a).multiplyScalar((1 - k) * (1 - k)).addScaledVector(c, 2 * k * (1 - k)).addScaledVector(b, k * k);
 const _v = V(0, 0, 0), _v2 = V(0, 0, 0), _v3 = V(0, 0, 0), _o = V(0, 0, 0), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ'), _m = new THREE.Matrix4(), _mi = new THREE.Matrix4();
-const _up = V(0, 1, 0);
+const _up = V(0, 1, 0), _qi = new THREE.Quaternion();
+const FLOOR_Y = 0.06;   // a little under the cockpit floor (ship space): below this the fuselage is solid
+// how far a sphere (ship space) pokes out through the hull's skin below the floor: its surface points must stay in
+// the solid fuselage (squared, summed)
+const DIRS = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, -1], [0, 0, 1], [0.7, -0.7, 0], [-0.7, -0.7, 0], [0, -0.7, -0.7]];
+// corner points of each leg part's mesh, in its joint's frame (cached on the leg)
+const _bb = new THREE.Box3();
+export function legProbes(leg) {
+  if (leg.probes) return leg.probes;
+  leg.probes = [leg.hip, leg.knee, leg.ankle].map((j) => {
+    const mesh = j.children.find((c) => !c.isBone && !(c === leg.knee || c === leg.ankle));
+    j.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(j.matrixWorld).invert();
+    _bb.makeEmpty();
+    mesh.traverse((m) => { if (m.isMesh) { m.geometry.computeBoundingBox(); _bb.union(m.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld))); } });
+    const c = _bb.getCenter(new THREE.Vector3()), h = _bb.getSize(new THREE.Vector3()).multiplyScalar(0.5), pts = [];
+    for (const x of [-1, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 1]) pts.push(new THREE.Vector3(c.x + x * h.x, c.y + y * h.y, c.z + z * h.z));
+    return [j, pts];
+  });
+  return leg.probes;
+}
+export function exposed(c, r) {
+  let o = 0;
+  for (const [x, y, z] of DIRS) {
+    const py = c.y + y * r * 0.8; if (py > FLOOR_Y) continue;
+    const f = field(c.x + x * r * 0.8, py, c.z + z * r * 0.8); if (f > 0) o += f * f;
+  }
+  return o;
+}
 // per-arm scratch
 const tgt = () => ({ S: V(0, 0, 0), W: V(0, 0, 0), P: V(0, 0, 0), Q: new THREE.Quaternion() });
 const A = { rest: tgt(), grab: tgt(), out: tgt() }, _F = V(0, 0, 0), _T = V(0, 0, 0);
@@ -221,10 +249,55 @@ export class Hatch {
       u.legR.hip.rotation.set(L[0], 0, 0.06); u.legR.knee.rotation.x = L[1]; u.legR.ankle.rotation.x = L[2];
       u.legL.hip.rotation.set(L[3], 0, 0.08); u.legL.knee.rotation.x = L[4]; u.legL.ankle.rotation.x = L[5];
       b.updateMatrixWorld(true);
+      this.fitLegs(u);
       this.poseArms(u.armR, u.armL, o, false);
       u.armL.glove.setCurl(0.35 + 0.35 * o.grab, 0.2); u.armR.glove.setCurl(0.92);
       e.pass.enabled = false;
     }
+  }
+
+  // The suit is bigger than the cockpit well is deep, so while the hips are down in the seat the legs are folded
+  // away inside the fuselage. Each leg is nudged (hip pitch, knee) from the scripted pose until no part of it pokes
+  // out through the hull's skin below the cockpit floor: a small pattern search from the scripted pose every
+  // frame, so it is continuous and lets go as soon as the legs are up and clear.
+  fitLegs(u) {
+    const e = this.eva, ship = e.ship, core = e.suit.core;
+    _qi.copy(ship.quat).invert();
+    [[u.legR, 10], [u.legL, 16]].forEach(([leg, i0]) => {
+      const S = core.slice(i0, i0 + 6), B = legProbes(leg);
+      const cost = (hp, kn) => {
+        leg.hip.rotation.x = hp; leg.knee.rotation.x = kn; leg.hip.updateMatrixWorld(true);
+        let c = 0;
+        for (const s of S) {
+          _v.copy(s.l).applyMatrix4(s.o.matrixWorld).sub(ship.pos).applyQuaternion(_qi);
+          if (_v.y - s.r > FLOOR_Y) continue;              // in the cockpit (or above it): fine
+          c += exposed(_v, s.r);
+        }
+        // and the corners of the real thigh, shin and boot shells (the soles stick out past the spheres)
+        for (const [o, pts] of B) for (const q of pts) {
+          _v.copy(q).applyMatrix4(o.matrixWorld).sub(ship.pos).applyQuaternion(_qi);
+          if (_v.y > FLOOR_Y) continue;
+          const f = field(_v.x, _v.y, _v.z) + 0.04; if (f > 0) c += f * f;
+        }
+        return c;
+      };
+      const h0 = leg.hip.rotation.x, k0 = leg.knee.rotation.x;
+      let h = h0, k = k0, best = cost(h, k);
+      if (best > 0) {
+        const J = (hh, kk) => cost(hh, kk) * 400 + (hh - h0) ** 2 + 0.6 * (kk - k0) ** 2;
+        let f = J(h, k);
+        for (let step = 0.4; step > 0.012; step *= 0.5) {
+          for (let it = 0, moved = true; it < 6 && moved; it++) {
+            moved = false;
+            for (const [dh, dk] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]]) {
+              const hh = THREE.MathUtils.clamp(h + dh * step, -0.4, 2.3), kk = THREE.MathUtils.clamp(k + dk * step, -2.45, -0.05);
+              const g = J(hh, kk); if (g < f) { f = g; h = hh; k = kk; moved = true; }
+            }
+          }
+        }
+      }
+      leg.hip.rotation.x = h; leg.knee.rotation.x = k; leg.hip.updateMatrixWorld(true);
+    });
   }
 
   // arms: a blend of a rest pose (body space), the hands on the glareshield (ship space) and the first-person
