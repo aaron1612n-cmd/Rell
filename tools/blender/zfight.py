@@ -27,7 +27,7 @@ def zfight(bm, eps=None, scale=1.0):
     return hits
 
 
-def zfix(bm, scale=1.0, rounds=3, log=print):
+def zfix(bm, scale=1.0, rounds=3, log=print, step=0.0):
     """Separate coplanar faces: the smaller of the two parts steps forward along the shared normal, so it reads
     as a raised plate instead of flickering into the one behind it."""
     total = 0
@@ -42,9 +42,46 @@ def zfix(bm, scale=1.0, rounds=3, log=print):
             small = a if len(isl[a]) <= len(isl[b]) else b
             if small in moved: continue
             moved.add(small)
-            for v in isl[small]: v.co += n * eps * 4
+            for v in isl[small]: v.co += n * max(eps * 4, step * 3)
         total += len(moved)
         bm.normal_update()
     left = zfight(bm, scale=scale)
     log(f'    z-fight: moved {total} parts, {len(left)} faces left')
     return left
+
+
+def facefix(bm, scale=1.0, step=0.0, rounds=2, log=print):
+    """Coplanar faces inside one part (struts welded onto a plate, a hub sunk flush into a cap): the smaller face
+    steps forward by a few millimetres. Catches what zfix can't, since both faces belong to the same island."""
+    eps = max(0.004, 0.0015 * scale); gap = max(eps * 3, step * 3)
+    total = 0
+    for _ in range(rounds):
+        bm.faces.ensure_lookup_table(); bm.verts.index_update(); bm.normal_update()
+        faces = list(bm.faces)
+        bvh = BVHTree.FromPolygons([v.co for v in bm.verts], [[v.index for v in f.verts] for f in faces], epsilon=0.0)
+        move = {}
+        for i, f in enumerate(faces):
+            a = f.calc_area()
+            if a < 1e-5: continue
+            n = f.normal; c = f.calc_center_median(); vs = {v.index for v in f.verts}
+            samples = [c] + [c.lerp(v.co, .7) for v in f.verts]
+            for p in samples:
+                found = None
+                for sgn in (1, -1):
+                    h = bvh.ray_cast(p - n * eps * sgn + n * 1e-6 * sgn, n * sgn, eps * 2)
+                    if h[0] is None or h[2] == i: continue
+                    g = faces[h[2]]
+                    if vs & {v.index for v in g.verts} or g.normal.dot(n) < 0.995 or abs((h[0] - p).dot(n)) >= eps: continue
+                    found = g; break
+                if found is not None:
+                    small = f if a <= found.calc_area() else found
+                    move[small.index] = small
+                    break
+        if not move: break
+        vm = {}
+        for f in move.values():
+            for v in f.verts: vm.setdefault(v.index, (v, f.normal.copy()))
+        for v, n in vm.values(): v.co += n * gap
+        total += len(move)
+    log(f'    coplanar faces in one part: nudged {total}')
+    return total

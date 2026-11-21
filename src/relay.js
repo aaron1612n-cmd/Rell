@@ -21,6 +21,7 @@ let sd = 11; const rnd = () => { sd = (sd * 1664525 + 1013904223) >>> 0; return 
 const rr = (a, b) => a + rnd() * (b - a);
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _e = new THREE.Euler(), _s = new THREE.Vector3(1, 1, 1);
 
+const _pv = new THREE.Vector3();
 export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
   const B = new Bake();
   // ---- rooms ---------------------------------------------------------------------------------
@@ -487,9 +488,14 @@ export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
     d.leaves.forEach((m, i) => { m.position.set(0, 0, 0); });
   }
   const base = site.collectObbs.bind(site);
-  site.collectObbs = (out) => { base(out); for (const d of Object.values(doors)) if (d.open < 0.55) out.push(d.obb); };
+  // the solar panels turn to the sun, so their colliders ride along with them (synced in update)
+  const d0 = Object.values(doors)[0].obb;
+  const panelObbs = wings.children.filter((m) => m.userData.rep).map((m) => { const h = new THREE.Vector3(6, 0.2, 1.8); return { mesh: m, c: new THREE.Vector3(), q: new THREE.Quaternion(), qi: new THREE.Quaternion(), h, v: new THREE.Vector3(), br: h.length(), node: d0.node, chunk: d0.chunk, part: d0.part }; });
+  const syncPanels = () => { for (const o of panelObbs) { o.mesh.updateWorldMatrix(true, false); o.mesh.matrixWorld.decompose(o.c, o.q, _pv); o.qi.copy(o.q).invert(); } };
+  syncPanels();
+  site.collectObbs = (out) => { base(out); for (const d of Object.values(doors)) if (d.open < 0.55) out.push(d.obb); out.push(...panelObbs); };
 
-  return new Relay({ site, B, doors, ROOMS, M, inner, outer, floaters, floatMesh, loot, holo, globe, ring1, ring2, sat, crane, wings, dish, clamps, nav, screens, bay: BAY, fx, sound, getFxT, statusM, alLamp, racks, AL, CG });
+  return new Relay({ syncPanels, site, B, doors, ROOMS, M, inner, outer, floaters, floatMesh, loot, holo, globe, ring1, ring2, sat, crane, wings, dish, clamps, nav, screens, bay: BAY, fx, sound, getFxT, statusM, alLamp, racks, AL, CG });
 }
 
 let dotT = null;
@@ -557,7 +563,7 @@ class Relay {
     if (dist > 700) return;
     const gq = S.group.quaternion;
     this.sunL.copy(this.sunDir || _v.set(0.62, 0.5, 0.6).normalize()).applyQuaternion(_q.copy(gq).invert());
-    this.wings.rotation.x = THREE.MathUtils.damp(this.wings.rotation.x, Math.atan2(this.sunL.z, this.sunL.y), 1.2, dt);
+    this.wings.rotation.x = THREE.MathUtils.damp(this.wings.rotation.x, Math.atan2(this.sunL.z, this.sunL.y), 1.2, dt); this.syncPanels();
     this.dish.rotation.y += dt * 0.12;
     this.nav.red.color.setScalar((time % 1.8) < 0.14 ? 3 : 0.12); this.nav.green.color.setScalar(((time + 0.9) % 1.8) < 0.14 ? 3 : 0.12);
     this.nav.white.color.setScalar((time % 2.6) < 0.06 || ((time + 0.18) % 2.6) < 0.06 ? 4 : 0.05); this.nav.amber.color.setScalar(this.al.phase === 'cycle' ? ((time * 4) % 1 < 0.5 ? 3 : 0.2) : 0.4);
