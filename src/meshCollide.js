@@ -129,7 +129,7 @@ export class MeshCollide {
   // contacts of a world sphere: fn(normal, pen)
   contacts(c, r, fn, frame) {
     for (const s of this.world.sites) {
-      if (!s.active) continue;
+      if (!s.active || (this.only && !this.only.has(s.kind))) continue;
       for (const e of this.meshes(s)) {
         const o = e.o; if (!o.visible || (o.parent && !o.parent.visible)) continue;
         const bs = o.geometry.boundingSphere, M = o.matrixWorld;

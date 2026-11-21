@@ -758,6 +758,8 @@ function tickFrame(now) {
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
   if (yard.camera(dt)) { cockpit.pass.enabled = false; eva.pass.enabled = false; if (eva.state === 'eva') eva.body.visible = true; }
   admin.update(rawDt);
+  // depth precision: 24-bit depth with near 0.1 / far 20000 z-fights at range (1 cm at 130 m, 60 cm at 1 km), so the jet's 11 m chase camera uses near 1.0
+  if (!helm) { const wantNear = (eva.active || nav.docked || fleet.dock || admin.free) ? 0.1 : 1.0; if (camera.near !== wantNear) { camera.near = wantNear; camera.updateProjectionMatrix(); } }
   quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
   quality.end();

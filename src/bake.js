@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { coplanarLifts } from './zfix.js';
 
 // Procedural interiors without a single dynamic light. Every surface is built from subdivided boxes and
 // cylinders, and its lighting is baked into vertex colours at build time: each room has a few fixtures,
@@ -16,7 +17,15 @@ const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a)
 
 class Sink {
   constructor(normals) { this.pos = []; this.nor = normals ? [] : null; this.col = []; this.uv = []; this.room = []; }
+  // props flush against walls, door leaves in slabs and stacked panels end up coplanar: lift the smaller face 1.2 cm so they stop z-fighting
+  separate() {
+    const P = this.pos, C = this.col, nT = Math.floor(P.length / 9); if (nT < 2) return;
+    const tris = new Array(nT);
+    for (let i = 0; i < nT; i++) { const o = i * 9, c = i * 9; tris[i] = { a: [P[o], P[o + 1], P[o + 2]], b: [P[o + 3], P[o + 4], P[o + 5]], c: [P[o + 6], P[o + 7], P[o + 8]], col: [(C[c] + C[c + 3] + C[c + 6]) / 3, (C[c + 1] + C[c + 4] + C[c + 7]) / 3, (C[c + 2] + C[c + 5] + C[c + 8]) / 3], mat: 0 }; }
+    for (const [i, n] of coplanarLifts(tris)) for (let k = 0; k < 3; k++) { P[i * 9 + k * 3] += n[0] * 0.012; P[i * 9 + k * 3 + 1] += n[1] * 0.012; P[i * 9 + k * 3 + 2] += n[2] * 0.012; }
+  }
   geo() {
+    this.separate();
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     if (this.nor) g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));

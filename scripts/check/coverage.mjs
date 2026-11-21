@@ -22,7 +22,7 @@ const res = await p.evaluate(([N]) => {
   for (const s of w.sites) {
     if (s.kind === 'field' || !s.group) continue;
     s.group.updateMatrixWorld(true);
-    const meshes = []; s.group.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.visible && o.geometry.attributes.position.count > 30 && !/lamp|light|beacon|glow|holo|float|canopy|plume|exhaust/i.test(o.name) && !(o.material && (o.material.transparent || o.material.blending === 2))) meshes.push(o); });
+    const meshes = []; s.group.traverse((o) => { let vis = true; for (let q = o; q && q !== s.group.parent; q = q.parent) if (q.visible === false) vis = false; if (vis && o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.visible && o.geometry.attributes.position.count > 30 && !/lamp|light|beacon|glow|holo|float|canopy|plume|exhaust/i.test(o.name) && !(o.material && (o.material.transparent || o.material.blending === 2))) meshes.push(o); });
     if (!meshes.length) continue;
     const cum = []; let tot = 0; for (const m of meshes) { tot += m.geometry.attributes.position.count; cum.push(tot); }
     const id = s.id || s.kind; let tested = 0; const miss = { suit: 0, jet: 0, deep: 0 }, where = {};
@@ -48,7 +48,7 @@ const res = await p.evaluate(([N]) => {
 }, [N]);
 let bad = 0;
 for (const [id, r] of Object.entries(res)) {
-  const sf = r.miss.suit / Math.max(1, r.tested), jf = r.miss.jet / Math.max(1, r.tested), fail = jf > MAX;  // suit contacts also use the mesh BVH + hull SDF in eva, so a world-only suit miss is informational if (fail) bad++;
+  const sf = r.miss.suit / Math.max(1, r.tested), jf = r.miss.jet / Math.max(1, r.tested), fail = jf > MAX; /* suit contacts also use the mesh BVH + hull SDF in eva, so a world-only suit miss is informational */ if (fail) bad++;
   const top = Object.entries(r.where).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, v]) => k + ':' + v).join(' ');
   console.log(`${fail ? 'FAIL' : 'ok  '} ${id.padEnd(12)} tested ${String(r.tested).padStart(3)}  suit-miss(info) ${(sf * 100).toFixed(1)}%  jet-miss ${(jf * 100).toFixed(1)}%  ${top}`);
 }
