@@ -10,7 +10,7 @@ let errs = 0;
 p.on('console', (m) => { if (m.type() === 'error') { errs++; console.log('console:', m.text()); } });
 p.on('pageerror', (e) => { errs++; console.log('pageerror:', e.message, e.stack?.split('\n').slice(0, 4).join(' | ')); });
 await p.addInitScript(() => { try { localStorage.clear(); localStorage.setItem('rell.save', JSON.stringify({ credits: 90000, tut: true, xp: 0, up: {}, stats: {}, career: {} })); } catch {} });
-await p.goto('http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 180000 });
+await p.goto(process.env.URL || 'http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 180000 });
 await p.waitForTimeout(3000);
 const ev = (f, a) => p.evaluate(f, a);
 const shot = (n) => p.screenshot({ path: OUT + pre + n + '.png' });

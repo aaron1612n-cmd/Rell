@@ -13,7 +13,7 @@ from kit import *
 import bmesh
 from mathutils import Vector, Matrix, Quaternion
 
-LOD = {'step': 1.0, 'segs': 1.0, 'rev': 1.0, 'greeble': 1.0}
+LOD = {'step': 1.15, 'segs': 1.0, 'rev': .9, 'greeble': .62}
 OUT = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'assets')
 
 # ---- small maths -----------------------------------------------------------------------------
@@ -89,7 +89,6 @@ class Hull:
         self.tab, self.segs, self.bot, self.shoulder, self.hump, self.keel = tab, segs, bot, shoulder, hump, keel
         self.chine, self.ridge = chine, ridge
         self.z0, self.z1 = tab[0][0], tab[-1][0]
-        self.grooves, self.gw, self.gd = [], 0.0, 0.0     # recessed panel seams (set by livery)
     def at(self, z):
         w, h, n, yc = hermite(self.tab, z); return max(w, 0.01), max(h, 0.01), max(n, 1.6), yc
     def pt(self, t, z):
@@ -100,11 +99,6 @@ class Hull:
         if self.ridge and s > 0: y += self.ridge * h * max(0, 1 - abs(c) * 5) ** 2  # a spine ridge down the back
         if s < 0 and self.keel: y -= self.keel * h * max(0, -s) ** 6
         if self.hump and s > 0: y += self.hump(z, x)
-        if self.grooves:
-            g = min(abs(z - q) for q in self.grooves)
-            if g < self.gw:
-                k = 1 - self.gd * (1 - g / self.gw) / max(math.hypot(x, y), 1e-3)
-                x *= k; y *= k
         return Vector((x, y + yc, z))
     def normal(self, t, z):
         e = 1e-3; a = self.pt(t + e, z) - self.pt(t - e, z); b = self.pt(t, z + e * 10) - self.pt(t, z - e * 10)
@@ -121,9 +115,6 @@ class Hull:
 def skin(S, H, zs, livery, cap0=True, cap1=True, skip=None):
     """loft rings at stations zs. skip(z, t, p) -> True leaves a face out (an opening)."""
     k = S.k; H.paint = livery
-    if H.grooves:
-        zs = sorted(set(round(z, 4) for z in list(zs) + [q + d for q in H.grooves for d in (-H.gw, 0, H.gw)] if H.z0 <= z <= H.z1))
-        zs = [z for i, z in enumerate(zs) if i == 0 or z - zs[i - 1] > 1e-3]
     rings = [[H.pt(2 * math.pi * j / H.segs, z) for j in range(H.segs)] for z in zs]
     skip = skip or (lambda z, t, p: False)
     before = set(k.bm.faces)
@@ -167,38 +158,31 @@ def stations(z0, z1, step, extra=()):
     return out
 
 def livery(H, base, belly=None, accent=HAZ, cell=1.0, seams=(), seamw=0.03, stripe=None, band=None, tip=SLATE_D, tipz=None,
-           wear=0.12, dark=None, windows=None, groove=True):
-    """per-face colour: big hull plates (one tone per plate, bounded by the seams), recessed seam grooves, a dark
-    belly, accent stripes, an optional window band. Plates are coarse on purpose: per-face noise reads as pixels."""
+           wear=0.12, dark=None, windows=None):
+    """per-face colour: panel cells, seam lines, a dark belly, an accent stripe, optional window band"""
     belly = belly if belly is not None else shade(base, .72)
-    seams = sorted(seams)
-    if groove and seams:
-        H.grooves, H.gw, H.gd = seams, max(seamw * 1.6, .04), max(seamw * .9, .025)
-    sectors = 10
     def f(p, n):
         w, h, nn, yc = H.at(p.z); yn = (p.y - yc) / max(h, 1e-3)
         if tipz is not None and p.z < tipz: return tip
         if windows and windows(p, yn): return 0x0b1118
-        if any(abs(p.z - s) < H.gw * .75 for s in seams): return shade(base, .42)
+        if any(abs(p.z - s) < seamw for s in seams): return shade(base, .52)
         if stripe and stripe(p, yn): return accent
         if band and band(p, yn): return band(p, yn) if isinstance(band(p, yn), int) and band(p, yn) > 1 else accent
-        seg = sum(1 for s in seams if s < p.z)
-        sub = int((p.z + 4000) / max(cell * 3.2, 1e-3))
-        ang = int((math.atan2(p.y - yc, p.x) + math.pi) / (2 * math.pi) * sectors)
-        r = hsh(seg, sub, ang, 7)
-        if yn < -.45: return shade(belly, .95 + .08 * r)
-        c = shade(base, 1 - wear * .35 + wear * .7 * r)
-        if dark and dark(p, r): c = shade(c, .74)
+        cellk = (int((p.z + 4000) / cell), int((math.atan2(p.y - yc, p.x) + 4) / (cell / max(w, h) * 1.3 + .05)))
+        r = hsh(*cellk)
+        if yn < -.45: return shade(belly, .9 + .14 * r)
+        c = shade(base, 1 - wear / 2 + wear * r)
+        if dark and dark(p, r): c = shade(c, .55)
         return c
     return f
 
 
 # ---- revolved solids ---------------------------------------------------------------------------
-def revolve(k, prof, c=(0, 0, 0), n=(0, 0, 1), segs=24, color=BONE, mat=HULL, closed=True, wear=0, spin=0.0, exact=False):
+def revolve(k, prof, c=(0, 0, 0), n=(0, 0, 1), segs=24, color=BONE, mat=HULL, closed=True, wear=0, spin=0.0):
     """revolve a profile [(z, r)] about local z, oriented along n at c. closed=True joins the last profile
     point back to the first (a double skin or a solid ring); otherwise the ends are capped if r > 0."""
     before = set(k.bm.faces)
-    segs = segs if exact else max(8, int(segs * LOD['rev']))
+    segs = max(8, int(segs * LOD['rev']))
     R = Matrix.Translation(Vector(c)) @ rot_to(n, spin).to_matrix().to_4x4()
     M = k.stack[-1] @ R
     V = []
@@ -336,146 +320,84 @@ def canopy(S, z, y, w, h, l, frame=SLATE_D):
         p0 = Vector((0, y + h * math.sin(a0), z + l * math.cos(a0) * 1.0)); p1 = Vector((0, y + h * math.sin(a1), z + l * math.cos(a1)))
         beam(k, p0, p1, .06 * max(w, .6), frame)
 
-def window_row(S, H, z0, z1, yn, step, size, side=(1, -1), color=0xffd9a0, lit=.5, dark=0x161a20, skip=None):
-    """windows along the flank at height yn (fraction of half height), set into the skin with a frame; some lit"""
-    z = z0
+def window_row(S, H, z0, z1, yn, step, size, side=(1, -1), color=0xffd9a0, lit=.5, dark=0x161a20):
+    """little windows along the flank at height yn (fraction of half height); some lit"""
+    k = S.k; z = z0
     while z <= z1:
         for sd in side:
             t = math.asin(max(-1, min(1, yn))) if sd > 0 else math.pi - math.asin(max(-1, min(1, yn)))
-            p = H.pt(t, z)
-            if skip and skip(p): continue
+            p = H.pt(t, z); n = H.normal(t, z)
             on = S.rng.random() < lit
-            dt = _span(H, t, z, size) / 2
-            plate(S, H, t - dt * 1.35, t + dt * 1.35, z - size * 1.05, z + size * 1.05, .02 + size * .04, SLATE_D, inset=0)
-            plate(S, H, t - dt, t + dt, z - size * .8, z + size * .8, .03 + size * .05, color if on else dark, inset=0, lamp=on)
+            k.box(tuple(p + n * .01), (size, size * 1.6, .06), color if on else dark, rot=skin_rot(n), mat=LAMP if on else HULL, wear=0)
         z += step
 
-def plate(S, H, t0, t1, z0, z1, h, color, inset=.25, lamp=False):
-    """a raised plate that follows the hull: top at +h along the normal, walls buried h below the skin, so it is
-    always welded to the hull with no gap. inset (0..1 of h, in metres) chamfers the top edge."""
-    k = S.k
-    nt = max(2, int(abs(t1 - t0) / (2 * math.pi / H.segs) * 1.5) + 1); nz = max(2, int(abs(z1 - z0) / max(.2, abs(z1 - z0) / 6)) + 1)
-    nz = min(nz, 5); nt = min(nt, 7)
-    def P(t, z, off): return H.pt(t, z) + H.normal(t, z) * off
-    w_, h_, _, _ = H.at((z0 + z1) / 2); sink = max(h, .004 * max(w_, h_) + (2.5 if H.hump else 0) * .004 * max(w_, h_))
-    ch = min(h * 2.5, abs(z1 - z0) * .2, inset + h)
-    dt = ch / max(.3, (H.pt(t0, (z0 + z1) / 2) - H.pt(t0 + .01, (z0 + z1) / 2)).length / .01)
-    dt = min(dt, abs(t1 - t0) * .2)
-    top = [[P(t0 + dt + (t1 - t0 - 2 * dt) * i / (nt - 1), z0 + ch + (z1 - z0 - 2 * ch) * j / (nz - 1), h) for j in range(nz)] for i in range(nt)]
-    rim = []
-    for i in range(nt): rim.append(P(t0 + (t1 - t0) * i / (nt - 1), z0, -sink))
-    for j in range(1, nz): rim.append(P(t1, z0 + (z1 - z0) * j / (nz - 1), -sink))
-    for i in range(nt - 2, -1, -1): rim.append(P(t0 + (t1 - t0) * i / (nt - 1), z1, -sink))
-    for j in range(nz - 2, 0, -1): rim.append(P(t0, z0 + (z1 - z0) * j / (nz - 1), -sink))
-    edge = []
-    for i in range(nt): edge.append(top[i][0])
-    for j in range(1, nz): edge.append(top[nt - 1][j])
-    for i in range(nt - 2, -1, -1): edge.append(top[i][nz - 1])
-    for j in range(nz - 2, 0, -1): edge.append(top[0][j])
-    before = set(k.bm.faces)
-    V = [[k.bm.verts.new(tuple(p)) for p in row] for row in top]
-    E = []
-    for p in edge:
-        for i in range(nt):
-            for j in range(nz):
-                if top[i][j] is p: E.append(V[i][j])
-    Rr = [k.bm.verts.new(tuple(p)) for p in rim]
-    faces = []
-    for i in range(nt - 1):
-        for j in range(nz - 1):
-            try: faces.append(k.bm.faces.new((V[i][j], V[i + 1][j], V[i + 1][j + 1], V[i][j + 1])))
-            except ValueError: pass
-    m = len(E)
-    for i in range(m):
-        try: faces.append(k.bm.faces.new((E[i], E[(i + 1) % m], Rr[(i + 1) % m], Rr[i])))
-        except ValueError: pass
-    k.bm.normal_update()
-    cen = H.pt((t0 + t1) / 2, (z0 + z1) / 2)
-    nn = H.normal((t0 + t1) / 2, (z0 + z1) / 2)
-    flip = [f for f in faces if f.normal.dot(f.calc_center_median() - (cen - nn * h * 3)) < 0]
-    bmesh.ops.reverse_faces(k.bm, faces=flip)
-    k._finish(before, color, LAMP if lamp else HULL, 0)
-
-def _span(H, t, z, size):
-    """angle covering `size` metres of skin at (t, z)"""
-    a, b = H.pt(t, z), H.pt(t + .01, z)
-    return size / max(.05, (a - b).length / .01)
-
-def vent(S, H, t, z, w, l, color=0x1b1f24, slats=4, frame=None):
-    """recessed-looking louvre: a dark plate with raised slats across it"""
-    dt = _span(H, t, z, w) / 2
-    frame = frame if frame is not None else shade(H.paint(H.pt(t, z), H.normal(t, z)), .8)
-    plate(S, H, t - dt, t + dt, z - l / 2, z + l / 2, .04 + w * .02, frame, inset=.02)
-    plate(S, H, t - dt * .82, t + dt * .82, z - l * .42, z + l * .42, .05 + w * .02, color, inset=.0)
-    for i in range(slats):
-        zz = z - l * .38 + l * .76 * (i + .5) / slats
-        plate(S, H, t - dt * .78, t + dt * .78, zz - l * .05, zz + l * .05, .09 + w * .03, shade(frame, .9), inset=.0)
-
-def hatch(S, H, t, z, w, l, color):
-    dt = _span(H, t, z, w) / 2
-    plate(S, H, t - dt, t + dt, z - l / 2, z + l / 2, .03 + w * .015, shade(color, .7), inset=.0)
-    plate(S, H, t - dt * .8, t + dt * .8, z - l * .4, z + l * .4, .05 + w * .02, shade(color, 1.06), inset=.02)
-    plate(S, H, t + dt * .45, t + dt * .62, z - l * .12, z + l * .12, .08 + w * .03, HAZ if w > .6 else SLATE_D, inset=.0)
-
-def blister(S, H, t, z, r, color):
-    """a low sensor / equipment dome, base sunk into the skin"""
-    p = H.pt(t, z); n = H.normal(t, z)
-    revolve(S.k, [(-r * .6, r), (0, r), (r * .25, r * .85), (r * .45, r * .5), (r * .5, 0)], tuple(p), tuple(n), 16, color, closed=False)
-    revolve(S.k, [(-r * .3, r * 1.12), (r * .08, r * 1.12), (r * .08, r * .9)], tuple(p), tuple(n), 16, SLATE_D, closed=False)
-
 def greeble_hull(S, H, n, z0, z1, tmin=.2, tmax=2.9, size=.5, cols=None, both=True):
-    """surface detail that is part of the skin: armour plates, louvred vents, hatches and sensor blisters, every
-    one welded to the hull (they follow its curve and sink into it). No loose boxes."""
+    """service detail on the hull skin, each piece seated on the surface along its normal: flush access hatches
+    with a dark frame and a handle, louvred vents, and a few equipment housings"""
+    k = S.k
     for _ in range(int(n * LOD['greeble'])):
         z = S.rng.uniform(z0, z1); t = S.rng.uniform(tmin, tmax)
         if both and S.rng.random() < .5: t = math.pi - t
         p = H.pt(t, z); nn = H.normal(t, z)
-        if H.hump and H.hump(z, p.x) > .05 * max(H.at(z)[0], 1): continue     # the hump is coarsely faceted: keep it clean
+        sw, sl, sh = size * S.rng.uniform(.5, 1.6), size * S.rng.uniform(.6, 2.4), size * S.rng.uniform(.12, .5)
+        rot = skin_rot(nn)
+        col = S.rng.choice(cols) if cols else None
         base = H.paint(p, nn) if hasattr(H, 'paint') else BONE_D
-        if cols and S.rng.random() < .5: base = S.rng.choice(cols)
+        if col is None: col = shade(base, S.rng.choice((.78, .86, 1.08)))
         kind = S.rng.random()
-        w, l = size * S.rng.uniform(.7, 1.8), size * S.rng.uniform(.9, 3.2)
-        if kind < .42:
-            dt = _span(H, t, z, w * 1.4) / 2
-            plate(S, H, t - dt, t + dt, z - l * .7, z + l * .7, size * S.rng.uniform(.05, .14), shade(base, S.rng.choice((.84, .92, 1.06))), inset=size * .06)
-        elif kind < .68: vent(S, H, t, z, w, l, frame=shade(base, .82), slats=S.rng.choice((3, 4, 5)))
-        elif kind < .86: hatch(S, H, t, z, w, w * S.rng.uniform(1, 1.6), base)
-        else: blister(S, H, t, z, size * S.rng.uniform(.25, .5), shade(base, 1.08))
+        with k.at(tuple(p), rot):
+            if kind < .45:
+                # access hatch: dark recess frame, a plate just proud of it, a grab handle
+                fh = max(.02, size * .05)
+                k.box((0, 0, fh * .5 - .02 * size), (sw * 1.08, sl * 1.08, fh), shade(base, .42), wear=0)
+                k.box((0, 0, fh * 1.2 - .02 * size), (sw * .94, sl * .94, fh), shade(base, 1.04), bevel=fh * .3)
+                k.box((0, sl * .3, fh * 1.9 - .02 * size), (sw * .3, size * .06, size * .06), SLATE_D, wear=0)
+            elif kind < .75:
+                # vent: a shallow housing with a row of louvres
+                vh = sh * .45
+                k.box((0, 0, vh / 2 - .02 * size), (sw, sl, vh), col, bevel=min(.04, vh * .3) * size)
+                nl = max(3, min(6, int(sl / (size * .26))))
+                for i in range(nl):
+                    y = -sl * .4 + sl * .8 * (i + .5) / nl
+                    k.box((0, y, vh + size * .01), (sw * .8, sl * .8 / nl * .45, size * .05), shade(base, .35), rot=(30, 0, 0), wear=0)
+            else:
+                # equipment housing with a cap plate
+                k.box((0, 0, sh / 2 - .02 * size), (sw, sl, sh), col, bevel=min(.04, sh * .3) * size)
+                k.box((0, 0, sh), (sw * .7, sl * .6, size * .05), shade(col, .8), wear=0)
 
-def ground(S, p, d=(0, -1, 0), maxd=80.0):
-    """first point of the model hit from p along d (the hull under a mast, a dish, a pod)"""
-    from mathutils.bvhtree import BVHTree
-    bvh = BVHTree.FromBMesh(S.k.bm)
-    hit = bvh.ray_cast(Vector(p), Vector(d).normalized(), maxd)
-    return hit[0]
-
-def mast(S, top, r, d=(0, -1, 0), color=SLATE, foot=True, maxd=80.0):
-    """a strut from `top` down along d into whatever is below it, with a flange where it meets the skin"""
-    dd = Vector(d).normalized(); g = ground(S, Vector(top) + dd * r * .5, dd, maxd)
-    if g is None: return None
-    S.k.link(tuple(top), tuple(g + dd * r * 1.5), r, r * 1.25, color)
-    if foot: revolve(S.k, [(-r * 1.5, r * 2.4), (r * .1, r * 2.4), (r * .4, r * 1.3), (r * .4, 0)], tuple(g), tuple(-dd), 14, SLATE_D, closed=False)
-    return g
-
-def can(k, c, r, length, n=(0, 0, 1), color=BONE, ribs=3, rib=SLATE, sides=8, stringers=True):
-    """an industrial can: a faceted prism with chamfered flat ends, rib frames, stringers on the corners and a
-    hub on each end. The opposite of a pill."""
-    L = length / 2; e = r * .14
-    revolve(k, [(-L - e, 0), (-L - e, r * .62), (-L, r), (L, r), (L + e, r * .62), (L + e, 0)], c, n, sides, color, closed=False, spin=math.pi / sides, exact=True)
-    for i in range(ribs):
-        z = -L + length * (i + .5) / ribs
-        revolve(k, [(z - r * .07, r * .97), (z - r * .07, r * 1.06), (z + r * .07, r * 1.06), (z + r * .07, r * .97)], c, n, sides, rib, spin=math.pi / sides, exact=True)
-    for sz in (-1, 1):
-        z = sz * (L + e)
-        revolve(k, [(z - sz * r * .05, r * .66), (z + sz * r * .04, r * .66), (z + sz * r * .04, r * .52), (z - sz * r * .05, r * .52)], c, n, sides, rib, spin=math.pi / sides, exact=True)
-        revolve(k, [(z - sz * r * .02, r * .26), (z + sz * r * .14, r * .26), (z + sz * r * .2, r * .16), (z + sz * r * .2, 0)], c, n, 12, SLATE_D, closed=False)
-    if stringers:
-        M = Matrix.Translation(Vector(c)) @ rot_to(n, math.pi / sides).to_matrix().to_4x4()
-        for j in range(sides):
-            a = 2 * math.pi * j / sides
-            p0 = M @ Vector((r * 1.0 * math.cos(a), r * 1.0 * math.sin(a), -L)); p1 = M @ Vector((r * 1.0 * math.cos(a), r * 1.0 * math.sin(a), L))
-            k.link(tuple(p0), tuple(p1), r * .045, r * .045, rib, segs=6, caps=True)
-
+def ribs_and_conduits(S, H, bands=0, conduit_sides=(1, -1), skipz=None):
+    """structure on the skin: raised frame bands round the hull at intervals, and a pair of conduits with
+    clamps running down the upper flanks. Everything follows the loft's own surface."""
+    k = S.k; L = H.z1 - H.z0
+    mid = H.at((H.z0 + H.z1) / 2); Rm = max(.3, min(mid[0], mid[1]))
+    nb = bands or max(3, min(9, int(L / (Rm * 2.4))))
+    paint = getattr(H, 'paint', None)
+    col = (lambda c, n: shade(paint(c, n), .66)) if paint else shade(BONE_D, .7)
+    for i in range(nb):
+        z = H.z0 + L * (.18 + .7 * i / max(1, nb - 1))
+        if skipz and skipz(z): continue
+        if H.hump and (H.hump(z - L * .02, 0) > .01 or H.hump(z + L * .02, 0) > .01): continue
+        w, h, _, yc = H.at(z); R = min(w, h); th = max(.025, R * .022); bw = max(.06, R * .05)
+        rs = []
+        for dz, off in ((-bw, -th * .6), (-bw * .6, th), (bw * .6, th), (bw, -th * .6)):
+            ring = []
+            for j in range(H.segs):
+                t = 2 * math.pi * j / H.segs
+                ring.append(H.pt(t, z + dz) + H.normal(t, z + dz) * off)
+            rs.append(ring)
+        k.rings(rs, col, wear=0)
+    for sd in conduit_sides:
+        t = .42 if sd > 0 else math.pi - .42
+        z0, z1 = H.z0 + L * .22, H.z1 - L * .12
+        n = max(8, int((z1 - z0) / max(.6, Rm * .5)))
+        w, h, _, _ = H.at((z0 + z1) / 2); r = max(.035, min(w, h) * .03)
+        pts = [H.pt(t, z0 + (z1 - z0) * i / n) + H.normal(t, z0 + (z1 - z0) * i / n) * (r * 1.2) for i in range(n + 1)]
+        for i in range(n):
+            if skipz and skipz((pts[i].z + pts[i + 1].z) / 2): continue
+            k.link(tuple(pts[i]), tuple(pts[i + 1] + (pts[i + 1] - pts[i]).normalized() * r * .5), r, r, SLATE)
+            if i % 3 == 0:
+                nn = H.normal(t, pts[i].z)
+                k.box(tuple(pts[i] - nn * r * .3), (r * 3.2, r * 3.2, r * 1.4), SLATE_D, rot=skin_rot(nn), wear=0)
 
 def rcs_quad(S, c, n, s=.25, color=SLATE_L):
     k = S.k; k.box(tuple(c), (s, s, s * .8), color, rot=rot_to(n), bevel=s * .1)
@@ -486,16 +408,7 @@ def rcs_quad(S, c, n, s=.25, color=SLATE_L):
         dv.normalize(); k.cyl(tuple(Vector(c) + dv * s * .6), s * .14, s * .2, s * .35, 'z', 8, SLATE_D, rot=rot_to(dv))
 
 def nav(S, c, color, size=.15):
-    """a nav lamp in a small housing, pulled onto the nearest surface so it never hangs in space"""
-    from mathutils.bvhtree import BVHTree
-    c = Vector(c)
-    if S.k.bm.faces:
-        h = BVHTree.FromBMesh(S.k.bm).find_nearest(c)
-        if h[0] is not None and h[3] > size * .3:
-            n = (c - h[0]).normalized() if (c - h[0]).length > 1e-6 else h[1]
-            c = h[0] + n * size * .3
-    S.k.cyl(tuple(c), size * .9, size * .9, size * 1.2, 'z', 8, SLATE_D)
-    S.k.lamp(tuple(c), (size, size, size * 1.6), color); S.lights.append({'p': list(c), 'c': color})
+    S.k.lamp(tuple(c), (size, size, size), color); S.lights.append({'p': list(c), 'c': color})
 
 def collar(S, c, n=(0, 1, 0), r=1.3, kind='collar'):
     """docking collar: a ring with an orange band, clamp pads and guide lamps. The jet docks on it."""
@@ -517,15 +430,8 @@ def dish(S, c, r, n, color=BONE):
         u = i / 7; prof.append((r * .35 * u * u, r * u))
     inner = [(z + r * .03, rr * .97) for z, rr in reversed(prof)]
     revolve(k, prof + inner, c, n, 24, color)
-    nn = Vector(n).normalized()
-    k.link(tuple(Vector(c)), tuple(Vector(c) + nn * r * .7), r * .03, r * .02, SLATE_D)
-    for j in range(3):   # feed tripod
-        a = j * 2.094; u = nn.orthogonal().normalized(); v = nn.cross(u)
-        rim = Vector(c) + nn * r * .3 + (u * math.cos(a) + v * math.sin(a)) * r * .85
-        k.link(tuple(rim), tuple(Vector(c) + nn * r * .7), r * .012, r * .012, SLATE_D, segs=6)
-    k.link(tuple(Vector(c) - nn * r * .25), tuple(Vector(c) + nn * r * .05), r * .1, r * .06, SLATE)
-    revolve(k, [(-r * .32, r * .2), (-r * .2, r * .2), (-r * .12, r * .12)], tuple(Vector(c)), tuple(nn), 14, SLATE_D, closed=False)
-    mast(S, Vector(c) - nn * r * .3, r * .08, -nn, SLATE)
+    nn = Vector(n).normalized(); k.link(tuple(Vector(c)), tuple(Vector(c) + nn * r * .7), r * .03, r * .02, SLATE_D)
+    k.link(tuple(Vector(c) - nn * r * .6), tuple(Vector(c)), r * .06, r * .05, SLATE)
 
 def container(S, c, s, color, stripe=HAZ, col=True):
     k = S.k
@@ -567,23 +473,12 @@ def radiator(S, root, length, width, side=1, n=8, color=0x8c8f92, rib=SLATE_D, a
         k.box(tuple(c), sz, shade(color, .92 + .12 * S.rng.random()), wear=.05)
         rc = r + d * length * u1
         k.box(tuple(rc), ((length / n * .06, thick * 2.4, width * 1.02) if axis == 'x' else (thick * 2.4, length / n * .06, width * 1.02)), rib)
-    k.link(tuple(r - d * width * .35), tuple(r + d * length), width * .03, width * .02, SLATE)
-    # root yoke (sunk into the hull) and a frame round the panel's edges
-    k.box(tuple(r - d * width * .12), ((width * .3, width * .14, width * .4) if axis == 'x' else (width * .14, width * .3, width * .4)), SLATE_D, bevel=width * .02)
-    for sz in (-1, 1):
-        e0 = r + Vector((0, 0, sz * width * .5)); e1 = e0 + d * length
-        k.link(tuple(e0), tuple(e1), width * .012, width * .012, SLATE_D, segs=6)
-    for i in range(1, 4):
-        z = -width * .5 + width * i / 4
-        k.link(tuple(r + Vector((0, 0, z))), tuple(r + Vector((0, 0, z)) + d * length * .98), width * .008, width * .008, 0x8a6a4a, segs=6)
+    k.link(tuple(r), tuple(r + d * length), width * .03, width * .02, SLATE)
     c = r + d * length / 2
     S.box_col(tuple(c), ((length / 2, thick * 2, width / 2) if axis == 'x' else (thick * 2, length / 2, width / 2)))
 
 def turret(S, c, r, n=(0, 1, 0), barrels=2, color=SLATE_L):
     k = S.k; nn = Vector(n).normalized(); c = Vector(c)
-    g = ground(S, c + nn * r * .2, -nn, r * 8)
-    if g is not None and (g - c).length > r * .05:
-        revolve(k, [(-(g - c).length - r * .3, r * .82), (r * .05, r * .82), (r * .05, r * .7)], tuple(c), tuple(nn), 20, SLATE_D, closed=False)
     revolve(k, [(0, r), (r * .5, r * .95), (r * .7, r * .7), (r * .78, 0)], c, nn, 20, color, closed=False)
     revolve(k, [(-r * .15, r * 1.1), (0, r * 1.1), (0, r * .9)], c, nn, 20, SLATE_D, closed=False)
     for b in range(barrels):
@@ -669,8 +564,9 @@ def wren():
         for sd in (-1, 1): rcs_quad(S, H.pt(math.pi / 2 - sd * 1.1, sz) + Vector((0, 0, 0)), H.normal(math.pi / 2 - sd * 1.1, sz), .2)
     greeble_hull(S, H, 26, -4, 6, .4, 1.4, .3)
     collar(S, (0, H.pt(math.pi / 2, 2.6).y - .05, 2.6), (0, 1, 0), 1.0)
-    mast(S, (0, 2.4, 5.0), .03, color=SLATE_D); nav(S, (0, 2.44, 5.0), WHITE, .08)
+    k.link((0, 1.3, 4.6), (0, 2.4, 5.2), .03, .02, SLATE_D); nav(S, (0, 2.42, 5.22), WHITE, .08)
     S.anchor['eye'] = {'p': [0, 1.15, -3.6]}
+    ribs_and_conduits(S, H, 3, (), lambda z: z < -1.6 or 1.4 < z < 3.8)
     finish_common(S, H); return S, H
 
 
@@ -695,6 +591,7 @@ def kite():
     greeble_hull(S, H, 30, -6, 9, .3, 1.2, .3)
     collar(S, (0, H.pt(math.pi / 2, 2.0).y - .05, 2.0), (0, 1, 0), .9)
     S.anchor['eye'] = {'p': [0, 1.0, -5.5]}
+    ribs_and_conduits(S, H, 3, (), lambda z: z < -3.2 or 0.8 < z < 3.2)
     finish_common(S, H); return S, H
 
 
@@ -723,6 +620,7 @@ def hornet():
     greeble_hull(S, H, 40, -7, 11, .3, 1.3, .35)
     collar(S, (0, H.pt(math.pi / 2, 2.5).y - .05, 2.5), (0, 1, 0), 1.0)
     S.anchor['eye'] = {'p': [0, 1.25, -6.5]}
+    ribs_and_conduits(S, H, 4, (), lambda z: z < -4 or 1.2 < z < 3.8)
     finish_common(S, H); return S, H
 
 
@@ -734,14 +632,14 @@ def mule():
     H = Hull(tab, 44, bot=.9, shoulder=.08, chine=.06)
     seams = [-16, -12, -9, -4, 1, 6, 10, 14, 18]
     liv = livery(H, 0xe1a73a, belly=0x3b3732, accent=0x15171b, cell=2.0, seams=seams, seamw=.05, tipz=-20.6, tip=SLATE_D,
-                 stripe=lambda p, yn: (-8.2 < p.z < -7.4) or (-6.2 < p.z < -5.4) or (-3.5 < p.z < 6 and abs(yn) < .2),
+                 stripe=lambda p, yn: (-9 < p.z < -4.5 and int((p.z + p.y * .8) / .9) % 2 == 0) or (-3.5 < p.z < 6 and abs(yn) < .2),
                  windows=lambda p, yn: .3 < yn < .62 and -19.6 < p.z < -16.6 and abs(p.x) < 3.2)
     skin(S, H, stations(-21, 21, .5, [s + d for s in seams for d in (-.05, .05)]), liv)
     # big push plate on the nose with bumpers
-    revolve(k, [(0, 0), (0, 3.2), (.4, 3.4), (1.2, 3.4), (1.6, 2.8), (1.6, 0)], (0, 1, -20.9), (0, 0, -1), 32, SLATE_D, closed=False)
+    revolve(k, [(0, 0), (0, 3.2), (.4, 3.4), (1.2, 3.4), (1.6, 2.8), (1.6, 0)], (0, 1, -21.2), (0, 0, -1), 32, SLATE_D, closed=False)
     for j in range(8):
         a = j * math.pi / 4; c = Vector((math.cos(a) * 2.6, 1 + math.sin(a) * 2.6, -22.9))
-        k.box(tuple(c + Vector((0, 0, .55))), (.9, .9, .6), 0x15171b, bevel=.08)
+        k.box(tuple(c), (.9, .9, .5), 0x15171b, bevel=.08)
     # grapple arms under the nose
     for sd in (-1, 1):
         a0 = Vector((sd * 2.6, -2.6, -14)); a1 = Vector((sd * 3.6, -3.4, -22)); a2 = Vector((sd * 1.6, -3.0, -26))
@@ -753,7 +651,7 @@ def mule():
         for sy in (-1, 1):
             bell(k, (sx * 2.3, .5 + sy * 2.1, 20.9), .95, 1.45, 2.4, segs=22, glow=0x6a3a18)
             S.nozzles.append({'p': [sx * 2.3, .5 + sy * 2.1, 23.3], 'r': 1.4})
-        can(S.k, (sx * 6.6, .5, 12), 2.0, 9, (0, 0, 1), 0xd4c8b0, 3, SLATE)
+        cap_tank(S.k, (sx * 6.6, .5, 12), 2.0, 9, (0, 0, 1), 0xd4c8b0, 3, SLATE)
         k.link((sx * 5.0, .5, 9), (sx * 4.6, .5, 9), .5, .5, SLATE_D); k.link((sx * 5.0, .5, 15), (sx * 4.8, .5, 15), .5, .5, SLATE_D)
         S.box_col((sx * 6.6, .5, 12), (2.0, 2.0, 6.3))
         nav(S, (sx * 8.7, .5, 12), GREEN if sx > 0 else RED, .25)
@@ -764,10 +662,11 @@ def mule():
         for sd in (-1, 1): rcs_quad(S, H.pt(math.pi / 2 - sd * .7, z), H.normal(math.pi / 2 - sd * .7, z), .5)
     greeble_hull(S, H, 70, -15, 19, .2, 1.5, .7)
     window_row(S, H, -15, -10, .55, 1.2, .25, lit=.3)
-    mast(S, (0, 7.5, -12), .08, color=SLATE_D); nav(S, (0, 7.6, -12), WHITE, .2)
+    k.link((0, 4.4, -12), (0, 7.5, -12), .08, .05, SLATE_D); nav(S, (0, 7.55, -12), WHITE, .2)
     dish(S, (2.4, 4.3, -6), 1.1, (0.3, 1, -.3))
     collar(S, (0, H.pt(math.pi / 2, 2).y - .1, 2), (0, 1, 0), 1.4)
     S.anchor['eye'] = {'p': [0, 4.4, -19.8]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -15.5 or 0 < z < 4)
     finish_common(S, H); return S, H
 
 
@@ -790,9 +689,6 @@ def packhorse():
                 if hsh(i, sx, sy, 3) < .12: continue
                 container(S, (sx * 3.3, 1.2 + sy * 2.1, z), (3.6, 3.6, 6.2), cols[int(hsh(i, sx, sy) * len(cols))])
         for sx in (-1, 1): k.box((sx * 3.3, 1.2, z - 3.35), (8.0, .35, .35), SLATE_D)
-        for sx in (-1, 1):
-            k.box((sx * 5.5, 1.2, z - 3.35), (.4, 9.0, .4), SLATE_D)
-            for sy in (-1, 1): k.box((sx * 3.3, 1.2 + sy * 4.3, z - 3.35), (4.8, .35, .35), SLATE_D)
         k.box((0, 1.2, z - 3.35), (.35, 8.6, .35), SLATE_D)
     for sx in (-1, 1):
         for sy in (-1, 1): k.box((sx * 5.5, 1.2 + sy * 4.3, 7.5), (.4, .4, 38), BONE_D, bevel=.05)
@@ -809,6 +705,7 @@ def packhorse():
     dish(S, (0, 6.8, -15.5), 1.3, (0, 1, .3))
     collar(S, (0, H.pt(math.pi / 2, -19).y - .1, -19.6), (0, 1, 0), 1.4)
     S.anchor['eye'] = {'p': [0, 6.4, -24.8]}
+    ribs_and_conduits(S, H, 0, (), lambda z: z < -16 or z > 23)
     finish_common(S, H); return S, H
 
 
@@ -820,7 +717,7 @@ def prospector():
     H = Hull(tab, 44, bot=.85, shoulder=.1, keel=.2, hump=lambda z, x: 3.6 * smooth(4, 7, -abs(x) + 9) * smooth(-24, -20, z) * smooth(-2, -6, z))
     seams = [-26, -18, -10, -2, 6, 14, 22, 30]
     liv = livery(H, 0x7d6f5c, belly=0x3a3530, accent=0xf2b33d, cell=2.6, seams=seams, seamw=.07, tipz=-34.6, tip=0x1b1b1b, wear=.22,
-                 stripe=lambda p, yn: (-31 < p.z < -29.6) or (-28 < p.z < -27.2),
+                 stripe=lambda p, yn: (p.z < -28 and int((p.x + p.y + 40) / 1.2) % 2 == 0),
                  windows=lambda p, yn: yn > .62 and -20.5 < p.z < -18.2)
     skin(S, H, stations(-35, 35, .9, [s + d for s in seams for d in (-.07, .07)]), liv)
     # drill head: a rotating-looking cone with teeth, on a collar
@@ -834,16 +731,11 @@ def prospector():
         base = Vector((sd * 8.0, -3, -22)); el = Vector((sd * 11.5, -5.5, -32)); claw = Vector((sd * 7, -6, -40))
         k.link(tuple(base), tuple(el), 1.0, .85, 0xf2b33d); k.link(tuple(el), tuple(claw), .8, .6, 0xf2b33d)
         k.cyl(tuple(el), 1.1, 1.1, 1.6, 'x', 16, SLATE_D)
-        k.cyl(tuple(claw), .9, .7, 1.0, 'z', 14, SLATE_D)
-        for j in range(3):
-            a = j * 2.094; tipp = claw + Vector((math.cos(a) * 1.1, math.sin(a) * 1.1, -2.4))
-            k.link(tuple(claw + Vector((math.cos(a) * .5, math.sin(a) * .5, -.2))), tuple(tipp), .22, .12, 0xd0cdc5, segs=8)
+        for j in range(3): k.box(tuple(claw + Vector((sd * (j - 1) * .6, -.5, -1.0))), (.35, .5, 2.2), SLATE_D, rot=(15 * (j - 1), 0, 0))
         S.box_col(tuple((base + el) / 2), (1.2, 1.2, 5.5)); S.box_col(tuple((el + claw) / 2), (1.0, 1.0, 4.6))
     for i in range(4):
         z = -6 + i * 7.5
-        for sd in (-1, 1):
-            container(S, (sd * 9.9, -1.5, z), (3.4, 6.5, 6.5), 0x5d5348, stripe=0xf2b33d)
-            for dz in (-2.2, 2.2): k.box((sd * 8.2, -1.5, z + dz), (2.4, 5.2, .7), SLATE_D, bevel=.08)
+        for sd in (-1, 1): container(S, (sd * 10.2, -1.5, z), (3.4, 6.5, 6.5), 0x5d5348, stripe=0xf2b33d)
     for sx in (-1, 1):
         for sy in (-1, 1):
             bell(k, (sx * 2.8, sy * 2.6, 34.8), 1.2, 1.9, 3.0, segs=22, glow=0x6a3a18); S.nozzles.append({'p': [sx * 2.8, sy * 2.6, 37.8], 'r': 1.85})
@@ -854,9 +746,10 @@ def prospector():
     for z in (-28, 0, 30):
         for sd in (-1, 1): rcs_quad(S, H.pt(math.pi / 2 - sd * .8, z), H.normal(math.pi / 2 - sd * .8, z), .7)
     dish(S, (4, 9.5, -8), 1.8, (.2, 1, .1))
-    mast(S, (-3, 15, -12), .12, color=SLATE_D); nav(S, (-3, 15.15, -12), WHITE, .25)
+    k.link((-3, 9.6, -12), (-3, 15, -12), .12, .07, SLATE_D); nav(S, (-3, 15.1, -12), WHITE, .25)
     collar(S, (0, H.pt(math.pi / 2, 4).y - .1, 4), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 11.0, -21.0]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -13 or 2 < z < 6)
     finish_common(S, H); return S, H
 
 
@@ -886,10 +779,11 @@ def lance():
     window_row(S, H, -30, 10, .3, 2.0, .3, lit=.35)
     for z in (-38, 0, 40):
         for sd in (-1, 1): rcs_quad(S, H.pt(math.pi / 2 - sd * .75, z), H.normal(math.pi / 2 - sd * .75, z), .8)
-    mast(S, (0, 16, -2), .15, color=SLATE_D); nav(S, (0, 16.2, -2), WHITE, .3)
+    k.link((0, 9.5, -2), (0, 16, -2), .15, .08, SLATE_D); nav(S, (0, 16.1, -2), WHITE, .3)
     dish(S, (3.5, 9.4, 4), 1.6, (.3, 1, 0))
     collar(S, (0, H.pt(math.pi / 2, 30).y - .1, 30), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 9.6, -12.4]}
+    ribs_and_conduits(S, H, 0, (), lambda z: z < -14 or 28 < z < 32)
     finish_common(S, H); return S, H
 
 
@@ -905,7 +799,6 @@ def atlas():
                  stripe=lambda p, yn: abs(yn) < .2, windows=lambda p, yn: yn > .55 and -84.2 < p.z < -81.6)
     skin(S, H, stations(-90, -58, 1.0, [s + d for s in seams for d in (-.1, .1)]), liv)
     truss(S, -58, 62, 3.2, 0, 0, 6.4, BONE_D, .9)
-    k.cyl((0, 0, 2), 1.3, 1.3, 120, 'z', 16, SLATE)
     # ten container ranks along the spine, 2x2 around it
     cols = [0x8a3b2a, 0x1f4f8f, 0xc9b98f, 0x50606c, 0xb05a2a, 0x7c8a5a, 0x3d6a52]
     for i in range(10):
@@ -924,17 +817,17 @@ def atlas():
     for sx in (-1, 1):
         radiator(S, (sx * 13.5, 0, 74), 26, 12, sx, n=9)
         nav(S, (sx * 40, 0, 74), GREEN if sx > 0 else RED, .5)
-    can(k, (0, 15.2, 74), 4.5, 12, (0, 0, 1), 0xd8d0bc, 3, SLATE); S.box_col((0, 15.2, 74), (4.5, 4.5, 7))
-    for dz in (-4, 4): k.box((0, 11.8, 74 + dz), (6, 3.6, 1.4), SLATE_D, bevel=.15)
+    cap_tank(k, (0, 13.5, 74), 4.5, 12, (0, 0, 1), 0xd8d0bc, 3, SLATE); S.box_col((0, 13.5, 74), (4.5, 4.5, 9))
     greeble_hull(S, H, 70, -86, -60, .2, 1.6, 1.6)
     greeble_hull(S, H2, 70, 64, 88, .2, 1.6, 1.6)
     window_row(S, H, -82, -66, .2, 2.4, .5, lit=.45)
-    mast(S, (0, 24, -72), .25, color=SLATE_D); nav(S, (0, 24.3, -72), WHITE, .5)
+    k.link((0, 14, -72), (0, 24, -72), .25, .14, SLATE_D); nav(S, (0, 24.2, -72), WHITE, .5)
     dish(S, (6, 13, -64), 3, (.2, 1, .2))
     collar(S, (0, H.pt(math.pi / 2, -70).y - .1, -70), (0, 1, 0), 1.8)
     S.anchor['eye'] = {'p': [0, 14.6, -84.6]}
     finish_common(S, H)
     for z in range(-50, 66, 12): S.probes.append([0, 0, z, 9.0])
+    ribs_and_conduits(S, H2, 3, (1, -1))
     finish_common(S, H2); return S, H
 
 
@@ -966,6 +859,7 @@ def gull():
     window_row(S, H, -10, -3, .3, 1.0, .25, lit=.0)
     collar(S, (0, H.pt(math.pi / 2, 0).y - .05, -.5), (0, 1, 0), 1.2)
     S.anchor['eye'] = {'p': [0, 2.6, -14.2]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -9 or 3.5 < z < 8.5 or -2.5 < z < 1.5)
     finish_common(S, H); return S, H
 
 
@@ -1020,16 +914,14 @@ def vigil():
                 k.box(tuple(c), (R * 2 * math.pi / 24 * 1.02, 7.5, 6.0), 0xc8c3b6, rot=(0, 0, math.degrees((a0 + a1) / 2) + 90), bevel=.4)
         for j in range(4):
             a = j * math.pi / 2 + .785
-            k.link((math.cos(a) * 4.0, math.sin(a) * 4.0, zc), (math.cos(a) * (R - 2), math.sin(a) * (R - 2), zc), 1.0, .8, SLATE)
+            k.link((math.cos(a) * 4.4, math.sin(a) * 4.4, zc), (math.cos(a) * 18, math.sin(a) * 18, zc), 1.0, .8, SLATE)
         for j in range(24):
             if torn and 15 <= j <= 22: continue
             a = j / 24 * 2 * math.pi; S.probes.append([math.cos(a) * R, math.sin(a) * R, zc, 4.6])
             if j % 3 == 0: S.box_col((math.cos(a) * R, math.sin(a) * R, zc), (4.2, 4.2, 3.2))
     for i in range(6):
         z = -25 + i * 11
-        for sd in (-1, 1):
-            can(k, (sd * 6.3, 0, z), 2.0, 5, (0, 0, 1), 0xc0bbae, 2, 0x1f7a8c)
-            k.box((sd * 4.6, 0, z), (1.6, 1.4, 3.6), SLATE_D, bevel=.1)
+        for sd in (-1, 1): cap_tank(k, (sd * 6.5, 0, z), 2.0, 5, (0, 0, 1), 0xc0bbae, 2, 0x1f7a8c)
     dish(S, (0, 10, -44), 5, (0, 1, -.4)); dish(S, (0, -10, -44), 4, (0, -1, -.3))
     for (sx, sy) in ((-1, 0), (1, 0), (0, 1), (0, -1)):
         bell(k, (sx * 4.0, sy * 4.0, 59.8), 1.6, 2.4, 4, segs=22, glow=0x2a1408); S.nozzles.append({'p': [sx * 4, sy * 4, 63.8], 'r': 2.35})
@@ -1039,6 +931,7 @@ def vigil():
     window_row(S, H, -54, -38, .2, 2.0, .45, lit=.05)
     collar(S, (0, H.pt(math.pi / 2, -40).y - .1, -40), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 9.0, -56.6]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -50 or -42 < z < -38 or abs(z + 12) < 5 or abs(z - 14) < 5)
     finish_common(S, H); return S, H
 
 
@@ -1079,6 +972,7 @@ def cinder():
     window_row(S, H, -50, 40, .25, 2.4, .35, lit=.0)
     collar(S, (0, H.pt(math.pi / 2, 42).y - .1, 42), (0, 1, 0), 1.8)
     S.anchor['eye'] = {'p': [0, 15.6, -9.2]}
+    ribs_and_conduits(S, H, 0, (1,), lambda z: -4 < z < 14 or 40 < z < 44 or abs(z + 36) < 4 or abs(z - 30) < 4)
     finish_common(S, H); return S, H
 
 
@@ -1110,13 +1004,15 @@ def ironwake():
     for z in (-460, -440, -420):
         for y in (-17.7, 17.7): k.lamp((76.9, y, z), (.6, .5, 2.2), AMBER)
     # bridge brow and fin details on the hump
-    mast(S, (0, 98, -440), 1.0, color=SLATE_L, maxd=200); nav(S, (0, 99, -440), WHITE, 1.4)
-    for z in (-430, -446): mast(S, (6, 86, z), .4, color=SLATE_D, maxd=200)
+    for i in range(7):
+        x = (i - 3) * 4.2; k.box((x, 64.6 + 1.2 * math.cos(i), -473.0), (.5, 4.6, 1.0), SLATE_D, rot=(-25, 0, 0))
+    k.link((0, 76, -440), (0, 98, -440), 1.2, .6, SLATE_L); nav(S, (0, 98.6, -440), WHITE, 1.4)
+    for z in (-430, -446): k.link((6, 74, z), (6, 86, z), .4, .25, SLATE_D)
     dish(S, (-14, 70, -420), 9, (-.2, 1, .3))
     dish(S, (22, 50, -380), 6, (.5, 1, .2))
-    window_row(S, H, -520, -360, .3, 9, 1.4, lit=.06, skip=lambda p: p.x > 30 and -480 < p.z < -400)
-    window_row(S, H, -515, -365, .05, 9, 1.4, lit=.04, skip=lambda p: p.x > 30 and -480 < p.z < -400)
-    greeble_hull(S, H, 150, -540, -340, .1, 3.0, 7)
+    window_row(S, H, -520, -360, .3, 9, 1.4, lit=.06)
+    window_row(S, H, -515, -365, .05, 9, 1.4, lit=.04)
+    greeble_hull(S, H, 260, -540, -340, .1, 3.0, 6)
     nav(S, (-76, 0, -480), RED, 1.4); nav(S, (76.4, 18.6, -480), GREEN, 1.4)
     S.anchor['bay'] = {'p': [45, -12.9, -440], 'n': [0, 1, 0]}
     S.anchor['eye'] = {'p': [0, 61.4, -469.6]}
@@ -1132,15 +1028,14 @@ def ironwake():
         for j in range(6):
             a = j / 6 * 2 * math.pi + .52
             c = (math.cos(a) * 46, math.sin(a) * 46, zc)
-            can(k, c, 22, 60, (0, 0, 1), [0xa3998a, 0x8f8676, 0xb2a897][(i + j) % 3], 3, 0x3d3a36, sides=8)
-            for dz in (-20, 20):
-                k.link((math.cos(a) * 8, math.sin(a) * 8, zc + dz), (math.cos(a) * 31, math.sin(a) * 31, zc + dz), 3, 3, SLATE)
-                k.box((math.cos(a) * 28, math.sin(a) * 28, zc + dz), (9, 9, 5), SLATE_D, rot=(0, 0, math.degrees(a)), bevel=.6)
+            cap_tank(k, c, 24, 62, (0, 0, 1), [0xa3998a, 0x8f8676, 0xb2a897][(i + j) % 3], 2, 0x3d3a36, segs=24)
+            k.link((math.cos(a) * 16, math.sin(a) * 16, zc - 20), (math.cos(a) * 24, math.sin(a) * 24, zc - 20), 3, 3, SLATE)
+            k.link((math.cos(a) * 16, math.sin(a) * 16, zc + 20), (math.cos(a) * 24, math.sin(a) * 24, zc + 20), 3, 3, SLATE)
             S.box_col(c, (24, 24, 45))
             for dz in (-30, 0, 30): S.probes.append([c[0], c[1], zc + dz, 24])
         for j in range(6):
             a = j / 6 * 2 * math.pi + .52
-            if hsh(i, j) < .25: k.lamp((math.cos(a) * 65.5, math.sin(a) * 65.5, zc), (2.5, 2.5, 2.5), AMBER)
+            if hsh(i, j) < .25: k.lamp((math.cos(a) * 71, math.sin(a) * 71, zc), (2, 2, 2), AMBER)
     for z in range(-300, 301, 30): S.probes.append([0, 0, z, 18])
     # drive section
     D = Hull([(300, 30, 30, 2.6, 0), (320, 62, 58, 3.6, 0), (420, 70, 64, 4.2, 0), (500, 66, 60, 4.0, 0), (540, 54, 50, 3.4, 0)], 64, bot=1, shoulder=.05)
@@ -1178,105 +1073,13 @@ def ironwake():
     for z in (360, 440):
         revolve(k, [(0, 22), (8, 20), (14, 12), (16, 0)], (0, D.pt(math.pi / 2, z).y - 3, z), (0, 1, 0), 32, 0xb5ad9c, closed=False)
         ring_tube(k, (0, D.pt(math.pi / 2, z).y - 1, z), 22, 1.4, (0, 1, 0), 40, 0xc8501e)
-    greeble_hull(S, D, 120, 310, 535, .1, 3.0, 7, cols=(0x7e7a70, SLATE_D, RUST, 0x5c5a55))
+    greeble_hull(S, D, 220, 310, 535, .1, 3.0, 6, cols=(0x7e7a70, SLATE_D, RUST, 0x5c5a55))
     for z in (-500, 380, 500):
         for sd in (-1, 1):
             hh = H if z < 0 else D
             rcs_quad(S, hh.pt(math.pi / 2 - sd * .8, z), hh.normal(math.pi / 2 - sd * .8, z), 5)
     return S, H
 
-
-# ============================================================================================
-# Connectivity audit: every loose piece of a ship must touch (intersect, sit flush on, or sit inside) another
-# piece that leads back to the hull. Anything that doesn't is reported, and gets a strut to the nearest
-# structure so nothing in the game floats free.
-def islands(bm):
-    bm.verts.ensure_lookup_table(); bm.verts.index_update()
-    seen = bytearray(len(bm.verts)); out = []
-    for v in bm.verts:
-        if seen[v.index]: continue
-        seen[v.index] = 1; st = [v]; comp = []
-        while st:
-            x = st.pop(); comp.append(x)
-            for e in x.link_edges:
-                o = e.other_vert(x)
-                if not seen[o.index]: seen[o.index] = 1; st.append(o)
-        out.append(comp)
-    return out
-
-def audit(S, fix=True, quiet=False):
-    from mathutils.bvhtree import BVHTree
-    bm = S.k.bm
-    isl = [c for c in islands(bm) if len(c) >= 3]
-    info = []
-    for comp in isl:
-        idx = {v.index: i for i, v in enumerate(comp)}
-        faces = {f for v in comp for f in v.link_faces}
-        polys = [[idx[l.vert.index] for l in f.loops] for f in faces]
-        co = [v.co.copy() for v in comp]
-        mn = Vector((min(c.x for c in co), min(c.y for c in co), min(c.z for c in co))); mx = Vector((max(c.x for c in co), max(c.y for c in co), max(c.z for c in co)))
-        bvh = BVHTree.FromPolygons(co, polys, epsilon=0.0) if polys else None
-        info.append({'co': co, 'mn': mn, 'mx': mx, 'bvh': bvh, 'size': (mx - mn).length})
-    n = len(info); par = list(range(n))
-    def find(i):
-        while par[i] != i: par[i] = par[par[i]]; i = par[i]
-        return i
-    big = max(range(n), key=lambda i: info[i]['size'])
-    def touch(A, B):
-        eps = .02 + .004 * min(A['size'], B['size'])
-        if any(A['mn'][a] > B['mx'][a] + eps or B['mn'][a] > A['mx'][a] + eps for a in range(3)): return False
-        if A['bvh'] and B['bvh'] and A['bvh'].overlap(B['bvh']): return True
-        s, o = (A, B) if len(A['co']) <= len(B['co']) else (B, A)
-        step = max(1, len(s['co']) // 300)
-        for c in s['co'][::step]:
-            if o['bvh'] and o['bvh'].find_nearest(c, eps)[0] is not None: return True
-        # inside: centre of the smaller one enclosed by the other (odd number of crossings along +x)
-        cc = (s['mn'] + s['mx']) / 2
-        if all(o['mn'][a] <= cc[a] <= o['mx'][a] for a in range(3)) and o['bvh']:
-            cnt = 0; pnt = cc.copy()
-            for _ in range(64):
-                h = o['bvh'].ray_cast(pnt, Vector((1, .0013, .0007)))
-                if h[0] is None: break
-                cnt += 1; pnt = h[0] + Vector((1e-4, 0, 0))
-            if cnt % 2 == 1: return True
-        return False
-    order = sorted(range(n), key=lambda i: info[i]['mn'].x)
-    for ii in range(n):
-        i = order[ii]
-        for jj in range(ii + 1, n):
-            j = order[jj]
-            if info[j]['mn'].x > info[i]['mx'].x + .05 + .004 * info[i]['size']: break
-            if find(i) == find(j): continue
-            if touch(info[i], info[j]): par[find(i)] = find(j)
-    root = find(big)
-    loose = [i for i in range(n) if find(i) != root]
-    groups = {}
-    for i in loose: groups.setdefault(find(i), []).append(i)
-    fixed = 0
-    if groups:
-        # strut each loose group to the nearest connected geometry
-        con = [i for i in range(n) if find(i) == root]
-        for g, members in groups.items():
-            best = None
-            for i in members:
-                step = max(1, len(info[i]['co']) // 120)
-                for c in info[i]['co'][::step]:
-                    for j in con:
-                        J = info[j]
-                        d = max(J['mn'][a] - c[a] if c[a] < J['mn'][a] else (c[a] - J['mx'][a] if c[a] > J['mx'][a] else 0) for a in range(3))
-                        if best and d > best[0]: continue
-                        h = J['bvh'].find_nearest(c) if J['bvh'] else (None,)
-                        if h[0] is not None and (best is None or h[3] < best[0]): best = (h[3], c.copy(), h[0].copy())
-            sz = max(info[i]['size'] for i in members)
-            if not quiet: print(f'   loose: {S.id} {len(members)} piece(s) size {sz:.2f} at {tuple(round(x, 2) for x in info[members[0]]["mn"])} gap {best[0] if best else -1:.2f}')
-            if fix and best:
-                d, a_, b_ = best; v = b_ - a_
-                if v.length > 1e-4:
-                    r = max(.03, min(sz * .06, .6 + d * .03))
-                    S.k.link(tuple(a_ - v.normalized() * r), tuple(b_ + v.normalized() * r), r, r * 1.15, SLATE_D)
-                    fixed += 1
-    print(f'  audit {S.id}: {n} pieces, {len(groups)} loose groups' + (f', strutted {fixed}' if fix and fixed else ''))
-    return len(groups)
 
 # ============================================================================================
 def bake_ao_v(k, rays=16, dist=2.0, strength=.8, seed=3):
@@ -1316,12 +1119,18 @@ def build(ids):
     for i in ids:
         print('building', i)
         S, H = DESIGNS[i]()
-        if '--noaudit' not in sys.argv:
-            audit(S, fix=True)
-            if '--strict' in sys.argv: audit(S, fix=False)
         kits.append(S.k)
         xs = [v.co for v in S.k.bm.verts]
         mn = [min(v[a] for v in xs) for a in range(3)]; mx = [max(v[a] for v in xs) for a in range(3)]
+        # nothing may float: slide loose parts onto the hull, strut the ones too far out
+        from islands import weld
+        weld(S.k, tol=max(0.02, S.k.maxlen * 0.04), link=lambda a, b, r0, r1: S.k.link(a, b, r0, r1, SLATE_D))
+        from islands import audit
+        left = audit(S.k.bm, tol=max(0.02, S.k.maxlen * 0.04)); print(f'  {i}: {len(left)} parts not joined to the hull')
+        if i != 'ironwake':
+            # solid colliders from the finished model itself, so nothing on it can be flown, walked or drifted through
+            from voxcol import vox_boxes
+            S.obbs, vv = vox_boxes(S.k.bm); print('  colliders', len(S.obbs), 'voxel', round(vv, 2))
         data[i] = {'obbs': S.obbs, 'probes': [[round(x, 3) for x in p] for p in S.probes], 'nozzles': S.nozzles, 'lights': S.lights,
                    'anchor': S.anchor, 'min': mn, 'max': mx}
     return kits, data

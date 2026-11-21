@@ -23,67 +23,56 @@ export const BAY_DOCK = new THREE.Vector3(46, -14.55, -440);
 
 // per-room colour multipliers (own uniform array, so the relay's rooms and these never fight)
 const roomU = { uIwC: { value: Array.from({ length: 16 }, () => new THREE.Vector3(1, 1, 1)) } };
-function patch(m) {
+function patch(m, grime = 0) {
   m.onBeforeCompile = (s) => {
     s.uniforms.uIwC = roomU.uIwC;
-    s.vertexShader = 'attribute float aRoom;\nuniform vec3 uIwC[16];\n' + s.vertexShader.replace('#include <color_vertex>', '#include <color_vertex>\n#ifdef USE_COLOR\nvColor.rgb *= uIwC[int(aRoom + 0.5)];\n#endif');
-  };
-  m.customProgramCacheKey = () => 'ironwakeroom';
-  return m;
-}
-// a 4 m bay of a ship's inner skin: two heavy frames with rivet rows, plates of different heights between them,
-// stringers, a vent grille and a stencil, grime running down from the seams. Mirrored per bay in the shader.
-function hullWallTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
-  let sd2 = 7; const r = () => { sd2 = (sd2 * 1664525 + 1013904223) >>> 0; return sd2 / 4294967296; };
-  x.fillStyle = '#cdc8bc'; x.fillRect(0, 0, 512, 512);
-  // plates: three columns between the frames, each cut at its own heights
-  const cols = [[22, 182], [182, 330], [330, 490]];
-  for (const [x0, x1] of cols) {
-    let y = 0; while (y < 512) {
-      const h = 70 + r() * 150, tone = 196 + r() * 22 | 0;
-      x.fillStyle = `rgb(${tone},${tone - 4},${tone - 12})`; x.fillRect(x0, y, x1 - x0, Math.min(h, 512 - y));
-      x.fillStyle = 'rgba(25,22,18,.55)'; x.fillRect(x0, y, x1 - x0, 2);
-      x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(x0, y + 2, x1 - x0, 1);
-      y += h;
+    s.vertexShader = 'attribute float aRoom;\nuniform vec3 uIwC[16];\nvarying vec3 vIwP;\n' + s.vertexShader.replace('#include <color_vertex>', '#include <color_vertex>\n#ifdef USE_COLOR\nvColor.rgb *= uIwC[int(aRoom + 0.5)];\n#endif\nvIwP = position;');
+    if (grime) {
+      // break up the repeat: big soft stains, water streaks running down, and a per-plate tone shift, all from
+      // the surface position so no two stretches of wall match
+      s.fragmentShader = 'varying vec3 vIwP;\nfloat iwH(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat iwN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);\n return mix(mix(mix(iwH(i), iwH(i + vec3(1,0,0)), f.x), mix(iwH(i + vec3(0,1,0)), iwH(i + vec3(1,1,0)), f.x), f.y), mix(mix(iwH(i + vec3(0,0,1)), iwH(i + vec3(1,0,1)), f.x), mix(iwH(i + vec3(0,1,1)), iwH(i + vec3(1,1,1)), f.x), f.y), f.z); }\n' + s.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+  { vec3 q = vIwP; float big = iwN(q * 0.09) * 0.6 + iwN(q * 0.27) * 0.4;
+    float streak = iwN(vec3(q.x * 1.7 + q.z * 1.7, q.y * 0.08, 0.)) ; streak = smoothstep(0.62, 0.95, streak) * smoothstep(0.2, 0.7, iwN(q * 0.05 + 3.));
+    float plate = iwH(floor(q / vec3(3.0, 1.5, 3.0)) + 7.) ;
+    float k = mix(0.78, 1.08, big) * mix(0.93, 1.05, plate) * (1. - 0.28 * streak * ${grime.toFixed(2)});
+    diffuseColor.rgb *= k; diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.08, 0.86, 0.7), 0.35 * streak * ${grime.toFixed(2)}); }`);
     }
-    x.fillStyle = 'rgba(25,22,18,.5)'; x.fillRect(x1 - 1, 0, 2, 512);
-  }
-  for (let i = 0; i < 3000; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '40,36,30' : '255,250,240'},${r() * 0.06})`; x.fillRect(r() * 512, r() * 512, 1 + r() * 4, 1 + r() * 2); }
-  // frames at the bay edge (0) and in the middle: shaded like a T-section, rivets down both flanges
-  for (const fx of [0, 246]) {
-    const g = x.createLinearGradient(fx, 0, fx + 22, 0); g.addColorStop(0, '#8e8a80'); g.addColorStop(0.3, '#b9b4a8'); g.addColorStop(0.7, '#a29e93'); g.addColorStop(1, '#6e6a62');
-    x.fillStyle = g; x.fillRect(fx, 0, 22, 512); x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(fx + 22, 0, 4, 512);
-    x.fillStyle = 'rgba(40,36,30,.6)'; for (let y = 8; y < 512; y += 18) { x.beginPath(); x.arc(fx + 5, y, 1.8, 0, 7); x.arc(fx + 17, y + 9, 1.8, 0, 7); x.fill(); }
-  }
-  // a stringer across at waist height and a vent grille
-  x.fillStyle = '#9d988c'; x.fillRect(0, 300, 512, 12); x.fillStyle = 'rgba(0,0,0,.3)'; x.fillRect(0, 312, 512, 3);
-  x.fillStyle = '#2a2a2a'; x.fillRect(372, 380, 90, 56); x.fillStyle = '#5a5850'; for (let i = 0; i < 7; i++) x.fillRect(376, 384 + i * 7.5, 82, 3);
-  // stencil
-  x.fillStyle = 'rgba(30,30,30,.55)'; x.font = 'bold 22px monospace'; x.fillText('FR 41', 56, 270); x.font = '14px monospace'; x.fillText('NO STEP', 210 + 60, 140);
-  x.fillStyle = 'rgba(232,86,26,.75)'; x.fillRect(56, 278, 64, 6);
-  // grime streaks from the seams and the stringer
-  for (let i = 0; i < 22; i++) { const gx = r() * 512, gy = r() < 0.5 ? 315 : r() * 300, gr = x.createLinearGradient(gx, gy, gx, gy + 160); gr.addColorStop(0, `rgba(60,50,40,${0.12 + r() * 0.2})`); gr.addColorStop(1, 'rgba(60,50,40,0)'); x.fillStyle = gr; x.fillRect(gx, gy, 2 + r() * 7, 160); }
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  };
+  m.customProgramCacheKey = () => 'ironwakeroom' + grime;
+  return m;
 }
 
-// walls and floors: every 2 m tile is mirrored and shaded by its own hash, with a slow grime field over the
-// top, so long walls stop reading as one tile stamped over and over
-function patchTiles(m, key, scale = 1) {
-  patch(m); const base = m.onBeforeCompile;
-  m.onBeforeCompile = (s) => {
-    base(s);
-    s.fragmentShader = s.fragmentShader.replace('#include <map_fragment>', `#define IWS ${scale.toFixed(3)}
-      vec2 iwUv = vMapUv * IWS; vec2 iwCell = floor(iwUv); vec2 iwF = fract(iwUv);
-      float iwH = fract(sin(dot(iwCell, vec2(127.1, 311.7))) * 43758.5453), iwH2 = fract(iwH * 17.31 + .17);
-      if (iwH > .5) iwF.x = 1. - iwF.x; if (iwH2 > .5) iwF.y = 1. - iwF.y;
-      vec4 sampledDiffuseColor = textureGrad(map, iwCell + iwF, dFdx(iwUv), dFdy(iwUv));
-      vec2 iwG = vMapUv * .19; float iwN = sin(iwG.x * 1.7 + sin(iwG.y * 2.3)) * sin(iwG.y * 1.3 + 1.7 * sin(iwG.x * .7));
-      sampledDiffuseColor.rgb *= (.9 + .16 * iwH2) * (.88 + .12 * iwN);
-      diffuseColor *= sampledDiffuseColor;`);
-  };
-  m.customProgramCacheKey = () => 'ironwaketile' + key;
-  return m;
+// the carrier's own plating: big riveted plates of mixed sizes between heavy frames, stencils, wear. One
+// texture covers a 6 m square of wall (the bake's UVs are 2 m per unit), so the seams don't march in a grid.
+function hullPlateTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  let r = 7; const R = () => { r = (r * 16807) % 2147483647; return r / 2147483647; };
+  x.fillStyle = '#c9c3b4'; x.fillRect(0, 0, 512, 512);
+  // plates: split the square into rows of uneven plates
+  const rows = [0, 118, 196, 330, 512];
+  for (let i = 0; i < rows.length - 1; i++) {
+    let px = 0; const y0 = rows[i], y1 = rows[i + 1];
+    while (px < 512) {
+      const w = Math.min(512 - px, 90 + R() * 180), t = 0.9 + R() * 0.16;
+      x.fillStyle = `rgb(${201 * t | 0},${195 * t | 0},${180 * t | 0})`; x.fillRect(px, y0, w, y1 - y0);
+      x.strokeStyle = 'rgba(28,26,22,.75)'; x.lineWidth = 2.5; x.strokeRect(px + 1, y0 + 1, w - 2, y1 - y0 - 2);
+      x.strokeStyle = 'rgba(255,250,240,.18)'; x.lineWidth = 1; x.strokeRect(px + 3, y0 + 3, w - 6, y1 - y0 - 6);
+      x.fillStyle = 'rgba(30,28,24,.5)';
+      for (let rx = px + 8; rx < px + w - 4; rx += 22) for (const ry of [y0 + 7, y1 - 7]) { x.beginPath(); x.arc(rx, ry, 1.8, 0, 7); x.fill(); }
+      px += w;
+    }
+  }
+  // heavy frames: one vertical rib and a horizontal stringer
+  x.fillStyle = '#6b6a66'; x.fillRect(250, 0, 22, 512); x.fillStyle = 'rgba(255,255,255,.15)'; x.fillRect(250, 0, 3, 512); x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(269, 0, 3, 512);
+  x.fillStyle = '#74726c'; x.fillRect(0, 322, 512, 14); x.fillStyle = 'rgba(0,0,0,.3)'; x.fillRect(0, 333, 512, 3);
+  // stencil: frame number and a hazard chevron strip low on the wall
+  x.fillStyle = 'rgba(40,36,30,.55)'; x.font = 'bold 34px Arial Narrow, Arial, sans-serif'; x.fillText('FR 41', 290, 380); x.font = 'bold 14px Arial, sans-serif'; x.fillText('NO STEP · HULL 7', 290, 400);
+  for (let i = 0; i < 26; i++) { x.fillStyle = i % 2 ? 'rgba(20,18,16,.75)' : 'rgba(214,98,32,.85)'; x.beginPath(); x.moveTo(i * 20, 512); x.lineTo(i * 20 + 20, 512); x.lineTo(i * 20 + 34, 486); x.lineTo(i * 20 + 14, 486); x.fill(); }
+  // grime and scuffs
+  for (let i = 0; i < 3000; i++) { x.fillStyle = `rgba(${R() < 0.6 ? '40,36,30' : '255,250,240'},${R() * 0.06})`; x.fillRect(R() * 512, R() * 512, 1 + R() * 4, 1 + R() * 3); }
+  for (let i = 0; i < 24; i++) { const gx = R() * 512, gy = R() * 300, g = x.createLinearGradient(gx, gy, gx, gy + 200); g.addColorStop(0, 'rgba(90,60,36,.0)'); g.addColorStop(0.2, `rgba(90,60,36,${0.12 + R() * 0.2})`); g.addColorStop(1, 'rgba(90,60,36,0)'); x.fillStyle = g; x.fillRect(gx, gy, 2 + R() * 5, 200); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 3, 1 / 3); t.anisotropy = 4;
+  return t;
 }
 
 export function buildIronwake(site, { Part }) {
@@ -295,8 +284,8 @@ export function buildIronwake(site, { Part }) {
   // ---- finish ----
   const G = B.finish();
   const M = {
-    wall: patchTiles(new THREE.MeshBasicMaterial({ map: hullWallTexture(), vertexColors: true }), 'w', 0.5),
-    floor: patchTiles(new THREE.MeshBasicMaterial({ map: floorTexture(), vertexColors: true }), 'f'),
+    wall: patch(new THREE.MeshBasicMaterial({ map: hullPlateTexture(), vertexColors: true }), 1),
+    floor: patch(new THREE.MeshBasicMaterial({ map: floorTexture(), vertexColors: true }), 0.6),
     lamp: patch(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })),
     screen: patch(new THREE.MeshBasicMaterial({ map: screenTexture(), vertexColors: true, toneMapped: false })),
     glass: new THREE.MeshBasicMaterial({ color: 0x9cc8ff, transparent: true, opacity: 0.06, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),

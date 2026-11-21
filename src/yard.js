@@ -25,6 +25,7 @@ export class Yard {
   constructor({ base, fleet, econ, sound, toast, nav, fx, getFxT, rig, camera, reduced }) {
     Object.assign(this, { base, fleet, econ, sound, toast, nav, fx, getFxT, rig, cam: camera, reduced });
     fleet.berthed = (S) => !!this.rec(S.spec.id)?.parked;
+    fleet.onDeliver = () => true;   // the yard places every delivered ship itself (berths, tows)
     base.fleet = fleet;
     let s = {}; try { s = JSON.parse(localStorage.getItem(SAVE) || '{}') || {}; } catch {}
     this.recs = Array.isArray(s.berths) ? s.berths : [];
@@ -52,7 +53,7 @@ export class Yard {
   hideCatalog() {
     for (const S of this.fleet.ships) {
       if (S.spec.cat !== 'yard' || S.owned || S.sold) continue;
-      S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); this.fleet.place(S, 0); this.fleet.show(S, false);
+      S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); this.fleet.place(S, 0); this.fleet.stow(S);
     }
   }
 
@@ -94,7 +95,7 @@ export class Yard {
   }
   payOut(S) {
     const v = this.sellValue(S); this.econ.bonus(v); this.nav.pop(v);
-    if (S.spec.cat === 'yard') { S.owned = false; S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.fleet.place(S, 0); this.fleet.show(S, false); }
+    if (S.spec.cat === 'yard') { S.owned = false; S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.fleet.place(S, 0); this.fleet.stow(S); }
     else { S.sold = true; S.owned = false; this.fleet.remove(S); }
     const i = this.recs.findIndex((r) => r.id === S.spec.id); if (i >= 0) this.recs.splice(i, 1);
     this.econ.save(); this.fleet.saveAll(); this.save(); this.sound?.chime?.(false); this.toast('info', `${S.spec.name} sold · ${v.toLocaleString('en-US')}`);
@@ -149,7 +150,7 @@ export class Yard {
       J.box = this.buildContainer(len, wid, hgt); J.hl = len / 2;
       J.arrive = 10; J.slide = 6; J.shut = 2.4; J.sleeve = 7; J.leave = 7;
       J.t1 = J.tDeploy + 0.6; J.t2 = J.t1 + J.arrive; J.t3 = J.t2 + J.slide; J.t4 = J.t3 + J.shut; J.t5 = J.t4 + J.sleeve; J.t6 = J.t5 + J.leave;
-      S.site.group.visible = true;
+      this.fleet.deliver(S);
       this.cine(J);
       if (!J.quiet) { this.sound?.warn?.(); this.toast('info', `${spec.name} ordered · watch the yard`); }
     };
@@ -192,7 +193,7 @@ export class Yard {
     J.finish = () => {
       if (J.box) { J.box.removeFromParent(); }
       this.tugShow(false, 0);
-      base.berthPose(J.b, spec, S.V.pos, S.V.quat); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); this.fleet.place(S, 0); this.fleet.show(S, true);
+      base.berthPose(J.b, spec, S.V.pos, S.V.quat); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); this.fleet.place(S, 0); this.fleet.deliver(S);
       r.parked = true; this.save(); this.fleet.saveAll();
       this.toast('info', `${spec.name} berthed`); this.sound?.chime?.(true);
     };

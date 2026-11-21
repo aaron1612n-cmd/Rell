@@ -291,7 +291,7 @@ systems.onBreak = (k) => { sound.warn(); cockpit.alert(1); toast('warn', SYS[k].
 systems.onFix = (k, welded) => { toast('fix', SYS[k].name + (welded ? ' welded' : ' repaired')); sound.chime(false); };
 eva.onFaint = () => { const fee = Math.min(econ.credits, 150); if (fee) { econ.credits -= fee; econ.save(); } toast('warn', fee ? `Out of air · rescue fee ${fee}` : 'Out of air'); };
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
-fleet.init({ scene, camera, ship, shipMesh, eva, cockpit, input, rig, econ, fx, sound, toast, nav, hud, reduced, depot, getFxT: () => fxT, onSparks: (h, n) => sparks(h, n), onJetHit: (h) => onShipHit(h, 40) });
+fleet.init({ renderer, scene, camera, ship, shipMesh, eva, cockpit, input, rig, econ, fx, sound, toast, nav, hud, reduced, depot, getFxT: () => fxT, onSparks: (h, n) => sparks(h, n), onJetHit: (h) => onShipHit(h, 40) });
 Object.assign(base, { fx, sound, rig, eva, getFxT: () => fxT, shipRef: ship }); eva.habitats.push(base);
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
 const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: (d) => { if (d.pos.distanceTo(ship.pos) < 500) toast('drone', 'Drone took loose cargo'); }, onLost: (d, it) => { if (it.wasMine) toast('warn', 'Cargo lost to a drone'); },
@@ -396,7 +396,7 @@ eva.markTarget = (p) => {
 scan.onSweep = (o, r) => story.onSweep(o, r);
 objective.ext = { systems, breakup, drones, story, SYS };
 const menu = merchant.menu = yard.menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
-fleet.menu = menu;   // the Ships panel releases the mouse without popping the pause menu
+fleet.menu = menu;
 const applySettings = (k) => {
   input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
   if (!k || k === 'quality') quality.setMode(settings.get('quality'));
@@ -693,7 +693,7 @@ function tickFrame(now) {
   const raw = admin.input(raw0);
   if (admin.frozen) { admin.update(rawDt); look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); admin.afterRender(rawDt); return; }
   const dt = admin.stepOnce ? 1 / 60 : Math.min(0.05, rawDt) * admin.scale; time += dt;
-  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock || fleet.panelOpen || base.cine ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
+  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock || base.cine ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
 
