@@ -1,10 +1,16 @@
 // Unified input: keyboard + mouse (pointer lock / drag) + touch (floating stick, look zone, buttons).
-const ICONS = {
+export const ICONS = {
   up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   down: '<path d="M12 5v14M5 12l7 7 7-7"/>',
   boost: '<path d="M6 17l6-6 6 6M6 11l6-6 6 6"/>',
-  brake: '<circle cx="12" cy="12" r="7"/><path d="M8.5 12h7"/>',
+  brake: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5M9 6.5V9H6.5M15 6.5V9h2.5M9 17.5V15H6.5M15 17.5V15h2.5"/><circle cx="12" cy="12" r="1.6"/>',
   assist: '<path d="M12 4l8 8-8 8-8-8z"/>',
+  view: '<path d="M3 18h18M5 18c0-5 3-9 7-9s7 4 7 9M12 9v4M8.5 13h7"/>',
+  grab: '<path d="M4 20L14 10"/><path d="M14 10l2-6 4 4-6 2"/><circle cx="4" cy="20" r="1.2"/>',
+  exit: '<path d="M4 19h16M6 19c0-4 2.7-7 6-7s6 3 6 7"/><path d="M12 10V3M9 6l3-3 3 3"/>',
+  tool: '<path d="M4 20l7-7M13 11l2-2M15 4l1.5 3.5L20 9l-3.5 1.5L15 14l-1.5-3.5L10 9l3.5-1.5z"/>',
+  reel: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 5V2M19 12h3"/>',
+  impact: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle cx="12" cy="12" r="1.6"/>',
 };
 
 export class Input {
@@ -13,9 +19,13 @@ export class Input {
     this.keys = new Set();
     this.lookDX = 0; this.lookDY = 0;
     this.stick = { x: 0, y: 0 };
-    this.t = { up: false, down: false, boost: false, brake: false };
+    this.t = { up: false, down: false, boost: false, brake: false, tool: false, reel: false };
+    this.mouseFire = false;
+    this.onExit = () => {};
     this.invertY = false;
     this.onToggleAssist = () => {};
+    this.onToggleImpact = () => {};
+    this.onGrab = () => {};
     this.touchMode = matchMedia('(pointer: coarse)').matches;
     this.dragging = false;
     this.locked = false;
@@ -24,21 +34,40 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === 'KeyZ' || e.code === 'KeyT') this.onToggleAssist();
+      if (e.code === 'KeyB') this.onToggleImpact();
+      if (e.code === 'KeyF' || e.code === 'KeyR') this.onGrab();
       if (e.code === 'KeyI') this.invertY = !this.invertY;
+      if (e.code === 'KeyG') this.onExit();
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
 
-    document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === canvas; });
+    // Stop double-tap zoom, pinch zoom and iOS gesture zoom from fighting the controls.
+    // Pointer events still fire when touch default is cancelled, so the stick, look and buttons keep working.
+    // Panels that use real clicks, sliders and scrolling (pause menu, hangar) keep the browser's touch default,
+    // otherwise taps there never become clicks on phones.
+    const keepTouch = (t) => t instanceof Element && t.closest('#menu, #hangar, #ships, #adm, #ticket, #cine');
+    for (const t of ['touchstart', 'touchmove', 'touchend']) {
+      addEventListener(t, (e) => { if (e.cancelable && !keepTouch(e.target)) e.preventDefault(); }, { passive: false });
+    }
+    for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
+      addEventListener(g, (e) => e.preventDefault(), { passive: false });
+    }
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === canvas;
+      // Esc releases the mouse: bring the "click to aim" hint back so PC players know how to re-grab it.
+      if (!this.locked && !this.touchUI) document.getElementById('hint').style.opacity = '';
+    });
     canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch') return;
       if (!this.locked && canvas.requestPointerLock) {
         try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch {}
       }
+      else if (e.button === 0) this.mouseFire = true;
       this.dragging = true;
     });
-    addEventListener('pointerup', () => { this.dragging = false; });
+    addEventListener('pointerup', (e) => { this.dragging = false; if (e.pointerType !== 'touch' && e.button === 0) this.mouseFire = false; });
     addEventListener('pointermove', (e) => {
       if (e.pointerType === 'touch') return;
       if (this.locked || this.dragging) { this.lookDX += e.movementX || 0; this.lookDY += e.movementY || 0; }
@@ -81,17 +110,37 @@ export class Input {
     const endLook = (e) => { if (e.pointerId === lid) lid = null; };
     zr.addEventListener('pointerup', endLook); zr.addEventListener('pointercancel', endLook);
 
-    const btns = document.getElementById('btns');
-    const mk = (name, hold) => {
+    let btns = document.getElementById('btns');
+    const mk = (name, hold, fn = () => this.onToggleAssist()) => {
       const b = document.createElement('div'); b.className = 'btn';
       b.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[name]}</svg>`;
       const set = (v) => { b.classList.toggle('down', v); if (hold) this.t[name] = v; };
-      b.addEventListener('pointerdown', (e) => { e.stopPropagation(); b.setPointerCapture(e.pointerId); set(true); if (!hold) { this.onToggleAssist(); setTimeout(() => set(false), 120); } });
+      b.addEventListener('pointerdown', (e) => { e.stopPropagation(); b.setPointerCapture(e.pointerId); set(true); if (!hold) { fn(); setTimeout(() => set(false), 120); } });
       const up = (e) => { e.stopPropagation(); if (hold) set(false); };
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
-      btns.appendChild(b);
+      btns.appendChild(b); return b;
     };
-    mk('boost', true); mk('up', true); mk('brake', true); mk('down', true); mk('assist', false);
+    mk('boost', true); mk('up', true); mk('brake', true); mk('down', true); mk('assist', false); mk('grab', false, () => this.onGrab());
+    // EVA set: the tool is the big one, under the right thumb
+    btns = document.getElementById('evabtns');
+    mk('reel', true); mk('up', true); mk('boost', true); mk('down', true); mk('brake', true); mk('tool', true).classList.add('big');
+  }
+
+  // gamepad: sticks move and aim, triggers boost and brake, bumpers climb and dive; A grabs/cuts, Y hatch,
+  // X assist, B impact scan, Back view, Start menu
+  pad(cmd) {
+    const gp = navigator.getGamepads ? [...navigator.getGamepads()].find((g) => g && g.connected) : null;
+    if (!gp) { this.padPrev = null; return; }
+    const dz = (v) => (Math.abs(v) < 0.16 ? 0 : (v - Math.sign(v) * 0.16) / 0.84);
+    const b = (i) => !!gp.buttons[i]?.pressed, B = gp.buttons.map((x) => x.pressed);
+    cmd.strafe += dz(gp.axes[0]); cmd.fwd -= dz(gp.axes[1]);
+    cmd.dx += dz(gp.axes[2]) * 16; cmd.dy += dz(gp.axes[3]) * 16 * (this.invertY ? -1 : 1);
+    cmd.vert += (b(5) ? 1 : 0) - (b(4) ? 1 : 0);
+    cmd.boost = cmd.boost || b(7); cmd.brake = cmd.brake || b(6); cmd.fire = cmd.fire || b(0); cmd.reel = cmd.reel || b(2);
+    const prev = this.padPrev || [], edge = (i) => B[i] && !prev[i];
+    if (edge(0)) this.onGrab(); if (edge(3)) this.onExit(); if (edge(1)) this.onToggleImpact(); if (edge(8)) dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV' }));
+    if (edge(9)) dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' })); if (edge(12)) this.onToggleAssist();
+    this.padPrev = B; this.padOn = true;
   }
 
   k(...c) { return c.some((x) => this.keys.has(x)); }
@@ -106,10 +155,13 @@ export class Input {
       roll: (k('KeyE') ? 1 : 0) - (k('KeyQ') ? 1 : 0),
       boost: k('ShiftLeft', 'ShiftRight') || this.t.boost,
       brake: k('KeyX') || this.t.brake,
+      fire: this.mouseFire || this.t.tool,
+      reel: k('KeyR') || this.t.reel,
       yawKey: (k('ArrowRight') ? 1 : 0) - (k('ArrowLeft') ? 1 : 0),
       pitchKey: (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0),
       dx: this.lookDX, dy: this.lookDY * (this.invertY ? -1 : 1),
     };
+    this.pad(cmd);
     for (const a of ['fwd', 'strafe', 'vert']) cmd[a] = Math.max(-1, Math.min(1, cmd[a]));
     this.lookDX = this.lookDY = 0;
     return cmd;

@@ -7,7 +7,12 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "bash scripts/deploy.sh",
+    "assets": "for f in ship station debris cockpit depot freighter salvage astronaut; do python tools/blender/$f.py; done && node tools/optimize.mjs",
+    "check": "node scripts/check/run.mjs",
+    "check:zfight": "node scripts/check/zfight.mjs",
+    "check:sheet": "node scripts/check/turntable.mjs"
   },
   "repository": {
     "type": "git",
@@ -23,5 +28,11 @@
   "dependencies": {
     "three": "^0.170.0",
     "vite": "^5.4.21"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^1.3.0"
   }
 }
