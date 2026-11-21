@@ -27,7 +27,7 @@ for (const name of process.argv.slice(2).length ? process.argv.slice(2) : ['stat
       }
     }
   }
-  const lifts = coplanarLifts(tris), byPrim = new Map();
+  const lifts = coplanarLifts(tris, { cell: +(process.env.CELL || 1.5) }), byPrim = new Map();
   for (const [ti, n] of lifts) { const it = items[ti]; (byPrim.get(it.prim) || byPrim.set(it.prim, []).get(it.prim)).push([it, n]); }
   for (const [prim, list] of byPrim) {
     // un-share the lifted triangles' vertices (append copies) so neighbours stay put
