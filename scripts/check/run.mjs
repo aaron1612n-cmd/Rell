@@ -9,7 +9,8 @@ const only = arg('only'), skip = arg('skip'), OUT = process.env.OUT || 'checks';
 fs.mkdirSync(OUT, { recursive: true });
 const CHECKS = [
   ['zfight', 'z-fighting (coplanar faces, glow vs hull, relay doors open/shut)', ['scripts/check/zfight.mjs', `${OUT}/zfight.json`]],
-  ['collide', 'jet / suit / debris cannot pass through any of the 13 ships', ['scripts/shipcollide.mjs']],
+  ['coverage', 'every visible hull of every ship/station/wreck is solid to a jet-sized body', ['scripts/check/coverage.mjs', '300']],
+  ['rams', 'slow: fly jet, suit, debris at every ship from 8 directions (--only=rams)', ['scripts/shipcollide.mjs'], {}, false, true],
   ['clip', 'jet cannot pass through any site mesh (stations, wrecks, depot)', ['scripts/clipcheck.mjs']],
   ['legs', 'suit legs and body stay out of the hull during hatch exit + entry', ['scripts/legcheck.mjs', OUT + '/legs'], { IN: '1' }],
   ['suit', 'suit parts do not clip walls, hull, wrecks (random approaches)', ['scripts/suitclip.mjs', '30']],
@@ -19,8 +20,8 @@ const up = async () => { try { return (await fetch('http://localhost:5173/')).ok
 let vite = null;
 if (!process.env.URL && !(await up())) { vite = spawn('npx', ['vite', '--port', '5173', '--strictPort'], { stdio: 'ignore' }); for (let i = 0; i < 60 && !(await up()); i++) await new Promise((r) => setTimeout(r, 500)); }
 const rows = []; let failed = 0;
-for (const [id, what, args, env = {}, soft] of CHECKS) {
-  if ((only.length && !only.includes(id)) || skip.includes(id)) continue;
+for (const [id, what, args, env = {}, soft, optIn] of CHECKS) {
+  if ((optIn && !only.includes(id)) || (only.length && !only.includes(id)) || skip.includes(id)) continue;
   const t0 = Date.now(); let log = '';
   const code = await new Promise((res) => { const c = spawn('node', args, { env: { ...process.env, ...env } }); c.stdout.on('data', (d) => { log += d; }); c.stderr.on('data', (d) => { log += d; }); c.on('close', res); });
   const ok = code === 0 || soft; if (!ok) failed++;
