@@ -48,7 +48,7 @@ const res = await p.evaluate(([N]) => {
 }, [N]);
 let bad = 0;
 for (const [id, r] of Object.entries(res)) {
-  const sf = r.miss.suit / Math.max(1, r.tested), jf = r.miss.jet / Math.max(1, r.tested), fail = jf > MAX;  // suit contacts also use the mesh BVH + hull SDF in eva, so a world-only suit miss is informational if (fail) bad++;
+  const sf = r.miss.suit / Math.max(1, r.tested), jf = r.miss.jet / Math.max(1, r.tested), fail = jf > MAX; /* suit contacts also use the mesh BVH + hull SDF in eva, so a world-only suit miss is informational */ if (fail) bad++;
   const top = Object.entries(r.where).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, v]) => k + ':' + v).join(' ');
   console.log(`${fail ? 'FAIL' : 'ok  '} ${id.padEnd(12)} tested ${String(r.tested).padStart(3)}  suit-miss(info) ${(sf * 100).toFixed(1)}%  jet-miss ${(jf * 100).toFixed(1)}%  ${top}`);
 }
