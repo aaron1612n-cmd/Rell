@@ -98,13 +98,13 @@ const res = await p.evaluate(async (EPS) => {
   }
   return out;
 }, +(process.env.EPS || 0.004));
-let total = 0;
+let total = 0, minor = 0; const MINA = +(process.env.MINAREA || 1);
 for (const [model, r] of Object.entries(res)) {
-  const gs = Object.entries(r.groups).sort((a, b) => b[1].area - a[1].area); total += gs.length;
+  const gs = Object.entries(r.groups).sort((a, b) => b[1].area - a[1].area); total += gs.filter(([, v]) => v.area >= MINA).length; minor += gs.filter(([, v]) => v.area < MINA).length;
   console.log(`\n## ${model}: ${r.tris} tris, ${gs.length} clashing part pairs, ${r.dupes} duplicate-face overlaps`);
   for (const [k, v] of gs.slice(0, 15)) console.log(`  ${v.dup ? '[dup] ' : ''}${v.tr ? '[glass/glow] ' : ''}${k}  x${v.n}  ${v.area.toFixed(2)} m2  at ${v.at}`);
 }
-console.log('\nz-fight part pairs total:', total);
+console.log(`\nz-fight part pairs: ${total} visible (>= ${MINA} m2), ${minor} minor`);
 if (outFile) fs.writeFileSync(outFile, JSON.stringify(res, null, 1));
 await b.close();
 process.exit(total ? 1 : 0);
