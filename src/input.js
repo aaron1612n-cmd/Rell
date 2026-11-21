@@ -47,7 +47,7 @@ export class Input {
     // Pointer events still fire when touch default is cancelled, so the stick, look and buttons keep working.
     // Panels that use real clicks, sliders and scrolling (pause menu, hangar) keep the browser's touch default,
     // otherwise taps there never become clicks on phones.
-    const keepTouch = (t) => t instanceof Element && t.closest('#menu, #hangar');
+    const keepTouch = (t) => t instanceof Element && t.closest('#menu, #hangar, #ticket, #cine');
     for (const t of ['touchstart', 'touchmove', 'touchend']) {
       addEventListener(t, (e) => { if (e.cancelable && !keepTouch(e.target)) e.preventDefault(); }, { passive: false });
     }

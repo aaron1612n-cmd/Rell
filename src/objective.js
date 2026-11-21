@@ -29,13 +29,20 @@ export class Objective {
       const so = st && st.cur && st.cur.id === 'vesper' && st.rec && st.rec.state === 'bolted' && this.eva.pilot.pos.distanceTo(st.rec.g.getWorldPosition(this._v || (this._v = this.eva.pilot.pos.clone()))) < 60;
       if (so) return ['Cut the 4 bolts on the orange flight recorder', `${st.rec.bolts.filter((b) => b.cut).length}/4`];
       if (br && this.eva.pilot.pos.distanceTo(br.site.pos) < 180) return ['Cut the striped collars to free a section', 'reactor: cut the two clamps, never the frosted line'];
+      const B = this.base;
+      if (B && B.here >= 0) {
+        if (B.nearCounter) return [`Talk to Ilse · ${k('G', 'Hatch')}`, 'upgrades · ships · claims'];
+        if (B.nearBed) return [`Sleep · ${k('G', 'Hatch')}`, 'tops up suit, jet and hull'];
+        if (B.here === 0) return ['Float through the back door to Ilse', `${k('G', 'Hatch')} at the jet to fly`];
+        return ['Ilse is at the counter · bunk is up the shaft', `${k('G', 'Hatch')} at the jet to fly`];
+      }
       return [`Cut lockers for credits · ${k('G', 'Hatch')} at the ship to return`, ''];
     }
     if (this.eva.state !== 'off') return null;
-    if (this.nav.docked) return [`Docked: open the hangar (${k('U', 'tap Hangar')}), take a job, fly out`, ''];
+    if (this.nav.docked) return [`Docked: get out (${k('G', 'Hatch')}) and see Ilse`, 'upgrades · ships · claims'];
     if (br && br.melting) return ['Reactor meltdown: get clear or deliver it fast', Math.ceil(br.reactor.melt) + 's'];
     if (dr && dr.chasing && dr.chasing.mode === 'latch') return ['A drone is on your cargo: ram it or jam it', k('J to jam', 'tap Jam')];
-    if (sys && sys.any()) return [`${sys.list().map((x) => X.SYS[x].name).join(', ')} broken: go outside (${k('G', 'Hatch')}) and weld it`, 'or pay for repairs at the hangar'];
+    if (sys && sys.any()) return [`${sys.list().map((x) => X.SYS[x].name).join(', ')} broken: go outside (${k('G', 'Hatch')}) and weld it`, 'or pay Ilse for repairs at the yard'];
     const depot = this.world.site.depot, d = depot ? ship.pos.distanceTo(depot.mouth) : 0;
     const dist = d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m';
     if (dr && dr.chasing) return ['A drone is chasing your tow: outrun, ram or jam it', dist + ' to the depot'];
