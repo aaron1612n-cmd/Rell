@@ -1,3 +1,4 @@
+import relayGaps from './assets/relayGaps.json';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mats } from './assets.js';
@@ -473,6 +474,7 @@ export function buildRelay(site, { Part, scene, fx, sound, getFxT }) {
   // ---- colliders & site integration --------------------------------------------------------------
   site.group.updateMatrixWorld(true);
   const node = new THREE.Group(); node.name = 'relay'; site.group.add(node);
+  for (const o of relayGaps) B.obbs.push({ c: o.c, q: [0, 0, 0, 1], h: o.h });   // gap fillers traced from the hull (scripts/relaygaps.mjs)
   const part = new Part(site, 'relay', node, B.obbs); part.sync(0);
   site.parts.push(part); site.byName.relay = part; site.nodes = { relay: node };
   const gq = site.group.quaternion;

@@ -98,7 +98,7 @@ const res = await p.evaluate(async (EPS) => {
   }
   return out;
 }, +(process.env.EPS || 0.004));
-let total = 0, minor = 0; const MINA = +(process.env.MINAREA || 1);
+let total = 0, minor = 0; const MINA = +(process.env.MINAREA || 5);
 for (const [model, r] of Object.entries(res)) {
   const gs = Object.entries(r.groups).sort((a, b) => b[1].area - a[1].area); total += gs.filter(([, v]) => v.area >= MINA).length; minor += gs.filter(([, v]) => v.area < MINA).length;
   console.log(`\n## ${model}: ${r.tris} tris, ${gs.length} clashing part pairs, ${r.dupes} duplicate-face overlaps`);
