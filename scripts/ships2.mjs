@@ -12,7 +12,7 @@ let errs = 0;
 p.on('console', (m) => { if (m.type() === 'error' || m.text().startsWith('[t]')) { if (m.type() === 'error') errs++; console.log('console:', m.text()); } });
 p.on('pageerror', (e) => { errs++; console.log('pageerror:', e.message); });
 await p.addInitScript(() => { try { localStorage.setItem('rell.save', JSON.stringify({ credits: 250000, tut: true, xp: 0, up: {}, stats: {}, career: {} })); localStorage.removeItem('rell.fleet'); } catch {} });
-await p.goto('http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 180000 });
+await p.goto(process.env.URL || 'http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 180000 });
 await p.waitForTimeout(2500);
 await p.evaluate(() => { const g = __game; g.rig.introDur = 0; g.tutorial.on && g.tutorial.finish(); window.F = g.fleet; });
 const shot = async (n, wait = 1200) => { await p.waitForTimeout(wait); await p.screenshot({ path: `${dir}/${n}.png` }); console.log('shot', n); };
