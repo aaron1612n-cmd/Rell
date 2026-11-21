@@ -6,13 +6,15 @@ const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsaf
 const p = await b.newPage({ viewport: { width: 640, height: 360 } });
 p.on('pageerror', (e) => console.log('pageerror:', e.message));
 await p.goto(process.env.URL || 'http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 120000 });
-const res = await p.evaluate(() => {
+const SEED = +(process.env.SEED || 7);
+const ONLY = (process.env.ONLY || '').split(',').filter(Boolean);
+const res = await p.evaluate(([ONLY, SEED]) => {
   const g = window.__game, T = g.THREE, w = g.world, s = g.ship; g.look.render = () => {};
-  let seed = 7; const R = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  let seed = SEED; const R = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
   const rc = new T.Raycaster(); const out = {};
   const cmd = { fwd: 0, strafe: 0, vert: 0, dx: 0, dy: 0, roll: 0, brake: false, boost: false };
   for (const site of w.sites) {
-    if (site.kind === 'field') continue;
+    if (site.kind === 'field' || (ONLY.length && !ONLY.includes(site.id))) continue;
     const meshes = []; const vis = (o) => { for (let a = o; a && a !== site.group; a = a.parent) if (!a.visible) return false; return true; };
     site.group.traverse((o) => { if (o.isMesh && !/lamp|light|beacon/.test(o.name) && vis(o)) meshes.push(o); });   // hidden plumes are not hull
     site.group.updateMatrixWorld(true);
@@ -36,13 +38,13 @@ const res = await p.evaluate(() => {
         if (i % 6 === 5) { seg.copy(s.pos).sub(prev); const L = seg.length(); if (L > 1e-3) { rc.set(prev, seg.divideScalar(L)); rc.far = L; const h = rc.intersectObjects(meshes, false)[0]; if (h && !crossed) crossed = h; } prev.copy(s.pos); }
       }
       n++;
-      if (crossed) { hit.object = crossed.object; clips++; let o = hit.object; while (o && !o.name) o = o.parent; const nm = o ? o.name : "?"; where[nm] = (where[nm] || 0) + 1; }
+      if (crossed) { hit.object = crossed.object; clips++; let o = hit.object; while (o && !o.name) o = o.parent; const nm = o ? o.name : "?"; where[nm] = (where[nm] || 0) + 1; if (ONLY.length) (where.log ||= []).push(site.group.worldToLocal(crossed.point.clone()).toArray().map((x) => Math.round(x)).join(',') + ' from ' + site.group.worldToLocal(start.clone()).toArray().map((x) => Math.round(x)).join(',')); }
     }
     out[site.id] = { shots: n, clips, where };
   }
   s.assist = true; g.respawn();
   return out;
-});
+}, [ONLY, SEED]);
 console.log(JSON.stringify(res, null, 1));
 await b.close();
 const clips = Object.values(res).reduce((a, r) => a + r.clips, 0); console.log('clips:', clips); process.exit(clips ? 1 : 0);

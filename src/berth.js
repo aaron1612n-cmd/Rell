@@ -98,7 +98,7 @@ export function backWall(W, H) {
 export function leafGeometry(wl, hl) {
   const B = new Bake(), X = (c, s, col) => B.box(c, s, { kind: 'hull', color: col, seg: 6 });
   X([0, 0, -wl / 2], [0.36, hl, wl], COL.plateA);
-  for (let z = -1.2; z > -wl + 0.4; z -= 2.4) X([0.24, 0, z], [0.14, hl - 0.4, 0.4], COL.rib);
+  for (let z = -1.2; z > -wl + 0.4; z -= 2.4) { X([0.24, 0, z], [0.14, hl - 0.4, 0.4], COL.rib); X([-0.24, 0, z], [0.14, hl - 0.4, 0.4], COL.rib); }
   for (let y = -hl / 2 + 1.5; y < hl / 2 - 0.5; y += 4) X([0.22, y, -wl / 2], [0.1, 0.4, wl - 0.4], COL.slate);
   const n = Math.max(2, Math.floor(hl / 1.2)), sl = (hl - 0.4) / n;
   for (let i = 0; i < n; i++) X([0.2, -hl / 2 + 0.2 + (i + 0.5) * sl, -wl + 0.35], [0.1, sl * 0.98, 0.7], i % 2 ? COL.dark : COL.orange);   // free-edge chevrons

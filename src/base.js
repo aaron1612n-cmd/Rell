@@ -319,6 +319,7 @@ export function buildBase(site, { Part }) {
     B.obb([s * 9, hy1 + 2.5, -4], [10, 0.4, 20]);
   }
   XC([0, hy1 + 4, 10], 0.25, 8, 'y', BAND); X([0, hy1 + 8.2, 10], [0.5, 0.5, 0.5], 0xe8561a, { noObb: true });
+  B.obb([0, hy1 + 4.1, 10], [0.7, 8.4, 0.7]); B.obb([0, hy1 + 6.3, 10.4], [4.4, 2.6, 4.4]);   // the mast and the dish are solid too
   XG(new THREE.SphereGeometry(2.2, 22, 8, 0, Math.PI * 2, 0, 0.9).rotateX(-0.9).translate(0, hy1 + 6.6, 10.4), 0xd0ccc0);
   for (const s of [-1, 1]) { XG(new THREE.CapsuleGeometry(1.4, 9, 6, 18).rotateX(Math.PI / 2).translate(s * 4, hy0 - 1.8, -6), 0xb9b3a6); B.obb([s * 4, hy0 - 1.8, -6], [2.8, 2.8, 11.8]); for (const z of [-9.5, -2.5]) X([s * 4, hy0 - 0.75, z], [3.2, 1.3, 0.5], BEAM, { noObb: true }); }
   // the mouth: a thick portal with hazard chevrons, door rails top and bottom that run past the flanks into pockets
