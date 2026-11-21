@@ -324,8 +324,8 @@ export function buildBase(site, { Part }) {
   X([0, 6.6, MZ + 0.6], [2 * hx + 2.4, 1.2, 1.2], 0x5a5d62); X([0, -5.6, MZ + 0.6], [2 * hx + 2.4, 1.2, 1.2], 0x5a5d62);
   for (const s of [-1, 1]) {
     X([s * (hx + 0.9), 0.5, MZ + 0.6], [1.8, 13.4, 1.2], 0x5a5d62);
-    X([s * (hx + 6.5), 6.6, MZ + 1.6], [13, 0.7, 1.1], BEAM, { noObb: true }); X([s * (hx + 6.5), -5.6, MZ + 1.6], [13, 0.7, 1.1], BEAM, { noObb: true });   // rails out to the pockets
-    X([s * (hx + 12.6), 0.5, MZ + 1.6], [0.8, 13, 1.1], BEAM, { noObb: true });
+    X([s * (hx + 6.5), 6.6, MZ + 1.6], [13, 0.7, 1.1], BEAM); X([s * (hx + 6.5), -5.6, MZ + 1.6], [13, 0.7, 1.1], BEAM);   // rails out to the pockets (solid: you can hit them)
+    X([s * (hx + 12.6), 0.5, MZ + 1.6], [0.8, 13, 1.1], BEAM);
     for (let k = 0; k < 6; k++) X([s * (11.6 + 0.0), -4.6 + k * 2, MZ + 1.25], [0.6, 0.9, 0.08], k % 2 ? 0x1c1e22 : 0xe8561a, { noObb: true });   // chevrons
   }
   // name on the portal: big painted blocks reading as a yard number
@@ -573,7 +573,10 @@ class Base {
     this.keelSegs = [[], []];
     this.contMat = mats.hull;
     const { site } = this;
-    this.site.collectObbs = ((base) => (out) => { base(out); for (const d of Object.values(this.doors)) if (d.open < 0.55) out.push(d.obb); if (this.doorOpen < 0.5) out.push(this.mouthObb); })(site.collectObbs.bind(site));
+    // the two big door leaves stay solid wherever they are on their rails (open, they sit out past the mouth)
+    this.leafObbs = this.leaves.map(() => { const mo = this.mouthObb, h = new THREE.Vector3(5.65, 5.95, 0.5); return { c: new THREE.Vector3(), q: mo.q.clone(), qi: mo.qi.clone(), h, v: new THREE.Vector3(), br: h.length(), node: mo.node, chunk: 'base', part: mo.part }; });
+    this.syncLeaves();
+    this.site.collectObbs = ((base) => (out) => { base(out); for (const d of Object.values(this.doors)) if (d.open < 0.55) out.push(d.obb); if (this.doorOpen < 0.5) out.push(this.mouthObb); else out.push(...this.leafObbs); })(site.collectObbs.bind(site));
     this.tug = this.buildTug();
     for (let s = 0; s < 2; s++) this.buildKeel(s, this.keel[s], false);
   }
@@ -640,6 +643,15 @@ class Base {
     this.inner.visible = this.near || dist < 700;
     const p = pilot ? this.local(pilot, this.pl) : null;
     this.here = p ? this.roomAt(p, 0.15) : -1;
+    // stepping out of the jet on the cradle: the hatch leaves you on the spine behind the canopy with the tail fin
+    // and engines between you and the shop door. Lift clear of the hull and drift toward the door instead.
+    const isEva = eva.state === 'eva';
+    if (isEva && !this.wasEva && this.captured && p && this.roomAt(p, 0.6) === 0) {
+      const lp = this.local(eva.pilot.pos, _v).clone(); lp.y = Math.max(lp.y, -0.2); lp.x *= 0.3;
+      this.world(lp, eva.pilot.pos);
+      eva.pilot.vel.copy(ship.vel).add(_v2.set(0, 0, -0.5).applyQuaternion(this.site.group.quaternion));
+    }
+    this.wasEva = isEva;
     this.pressure(dt, eva, p);
     this.innerDoors(dt, p);
     // the cradle: clamps up and the umbilical over while the jet sits there
@@ -696,8 +708,12 @@ class Base {
     if (prev !== this.doorOpen && (prev === 0 || prev === 1)) { this.sound?.noise?.(3.0, 'lowpass', 160, 0.3); this.rig?.kick(0.05); }
     if (prev !== this.doorOpen && (this.doorOpen === 0 || this.doorOpen === 1)) { this.sound?.hit?.(4); this.rig?.kick(0.12); }
     const e = easeIO(this.doorOpen);
-    this.leaves[0].position.x = -5.65 - e * 11.6; this.leaves[1].position.x = 5.65 + e * 11.6;
+    this.leaves[0].position.x = -5.65 - e * 11.6; this.leaves[1].position.x = 5.65 + e * 11.6; this.syncLeaves();
     if (this.wantOut && this.doorOpen > 0.98 && this.shipRef) this.release(this.shipRef);
+  }
+  syncLeaves() {
+    this.site.group.updateMatrixWorld();
+    this.leaves.forEach((lf, i) => { const o = this.leafObbs[i]; o.c.copy(lf.position).setZ(lf.position.z + 0.25).applyMatrix4(this.site.group.matrixWorld); });
   }
   innerDoors(dt, p) {
     for (const d of Object.values(this.doors)) {
