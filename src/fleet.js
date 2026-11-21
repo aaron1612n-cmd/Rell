@@ -5,6 +5,7 @@ import { NAV_ICONS } from './nav.js';
 import { buildIronwake, HELM, BAY_DOCK } from './ironwake.js';
 import { addHullDetail } from './hullDetail.js';
 import { mats } from './assets.js';
+import { ShipHatch, LockDrive } from './shipHatch.js';
 
 // Every other ship in the yard: thirteen hulls you can buy at the shipyard by the depot or find adrift,
 // all of them flyable. Each is a world Site (so the jet, debris and the suit collide with it) whose group is
@@ -139,7 +140,7 @@ export class Fleet {
         unq: part.unq, probes: d.probes.map((p) => ({ l: new THREE.Vector3(p[0], p[1], p[2]), r: p[3] })), glows: [] };
       if (spec.cat === 'yard' && !S.owned) { V.pos.copy(home); V.quat.copy(homeQ); }
       this.place(S, 0);
-      if (spec.walk) S.decks = buildIronwake(site, { Part });
+      if (spec.walk) S.decks = buildIronwake(site, { Part }); else S.air = new ShipHatch(S);
       site.hidden = true;
       // a Site only collides once it's in the world's list (that's what refreshActive walks), so register it
       if (!world.sites.includes(site)) world.sites.push(site);
@@ -348,7 +349,6 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
   // ---- helm ----
   canHelm() {
     if (this.helm || this.fade) return null;
-    if (this.dock && this.dock.t >= 1 && !this.dock.S.decks && !this.eva.active) return this.dock.S;
     if (this.eva.state === 'eva') {
       for (const S of this.ships) if (S.decks && S.decks.here === 9) { const l = S.decks.local(this.eva.pilot.pos, _v); if (l.distanceTo(HELM.board) < 2.2) return S; }
     }
@@ -358,14 +358,16 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
   hatch() {
     if (this.fade) return true;
     if (this.helm) { this.leave(); return true; }
+    const A = this.hatchNear(); if (A) { this.board(A, true); return true; }
     const S = this.canHelm(); if (!S) return false;
     const yard = S.spec.cat === 'yard' && !S.owned;
     if (yard) { this.toast('warn', `${S.spec.name}: buy it first (L)`); return true; }
     this.fadeTo(() => this.take(S)); return true;
   }
   fadeTo(fn) { this.fade = 1; this.fadeEl.style.opacity = 1; setTimeout(() => { fn(); this.fadeEl.style.opacity = 0; setTimeout(() => { this.fade = 0; }, 350); }, this.reduced ? 60 : 380); }
-  take(S) {
-    this.helm = S; this.v = S.V; this.fromEva = this.eva.state === 'eva';
+  take(S, via = false) {
+    this.helm = S; this.v = S.V; this.fromEva = this.eva.state === 'eva'; this.via = via && this.fromEva && !!S.air;
+    if (this.via) { this.eva.o2 = 1; this.eva.fuel = 1; }
     S.V.set = Math.max(0, S.V.forwardSpeed());
     document.body.classList.add('helm');
     this.ckTarget = this.cockpit.target; this.cockpit.target = 0; this.cockpit.blend = 0;
@@ -383,13 +385,34 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       this.helm = null; this.v = null; document.body.classList.remove('helm');
       this.camera.near = 0.1; this.camera.updateProjectionMatrix();
       this.cockpit.target = this.ckTarget ?? 0; this.cockpit.blend = this.cockpit.target;
-      if (this.fromEva) {
+      if (this.fromEva && this.via && S.air?.ok) {
+        // out through the hatch it came in by: the door swings open and you rise out of the lock
+        const E = this.eva; this.via = false; S.air.world(); S.air.fromLocal3(_v.set(0, -1.3, 0), E.pilot.pos); E.pilot.vel.copy(S.V.vel);
+        E.lock = new LockDrive(this, S, 'out'); E.anchorHatch = S.air; E.pilot.quat.copy(E.lock.q.up); E.ropeReset = true; E.tpInit = false;
+      } else if (this.fromEva) {
         const p = this.eva.pilot; this.toWorld(S, HELM.board, p.pos); p.vel.copy(S.V.vel); p.quat.copy(S.V.quat);
         this.eva.ropeReset = true;
       } else this.rig.blendFrom(this.camera, 0.01);
       this.saveAll();
     });
   }
+
+  // ---- hatches: boarding on foot ----
+  lockedFor(S) { return S.spec.cat === 'yard' && !S.owned; }
+  // the ship whose hatch funnel the suit is in (any distance along the axis up to a few metres)
+  hatchNear() {
+    const E = this.eva; if (E.state !== 'eva' || E.lock || this.helm) return null;
+    for (const S of this.ships) if (S.air?.ok && !S.sold && !S.stowed && S.air.inFunnel(E.pilot.pos)) return S;
+    return null;
+  }
+  board(S, byKey = false) {
+    const A = S.air, E = this.eva; if (!A?.ok || this.fade || E.lock) return;
+    if (this.lockedFor(S)) { if (byKey || (this.lockT || 0) < performance.now() - 2500) { this.lockT = performance.now(); this.toast('warn', `${S.spec.name}: buy it first (L)`); } return; }
+    if (A.k < 0.85) { if (byKey) this.toast('info', 'Hatch is opening'); return; }
+    E.lock = new LockDrive(this, S, 'in'); E.anchorHatch = A; this.sound?.hook?.();
+  }
+  // the door has sealed behind you: now take the helm
+  finishBoard(S) { this.fadeTo(() => { this.eva.lock = null; this.take(S, true); }); }
 
   status(touch) {
     if (this.helm) {
@@ -401,10 +424,18 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
     if (dk && dk.t >= 1 && !this.eva.active) {
       if (dk.S.decks) return `<b>${dk.S.spec.name}</b> Clamped in the hangar bay · ${touch ? 'tap Hatch' : 'press G'} to get out and find the bridge · thrust to undock`;
       const yard = dk.S.spec.cat === 'yard' && !dk.S.owned;
-      return yard ? `<b>${dk.S.spec.name}</b> For sale · ${fmtCr(dk.S.spec.price)} Cr · buy in Ships (L) · thrust to undock` : `<b>${dk.S.spec.name}</b> Docked · ${touch ? 'tap Hatch' : 'press G'} to take the helm · thrust to undock`;
+      return yard ? `<b>${dk.S.spec.name}</b> For sale · ${fmtCr(dk.S.spec.price)} Cr · buy in Ships (L) · thrust to undock` : `<b>${dk.S.spec.name}</b> Docked · ${touch ? 'tap Hatch' : 'press G'} to get out, then float into its side hatch · thrust to undock`;
     }
     for (const S of this.ships) {
       if (S.decks) { const m = S.decks.status(this.eva, touch, !!(this.eva.state === 'eva' && this.canHelm() === S)); if (m) return m; }
+    }
+    if (this.eva.state === 'eva' && !this.eva.lock) {
+      for (const S of this.ships) {
+        if (!S.air?.ok || S.sold || S.stowed || S.air.world().o.distanceTo(this.eva.pilot.pos) > 36 + S.air.rh * 8) continue;
+        const near = this.hatchNear() === S;
+        if (this.lockedFor(S)) return `<b>${S.spec.name}</b> For sale · ${fmtCr(S.spec.price)} Cr · buy in Ships (L)`;
+        return `<b>${S.spec.name}</b> ${near ? (S.air.k > 0.85 ? 'Float in' : 'Hatch opening') : 'Hatch on its starboard flank (lamp on): float into it'}${near ? ` · or ${touch ? 'tap Hatch' : 'press G'}` : ''}`;
+      }
     }
     if (this.eva.active) return '';
     const n = this.nearCollar; if (n) {
@@ -466,9 +497,15 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
     }
     if (this.lastDock && !this.dock) { this.releasedFrom = this.lastDock; this.relT = 0; }
     this.lastDock = this.dock?.S || null;
+    // hatches: open for a suit that drifts near, and take a slow one that floats into the mouth
+    for (const S of this.ships) if (S.air?.ok && !S.sold && !S.stowed) S.air.update(dt, this.eva, this.lockedFor(S), this.helm === S || this.eva.lock?.S === S || !!S.air.hold);
+    { const E = this.eva; if (!this.fade && !this.helm && E.state === 'eva' && !E.lock) for (const S of this.ships) {
+      if (!S.air?.ok || S.sold || S.stowed || !S.air.inFunnel(E.pilot.pos)) continue;
+      if (_v.copy(E.pilot.vel).sub(S.V.vel).dot(S.air.n) < -0.12) this.board(S);
+    } }
     // decks
     for (const S of this.ships) if (S.decks && !S.sold && !S.stowed) S.decks.update(dt, time, this.camera.position, this.eva);
-    if (this.helm) { this.camHelm(dt); this.readout(); if (this.fromEva) { this.toWorld(this.helm, HELM.seat, this.eva.pilot.pos); this.eva.pilot.vel.copy(this.helm.V.vel); } }
+    if (this.helm) { this.camHelm(dt); this.readout(); if (this.fromEva && !this.via) { this.toWorld(this.helm, HELM.seat, this.eva.pilot.pos); this.eva.pilot.vel.copy(this.helm.V.vel); } }
     // repairs and refuelling for ships near the depot
     for (const S of this.ships) if (!S.sold && S.owned && S.V.pos.distanceTo(this.depot.dockPt) < CLAIM_R(S.spec) * 0.6) { S.V.fuel = Math.min(1, S.V.fuel + dt * 0.02); S.V.hull = Math.min(1, S.V.hull + dt * 0.01); }
     if ((this.saveT += dt) > 6) { this.saveT = 0; if (this.helm || this.dock) this.saveAll(); }

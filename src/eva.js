@@ -144,6 +144,7 @@ export class Eva {
     this.buildRope(); this.buildHands(); this.buildBeam(); this.buildDom();
     this.lockers.onStow = (L) => this.stowed(L);
     this.hatch = new Hatch(this); this.unclip = 0;
+    this.lock = null; this.anchorHatch = null;   // scripted glide through a ship's hatch (shipHatch.js); tether anchor override
     // motion: the third-person suit's springs, the cutter (holster, heat, recoil), body-space acceleration
     this.anim = new SuitAnim(this.body);
     // the whole suit collides (helmet, pack, legs...), the arms give way to walls (suitBody.js)
@@ -229,7 +230,7 @@ export class Eva {
       this.damage.ensure(this.ship);
       this.hintUsed = true; this.el.btn.classList.remove('ping');
     } else if (this.state === 'eva' && this.canBoard) {
-      this.state = 'in'; this.unclip = 0;
+      this.state = 'in'; this.unclip = 0; this.anchorHatch = null;
       if (!this.holster.inHand || this.holster.active) { this.holster.snap(true); this.body.userData.stowTool(false); this.tool.visible = true; }
       this.firing = false; this.beam.visible = false;
       this.hatch.startEntry();
@@ -263,6 +264,8 @@ export class Eva {
   fitVisor(cam) { const hgt = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) / (this.handMag || 1) * 0.05; this.visor.scale.set(hgt * cam.aspect * 1.002, hgt * 1.002, 1); this.visorU.uAsp.value.set(cam.aspect, 1); this.visorU.uTan.value = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2); }
 
   shipPoint(local, out) { return out.copy(local).applyQuaternion(this.ship.quat).add(this.ship.pos); }
+  // where the tether is clipped: the jet's spine, or the hatch of the ship you last stepped out of
+  anchorPt(out) { return this.anchorHatch ? this.anchorHatch.anchorWorld(out) : this.shipPoint(ANCHOR, out); }
 
   // ---- per frame ------------------------------------------------------------------------------
   update(dt, cmd) {
@@ -310,6 +313,16 @@ export class Eva {
 
     // ---- EVA ----
     this.jets.visible = true;
+    if (this.lock) {
+      // floating through a ship's hatch: the glide drives the suit, no thrust or tools
+      this.canBoard = false; this.firing = false; this.beam.visible = false; this.toolLight.intensity = 0;
+      if (this.lock.update(dt)) this.lock = null;
+      this.stepRope(dt, cmd);
+      this.place(dt, cmd);
+      if (this.lock && this.view === 1) this.lock.camera(this.camera, dt);
+      this.setHud(false);
+      return;
+    }
     this.cenv.angle = ck.openAngle || 0; this.cenv.frame = ++this.frameN;
     this.flyPilot(dt, cmd);
     this.stepRope(dt, cmd);
@@ -383,7 +396,7 @@ export class Eva {
     if (reeling) {
       const r = this.rope, tgt = r[Math.max(1, r.length - 4)].p;
       _v.copy(tgt).sub(p.pos); const d = _v.length();
-      const anc = this.shipPoint(ANCHOR, _v3);
+      const anc = this.anchorPt(_v3);
       if (p.pos.distanceTo(anc) > 1.8 && d > 1e-3) p.vel.lerp(_v.multiplyScalar(5 / d).add(ship.vel), 1 - Math.exp(-3 * dt));
       else p.vel.lerp(ship.vel, 1 - Math.exp(-4 * dt));
     }
@@ -407,7 +420,7 @@ export class Eva {
       }
     }
     // tether hard limit
-    const anc = this.shipPoint(ANCHOR, _v3), off = _v.copy(p.pos).sub(anc), dist = off.length();
+    const anc = this.anchorPt(_v3), off = _v.copy(p.pos).sub(anc), dist = off.length();
     this.tethDist = dist;
     if (dist > CFG.tether && !safe) {
       off.divideScalar(dist); p.pos.copy(anc).addScaledVector(off, CFG.tether);
@@ -418,6 +431,17 @@ export class Eva {
     // boarding window: hang over the seat
     const seat = this.shipPoint(SEAT_IN, _v2);
     this.canBoard = p.pos.distanceTo(seat) < 2.4;
+    // the canopy is the jet's hatch: it lifts as you drift near and comes down behind you once you've gone. Float into
+    // the open cockpit well and you're taken in, no key needed.
+    { const d = p.pos.distanceTo(seat), ck = this.cockpit;
+      if (d < 5.5 && !ck.openTarget) ck.setCanopy(true); else if (d > 9 && ck.openTarget) ck.setCanopy(false);
+      if (this.canBoard && ck.open > 0.95 && d < 1.7) {
+        _v3.copy(p.pos).sub(this.ship.pos).applyQuaternion(_q.copy(this.ship.quat).invert());
+        _v.copy(seat).sub(p.pos).normalize();
+        const inb = _v2.copy(p.vel).sub(this.ship.vel).dot(_v), push = _v2.copy(th).applyQuaternion(p.quat).dot(_v);   // moving toward the seat, or pushing that way
+        if ((inb > 0.12 || push > 0.3) && _v3.y > 0.4 && d < 1.7 && this.state === 'eva') this.request();
+      }
+    }
 
     // out of air: everything fades as the winch drags you home
     if (this.o2 <= 0) { if (!this.fainted) { this.fainted = true; this.onFaint?.(); } this.blackout = Math.min(1, (this.blackout || 0) + dt * 0.5); if (this.blackout >= 1 && this.canBoard) this.request(); }
@@ -461,7 +485,7 @@ export class Eva {
 
   stepRope(dt, cmd) {
     if (this.safe) { this.ropeMesh.visible = false; this.ropeReset = true; return; }
-    const r = this.rope, N = r.length, anc = this.shipPoint(ANCHOR, _v3), p = this.pilot;
+    const r = this.rope, N = r.length, anc = this.anchorPt(_v3), p = this.pilot;
     const hip = _v2.set(-0.27, -0.16, 0).applyQuaternion(p.quat).add(p.pos);
     if (this.unclip > 0) hip.lerp(anc, this.unclip * this.unclip);
     const dist = anc.distanceTo(hip);
