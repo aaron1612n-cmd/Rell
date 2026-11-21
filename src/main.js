@@ -46,6 +46,8 @@ import { Story } from './story.js';
 import { Fleet } from './fleet.js';
 import { Site, Part } from './sites.js';
 import { Admin } from './admin.js';
+import { Yard } from './yard.js';
+import { Merchant } from './merchant.js';
 import fleetUrl from './assets/fleet.glb?url';
 
 const canvas = document.getElementById('view');
@@ -67,6 +69,9 @@ const [shipModel, stationModel, debrisModel, depotModel, freighterModel, salvage
   loadModel(urls.ship, mats.shipHull), loadModel(urls.station), loadModel(urls.debris), loadModel(urls.depot), loadModel(urls.freighter), loadModel(urls.salvage), loadModel(fleetUrl)]);
 const world = new World(scene, { station: stationModel, stationB: stationModel.clone(true), stationC: stationModel.clone(true), debris: debrisModel, depot: depotModel, freighter: freighterModel, salvage: salvageModel }, { coarse });
 const depot = world.site.depot;
+// home is the yard hangar now (base.js): docking, respawn and the autopilot all aim at its cradle
+const base = world.site.base.base;
+depot.dockPt = base.world(new THREE.Vector3(0, -4.2, 2), new THREE.Vector3()); depot.dockR = 6; depot.axis = base.forward.clone();
 // every other ship: the yard row by the depot and the hulls adrift (fleet.js). Built before the nav markers.
 const fleet = new Fleet(world, fleetModel, { Site, Part, coarse });
 scene.add(world.sky);
@@ -142,14 +147,14 @@ autoEl.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDe
 const _ap = new THREE.Vector3(), _apQ = new THREE.Quaternion();
 // straight-line approach to the depot dock: turn toward it, burn, brake to a stop; any stick input hands control back
 function autoCmd(cmd) {
-  const d = _ap.copy(depot.dockPt).sub(ship.pos), dist = d.length();
+  const d = base.approach(ship.pos, _ap).sub(ship.pos), dist = d.length();
   if (cmd.fwd || cmd.strafe || cmd.vert || Math.abs(cmd.dx) > 2 || Math.abs(cmd.dy) > 2 || cmd.yawKey || cmd.pitchKey || cmd.brake || eva.active || respawnT) { setAuto(false); return; }
-  if (dist < depot.dockR * 0.7 && ship.vel.length() < 3) { setAuto(false); return; }
+  if (base.captured) { setAuto(false); return; }
   d.normalize(); _apQ.copy(ship.quat).invert(); const l = d.clone().applyQuaternion(_apQ);
   const ey = Math.atan2(l.x, -l.z), ex = Math.atan2(l.y, Math.hypot(l.x, l.z));
   const cl = (v, m) => Math.max(-m, Math.min(m, v)), w = ship.angVel, G = 0.0105;
   cmd.dx = (w.y + cl(ey * 2, 1.4)) / G; cmd.dy = (w.x - cl(ex * 2, 1.4)) / G;
-  const align = Math.abs(ey) < 0.3 && Math.abs(ex) < 0.3, vr = ship.vel.dot(d), vDes = Math.min(75, Math.max(dist > depot.dockR * 0.6 ? 5 : 0, Math.sqrt(2 * 9 * Math.max(0, dist - depot.dockR * 0.5))));
+  const align = Math.abs(ey) < 0.3 && Math.abs(ex) < 0.3, vr = ship.vel.dot(d), vDes = Math.min(75, 2 + dist * 0.5, Math.max(dist > 3 ? 2.5 : 0, Math.sqrt(2 * 6 * Math.max(0, dist - 1.5))));
   if (align && vr < vDes - 2) cmd.fwd = 1; else if (vr > vDes + 4) cmd.brake = true;
 }
 const settings = new Settings();
@@ -226,7 +231,7 @@ function strainFx(dt) {
 }
 // docked at the depot: hull gets patched up, upgrade tiles open
 function dockCheck(dt) {
-  const docked = ship.pos.distanceTo(depot.dockPt) < depot.dockR && ship.vel.length() < 6 && !respawnT;
+  const docked = base.captured && !respawnT;
   nav.setDocked(docked);
   if (docked && ship.hull < 1) ship.hull = Math.min(1, ship.hull + dt * 0.2);
   depotFlash = Math.max(0, depotFlash - dt * 0.8);
@@ -287,6 +292,7 @@ systems.onFix = (k, welded) => { toast('fix', SYS[k].name + (welded ? ' welded' 
 eva.onFaint = () => { const fee = Math.min(econ.credits, 150); if (fee) { econ.credits -= fee; econ.save(); } toast('warn', fee ? `Out of air · rescue fee ${fee}` : 'Out of air'); };
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
 fleet.init({ renderer, scene, camera, ship, shipMesh, eva, cockpit, input, rig, econ, fx, sound, toast, nav, hud, reduced, depot, getFxT: () => fxT, onSparks: (h, n) => sparks(h, n), onJetHit: (h) => onShipHit(h, 40) });
+Object.assign(base, { fx, sound, rig, eva, getFxT: () => fxT, shipRef: ship }); eva.habitats.push(base);
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
 const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: (d) => { if (d.pos.distanceTo(ship.pos) < 500) toast('drone', 'Drone took loose cargo'); }, onLost: (d, it) => { if (it.wasMine) toast('warn', 'Cargo lost to a drone'); },
   onEvent: (e, d) => {
@@ -304,9 +310,10 @@ const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, 
   addEventListener('keydown', (e) => { if (e.code === 'KeyJ' && !e.repeat) go(); }); a.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); go(); }); window.__jamChip = a; }
 const tutorial = new Tutorial({ scene, ship, salvage, world, econ, input, reduced, eva, lockers, career, nav, scan, relay });
 const objective = new Objective({ ship, salvage, world, nav, eva, career, input, tutorial, settings });
+objective.base = base;
 const replayTutorial = () => { respawn(true); tutorial.start(); };
 if (econ.tut) {
-  ship.pos.copy(depot.dockPt); const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), depot.axis.clone().negate(), new THREE.Vector3(0, 1, 0)); ship.quat.setFromRotationMatrix(m);
+  base.snap(ship);
   if (econ.ship) { ship.hull = Math.max(0.15, econ.ship.hull ?? 1); ship.fuel = econ.ship.fuel ?? 1; ship.setMode(econ.ship.mode || 'damped'); }
 }
 shipMesh.position.copy(ship.pos); shipMesh.quaternion.copy(ship.quat); shipMesh.updateMatrixWorld(true);
@@ -332,10 +339,30 @@ function toast(kind, n) {
 career.toast = toast;
 events.onWarn = () => sound.warn(); tutorial.onStep = () => sound.step();
 const stnEl = document.getElementById('stn'); let stnT = 0, stnM = '';
-const tips = new Tips({ econ, settings, isBusy: () => tutorial.on || menu.open || hangar.open || !!document.querySelector('#comms.show')?.getClientRects().length });
+const tips = new Tips({ econ, settings, isBusy: () => tutorial.on || menu.open || hangar.open || merchant.open || !!base.cine || !!document.querySelector('#comms.show')?.getClientRects().length });
 const hangar = new Hangar({ econ, systems, sound, onBuy: () => applyUpgrades() });
 tutorial.hangar = hangar; hangar.onToggle = (v) => { if (v) tutorial.hangarSeen = true; };
-nav.onDock = (v) => { hangar.setDocked(v); if (v) { tips.show('hangar'); tips.show('story'); } };
+nav.onDock = (v) => { if (v) { tips.show('hangar'); tips.show('story'); } };
+// the yard: berths, deliveries, the cinematic camera; Ilse at the counter
+const yard = new Yard({ base, fleet, econ, sound, toast, nav, fx, getFxT: () => fxT, rig, camera, reduced });
+fleet.buy = () => { toast('info', 'Order ships from Ilse at the yard counter'); return false; };
+// the Ships panel's claim/sell go through the yard too, so berths and tows stay in step
+yard.fleetClaim = fleet.claim.bind(fleet); fleet.claim = (id) => yard.claim(id); fleet.sell = (id) => yard.sell(id);
+let flyWait = 0;
+function boardThen(fn) {
+  if (eva.state !== 'eva') { fn(); return; }
+  fleet.fadeTo(() => { eva.shipPoint(new THREE.Vector3(0, 1.05, 0.05), eva.pilot.pos); eva.pilot.vel.copy(ship.vel); eva.canBoard = true; eva.request(); });
+  clearInterval(flyWait); flyWait = setInterval(() => { if (eva.state === 'off') { clearInterval(flyWait); fn(); } }, 120);
+}
+function sleep() {
+  const f = fleet.fadeEl; f.style.transition = 'opacity .9s'; f.style.opacity = 1; sound.setPaused(true);
+  setTimeout(() => {
+    eva.o2 = 1; eva.fuel = 1; ship.hull = 1; ship.fuel = 1; damage.clear(); systems.repairAll(); saveShip(); econ.save();
+    sound.setPaused(false); f.style.opacity = 0; setTimeout(() => { f.style.transition = ''; }, 950); toast('fix', 'Slept 8 h · suit, jet and hull topped up');
+  }, 1700);
+}
+const merchant = new Merchant({ base, yard, fleet, econ, systems, sound, env: scene.environment, input, menu: null, tutorial, onBuy: () => applyUpgrades(),
+  onFly: (id) => boardThen(() => { if (fleet.fly(id)) { base.captured = false; base.relT = 0; } }) });
 // a small "Saved" tick whenever progress is written
 { const sv = document.createElement('div'); sv.id = 'saved'; sv.className = 'mono'; sv.textContent = 'Saved'; document.body.appendChild(sv);
   let tm = 0; econ.onSave = () => { sv.classList.add('show'); clearTimeout(tm); tm = setTimeout(() => sv.classList.remove('show'), 1400); }; }
@@ -368,7 +395,7 @@ eva.markTarget = (p) => {
 };
 scan.onSweep = (o, r) => story.onSweep(o, r);
 objective.ext = { systems, breakup, drones, story, SYS };
-const menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
+const menu = merchant.menu = yard.menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
 fleet.menu = menu;
 const applySettings = (k) => {
   input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
@@ -379,7 +406,13 @@ const applySettings = (k) => {
 settings.onChange = (k) => { if (k === 'volume') sound.setVolume(settings.get('volume')); else applySettings(k); }; menu.onToggle = (o) => sound.setPaused(o); applySettings();
 
 look.composer.insertPass(eva.pass, look.composer.passes.indexOf(cockpit.pass) + 1);
-input.onExit = () => { if (!fleet.hatch()) eva.request(); };
+input.onExit = () => {
+  if (base.cine) return;
+  if (merchant.open) { merchant.toggle(false); return; }
+  if (merchant.near) { merchant.toggle(true); return; }
+  if (merchant.nearBed) { sleep(); return; }
+  if (!fleet.hatch()) eva.request();
+};
 { const xb = document.getElementById('exitbtn'); xb.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.exit}</svg>`;
   xb.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); input.onExit(); }); }
 const HOLD = { fwd: 0, strafe: 0, vert: 0, roll: 0, boost: false, brake: true, yawKey: 0, pitchKey: 0, dx: 0, dy: 0 };
@@ -619,9 +652,8 @@ function respawn(start = false) {
   systems.repairAll();
   ship.vel.set(0, 0, 0); ship.angVel.set(0, 0, 0); ship.hull = 1; damage.clear(); ship.fuel = 1;
   if (start) { ship.pos.set(...LAYOUT.spawn.pos); ship.quat.setFromEuler(new THREE.Euler(...LAYOUT.spawn.euler)); return; }
-  ship.pos.copy(depot.dockPt);
-  // face away from the depot, out toward the wrecks
-  _m4.lookAt(_c.set(0, 0, 0), _a.copy(depot.axis).negate(), _b.set(0, 1, 0)); ship.quat.setFromRotationMatrix(_m4);
+  // towed home onto the yard hangar's cradle, nose out
+  base.snap(ship);
 }
 const _m4 = new THREE.Matrix4();
 
@@ -661,7 +693,7 @@ function tickFrame(now) {
   const raw = admin.input(raw0);
   if (admin.frozen) { admin.update(rawDt); look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); admin.afterRender(rawDt); return; }
   const dt = admin.stepOnce ? 1 / 60 : Math.min(0.05, rawDt) * admin.scale; time += dt;
-  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
+  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock || base.cine ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
 
@@ -678,6 +710,7 @@ function tickFrame(now) {
     acc -= STEP; first = false;
   }
   if (n >= maxN) acc = 0;
+  base.hold(dt, ship, cmd, eva.active || !!fleet.dock || !!fleet.helm);
   fleet.update(dt, raw, time);
 
   world.refreshActive(ship.pos);
@@ -697,9 +730,10 @@ function tickFrame(now) {
   ship.braking = cmd.brake; cockpit.heat = heat;
   cockpit.update(dt, ship, rig);
   partsFx(dt);
-  if (!helm) eva.update(dt, fleet.panelOpen ? HOLD : raw);
+  if (!helm) eva.update(dt, fleet.panelOpen || merchant.open || base.cine ? HOLD : raw);
   relay.update(dt, time, camera.position, eva, ship);
-  if ((stnT -= dt) <= 0) { stnT = 0.2; const m = relay.status(eva, ship, input.touchMode) || fleet.status(input.touchMode); if (m !== stnM) { stnM = m; stnEl.innerHTML = m; stnEl.classList.toggle('on', !!m); } }
+  base.update(dt, time, camera.position, eva, ship); merchant.update(dt, time, eva); yard.update(dt);
+  if ((stnT -= dt) <= 0) { stnT = 0.2; const m = base.status(eva, input.touchMode) || relay.status(eva, ship, input.touchMode) || fleet.status(input.touchMode); if (m !== stnM) { stnM = m; stnEl.innerHTML = m; stnEl.classList.toggle('on', !!m); } }
   scan.update(dt, time); { const c = window.__scanChip; c.classList.toggle('on', scan.t >= 0); c.classList.toggle('cool', scan.t < 0 && scan.cool > 0); }
   breakup.update(dt, time); story.update(dt, time);
   drones.enabled = econ.tut && !tutorial.on; drones.update(dt, time);
@@ -720,8 +754,9 @@ function tickFrame(now) {
   career.update(dt, ship, nav.docked); objective.update(dt);
   systems.update(dt); tips.update(dt); suitHud();
   if ((saveT += dt) > 5) { saveT = 0; saveShip(); }
-  events.update(dt, { busy: !econ.tut || tutorial.on || nav.docked || eva.active || helm || !!fleet.dock || respawnT > 0 }, camera, innerWidth, innerHeight);
+  events.update(dt, { busy: !econ.tut || tutorial.on || nav.docked || (base.here >= 0 && eva.active) || !!base.cine || eva.active || helm || !!fleet.dock || respawnT > 0 }, camera, innerWidth, innerHeight);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
+  if (yard.camera(dt)) { cockpit.pass.enabled = false; eva.pass.enabled = false; if (eva.state === 'eva') eva.body.visible = true; }
   admin.update(rawDt);
   quality.begin();
   look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position));
@@ -733,4 +768,4 @@ const admin = new Admin({ ship, econ, fleet, eva, salvage, world, drones, events
 menu.onAdmin = () => admin.toggle(true);
 requestAnimationFrame(frame);
 
-window.__game = { admin, fleet, story, breakup, systems, hangar, tips, relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };
+window.__game = { base, yard, merchant, admin, fleet, story, breakup, systems, hangar, tips, relay, scan, drones, setAuto, autoCmd, events, career, settings, menu, worldAnim, quality, salvage, econ, nav, tutorial, depot, respawn, impact, ship, world, input, rig, camera, scene, THREE, fx, smoke, haze, shipMesh, look, renderer, cockpit, eva, lockers, damage };

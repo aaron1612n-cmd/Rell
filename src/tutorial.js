@@ -19,8 +19,8 @@ const STEPS = [
   { say: ['Point at the canister, press F to tow it', 'Aim at the canister, tap grab to tow it'], word: 'Grab', key: 'F', touch: NAV_ICONS.grab, item: [138, 46, 494] },
   { say: ['Tow it into the depot to sell it', 'Tow it into the depot to sell it'], word: 'Deliver', icon: NAV_ICONS.depot },
   // depot, then outside: dock, take a job, suit up, cut a locker, come home
-  { say: ['Fly into the depot bay to dock and shop', 'Fly into the depot bay to dock and shop'], word: 'Dock', icon: NAV_ICONS.depot, dock: true },
-  { say: ['Press U to open the hangar: upgrades and repairs', 'Tap Hangar: upgrades and repairs'], word: 'Hangar', key: 'U', touch: '<path d="M14.5 6.5a4 4 0 00-5.2 5.2L4 17l3 3 5.3-5.3a4 4 0 005.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z"/>', hangar: true },
+  { say: ['Fly into the yard hangar and settle on the lit cradle', 'Fly into the yard hangar and settle on the lit cradle'], word: 'Dock', icon: NAV_ICONS.base, dock: true },
+  { say: ['Press G, float to Ilse at the counter, press G to talk', 'Tap Hatch, float to Ilse at the counter, tap Hatch to talk'], word: 'Ilse', key: 'G', touch: ICONS.exit, hangar: true },
   { say: ['Pick a job for bonus pay (keys 4 5 6)', 'Tap a job card for bonus pay'], word: 'Job', icon: JOB_ICONS.haul, job: true },
   { say: ['Park by a wreck locker, press G to go outside', 'Park by a wreck locker, tap hatch to go outside'], word: 'Suit', key: 'G', touch: ICONS.exit, suit: true },
   { say: ['Hold click on the locker to cut it open', 'Hold the tool button on the locker'], word: 'Cut', key: 'Click', touch: ICONS.tool, cut: true },

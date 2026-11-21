@@ -5,6 +5,7 @@ import stationData from './assets/station.json';
 import depotData from './assets/depot.json';
 import freighterData from './assets/freighter.json';
 import { buildRelay } from './relay.js';
+import { buildBase } from './base.js';
 import extraColliders from './assets/colliders.json';   // gap-fillers traced from the meshes (scripts/colliders.mjs)
 
 // The yard: one working depot and several wrecks spread over a few kilometres of low orbit.
@@ -21,6 +22,7 @@ export const LAYOUT = {
   field: { pos: [-260, 60, -1650], r: 260 },                    // debris graveyard
   relay: { pos: [-560, 30, 520], yaw: 2.14 },                   // Kestrel Relay: a working station you can walk into
   vesper: { pos: [-2350, 210, 1700], yaw: 2.6, roll: 0.7, pitch: 0.35 },   // the story's mystery derelict, hidden until found
+  base: { pos: [640, 50, 640], yaw: -2.356 },                  // Rell Yard: your hangar, the counter and your bunk (base.js); mouth toward the wrecks
 };
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _c = new THREE.Vector3();
@@ -301,6 +303,13 @@ export function buildSites(world, models) {
     const { dark } = darkMats(); s.group.traverse((o) => { if (o.isMesh && o.material === dark) o.material = cold; });
     s.hidden = true;
     s.debrisSpec = { n: 24, rMin: 30, rMax: 160 };
+    S.push(s);
+  }
+  // 8. Rell Yard: home. Hangar, counter, bunk room, and the berths your fleet grows (base.js, yard.js).
+  {
+    const L = LAYOUT.base;
+    const s = new Site(world, { id: 'base', kind: 'base', pos: L.pos, yaw: L.yaw, radius: 120 });
+    s.base = buildBase(s, { Part });
     S.push(s);
   }
   for (const s of S) s.afterBuild?.();

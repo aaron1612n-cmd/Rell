@@ -437,7 +437,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       // finding: get close enough to make it out
       if (!S.found && ship.pos.distanceTo(V.pos) < Math.max(450, S.spec.len * 1.6)) this.discover(S);
       // nav: yard ships are covered by the depot marker; finds and your own ships away from the yard get one
-      S.site.hidden = !S.found || S.sold || (S.spec.cat === 'yard' && V.pos.distanceTo(S.home) < 60) || this.helm === S || this.dock?.S === S;
+      S.site.hidden = !S.found || S.sold || (S.spec.cat === 'yard' && (!S.owned || V.pos.distanceTo(S.home) < 60)) || !!this.berthed?.(S) || this.helm === S || this.dock?.S === S;
     }
     // the docked jet rides along
     const D = this.dock;
