@@ -473,8 +473,9 @@ def truss(S, z0, z1, W, yc=0, xc=0, bay=None, color=BONE_D, t=None):
         for sy in (-1, 1): k.box((xc + sx * W, yc + sy * W, (z0 + z1) / 2), (t, t, L), color, bevel=t * .1)
     for i in range(n + 1):
         z = z0 + i * L / n
-        for a, b in (((-W, -W), (W, -W)), ((-W, W), (W, W)), ((-W, -W), (-W, W)), ((W, -W), (W, W))):
-            beam(k, (xc + a[0], yc + a[1], z), (xc + b[0], yc + b[1], z), t * .8, color)
+        # the x and y frame beams differ a little in depth, so their faces never share a plane at the corners
+        for (a, b), tt in zip((((-W, -W), (W, -W)), ((-W, W), (W, W)), ((-W, -W), (-W, W)), ((W, -W), (W, W))), (.8, .8, .72, .72)):
+            beam(k, (xc + a[0], yc + a[1], z), (xc + b[0], yc + b[1], z), t * tt, color)
     for i in range(n):
         za, zb = z0 + i * L / n, z0 + (i + 1) * L / n; s = 1 if i % 2 else -1
         for sx in (-1, 1): beam(k, (xc + sx * W, yc - s * W, za), (xc + sx * W, yc + s * W, zb), t * .6, RUST)
@@ -931,7 +932,7 @@ def vigil():
                 if 15 <= j <= 22: continue
                 a0, a1 = j / 24 * 2 * math.pi, (j + 1) / 24 * 2 * math.pi
                 c = Vector((math.cos((a0 + a1) / 2) * R, math.sin((a0 + a1) / 2) * R, zc))
-                k.box(tuple(c), (R * 2 * math.pi / 24 * 1.02, 7.5, 6.0), 0xc8c3b6, rot=(0, 0, math.degrees((a0 + a1) / 2) + 90), bevel=.4)
+                k.box(tuple(c), (R * 2 * math.pi / 24 * 1.02, 7.5 - (j % 2) * .08, 6.0 - (j % 2) * .08), 0xc8c3b6, rot=(0, 0, math.degrees((a0 + a1) / 2) + 90), bevel=.4)   # alternate a hair thinner: overlapping ends never share a face plane
         for j in range(4):
             a = j * math.pi / 2 + .785
             k.link((math.cos(a) * 4.4, math.sin(a) * 4.4, zc), (math.cos(a) * 18, math.sin(a) * 18, zc), 1.0, .8, SLATE)
@@ -1147,7 +1148,11 @@ def build(ids):
         weld(S.k, tol=max(0.02, S.k.maxlen * 0.04), link=lambda a, b, r0, r1: S.k.link(a, b, r0, r1, SLATE_D))
         # nothing may flicker: coplanar faces from different parts get pulled apart
         from zfight import zfix
-        xs = [v.co for v in S.k.bm.verts]; zfix(S.k.bm, scale=(max(v.z for v in xs) - min(v.z for v in xs)) / 100)
+        xs = [v.co for v in S.k.bm.verts]; ext = max(max(v[a] for v in xs) - min(v[a] for v in xs) for a in range(3))
+        # the .glb stores positions in 14 bits, so the gap has to survive that rounding
+        zfix(S.k.bm, scale=(max(v.z for v in xs) - min(v.z for v in xs)) / 100, step=ext / 16383)
+        from zfight import facefix
+        facefix(S.k.bm, scale=(max(v.z for v in xs) - min(v.z for v in xs)) / 100, step=ext / 16383)
         from islands import audit
         left = audit(S.k.bm, tol=max(0.02, S.k.maxlen * 0.04)); print(f'  {i}: {len(left)} parts not joined to the hull')
         # solid colliders from the finished model itself, so nothing on it can be flown, walked or drifted through
