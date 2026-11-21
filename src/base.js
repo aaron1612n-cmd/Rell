@@ -640,6 +640,15 @@ class Base {
     this.inner.visible = this.near || dist < 700;
     const p = pilot ? this.local(pilot, this.pl) : null;
     this.here = p ? this.roomAt(p, 0.15) : -1;
+    // stepping out of the jet on the cradle: the hatch leaves you on the spine behind the canopy with the tail fin
+    // and engines between you and the shop door. Lift clear of the hull and drift toward the door instead.
+    const isEva = eva.state === 'eva';
+    if (isEva && !this.wasEva && this.captured && p && this.roomAt(p, 0.6) === 0) {
+      const lp = this.local(eva.pilot.pos, _v).clone(); lp.y = Math.max(lp.y, -0.2); lp.x *= 0.3;
+      this.world(lp, eva.pilot.pos);
+      eva.pilot.vel.copy(ship.vel).add(_v2.set(0, 0, -0.5).applyQuaternion(this.site.group.quaternion));
+    }
+    this.wasEva = isEva;
     this.pressure(dt, eva, p);
     this.innerDoors(dt, p);
     // the cradle: clamps up and the umbilical over while the jet sits there
