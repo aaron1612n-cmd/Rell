@@ -178,11 +178,11 @@ def livery(H, base, belly=None, accent=HAZ, cell=1.0, seams=(), seamw=0.03, stri
 
 
 # ---- revolved solids ---------------------------------------------------------------------------
-def revolve(k, prof, c=(0, 0, 0), n=(0, 0, 1), segs=24, color=BONE, mat=HULL, closed=True, wear=0, spin=0.0):
+def revolve(k, prof, c=(0, 0, 0), n=(0, 0, 1), segs=24, color=BONE, mat=HULL, closed=True, wear=0, spin=0.0, exact=False):
     """revolve a profile [(z, r)] about local z, oriented along n at c. closed=True joins the last profile
     point back to the first (a double skin or a solid ring); otherwise the ends are capped if r > 0."""
     before = set(k.bm.faces)
-    segs = max(8, int(segs * LOD['rev']))
+    segs = segs if exact else max(8, int(segs * LOD['rev']))
     R = Matrix.Translation(Vector(c)) @ rot_to(n, spin).to_matrix().to_4x4()
     M = k.stack[-1] @ R
     V = []
@@ -217,7 +217,8 @@ def bell(k, c, r_throat, r_exit, length, n=(0, 0, 1), segs=24, color=SLATE_D, gl
     # ribs round the outside
     for u in (.3, .62, .9):
         z = u * length; r = r_throat + (r_exit - r_throat) * (u ** .7)
-        revolve(k, [(z - .03 * length, r + .002), (z - .03 * length, r + .045 * r_exit + .01), (z + .03 * length, r + .045 * r_exit + .01), (z + .03 * length, r + .002)], c, n, segs, shade(color, 1.25))
+        # rib roots sink into the bell wall, so no face of the rib lies on the bell's skin
+        revolve(k, [(z - .03 * length, r - t * .5), (z - .03 * length, r + .045 * r_exit + .01), (z + .03 * length, r + .045 * r_exit + .01), (z + .03 * length, r - t * .5)], c, n, segs, shade(color, 1.25))
     if glow is not None:
         revolve(k, [(.06 * length, 0), (.06 * length, r_throat * .98), (.08 * length, r_throat * .98), (.08 * length, 0)], c, n, segs, glow, mat=LAMP, closed=False)
 
@@ -398,6 +399,25 @@ def ribs_and_conduits(S, H, bands=0, conduit_sides=(1, -1), skipz=None):
             if i % 3 == 0:
                 nn = H.normal(t, pts[i].z)
                 k.box(tuple(pts[i] - nn * r * .3), (r * 3.2, r * 3.2, r * 1.4), SLATE_D, rot=skin_rot(nn), wear=0)
+
+def can(k, c, r, length, n=(0, 0, 1), color=BONE, ribs=3, rib=SLATE, sides=8, stringers=True):
+    """an industrial can: a faceted prism with chamfered flat ends, rib frames, stringers on the corners and a
+    hub on each end. The opposite of a pill."""
+    L = length / 2; e = r * .14
+    revolve(k, [(-L - e, 0), (-L - e, r * .62), (-L, r), (L, r), (L + e, r * .62), (L + e, 0)], c, n, sides, color, closed=False, spin=math.pi / sides, exact=True)
+    for i in range(ribs):
+        z = -L + length * (i + .5) / ribs
+        revolve(k, [(z - r * .07, r * .97), (z - r * .07, r * 1.06), (z + r * .07, r * 1.06), (z + r * .07, r * .97)], c, n, sides, rib, spin=math.pi / sides, exact=True)
+    for sz in (-1, 1):
+        z = sz * (L + e)
+        revolve(k, [(z - sz * r * .05, r * .66), (z + sz * r * .04, r * .66), (z + sz * r * .04, r * .52), (z - sz * r * .05, r * .52)], c, n, sides, rib, spin=math.pi / sides, exact=True)
+        revolve(k, [(z - sz * r * .02, r * .26), (z + sz * r * .14, r * .26), (z + sz * r * .2, r * .16), (z + sz * r * .2, 0)], c, n, 12, SLATE_D, closed=False)
+    if stringers:
+        M = Matrix.Translation(Vector(c)) @ rot_to(n, math.pi / sides).to_matrix().to_4x4()
+        for j in range(sides):
+            a = 2 * math.pi * j / sides
+            p0 = M @ Vector((r * 1.0 * math.cos(a), r * 1.0 * math.sin(a), -L)); p1 = M @ Vector((r * 1.0 * math.cos(a), r * 1.0 * math.sin(a), L))
+            k.link(tuple(p0), tuple(p1), r * .045, r * .045, rib, segs=6, caps=True)
 
 def rcs_quad(S, c, n, s=.25, color=SLATE_L):
     k = S.k; k.box(tuple(c), (s, s, s * .8), color, rot=rot_to(n), bevel=s * .1)
@@ -651,7 +671,7 @@ def mule():
         for sy in (-1, 1):
             bell(k, (sx * 2.3, .5 + sy * 2.1, 20.9), .95, 1.45, 2.4, segs=22, glow=0x6a3a18)
             S.nozzles.append({'p': [sx * 2.3, .5 + sy * 2.1, 23.3], 'r': 1.4})
-        cap_tank(S.k, (sx * 6.6, .5, 12), 2.0, 9, (0, 0, 1), 0xd4c8b0, 3, SLATE)
+        can(S.k, (sx * 6.6, .5, 12), 2.0, 9, (0, 0, 1), 0xd4c8b0, 3, SLATE)
         k.link((sx * 5.0, .5, 9), (sx * 4.6, .5, 9), .5, .5, SLATE_D); k.link((sx * 5.0, .5, 15), (sx * 4.8, .5, 15), .5, .5, SLATE_D)
         S.box_col((sx * 6.6, .5, 12), (2.0, 2.0, 6.3))
         nav(S, (sx * 8.7, .5, 12), GREEN if sx > 0 else RED, .25)
@@ -817,7 +837,7 @@ def atlas():
     for sx in (-1, 1):
         radiator(S, (sx * 13.5, 0, 74), 26, 12, sx, n=9)
         nav(S, (sx * 40, 0, 74), GREEN if sx > 0 else RED, .5)
-    cap_tank(k, (0, 13.5, 74), 4.5, 12, (0, 0, 1), 0xd8d0bc, 3, SLATE); S.box_col((0, 13.5, 74), (4.5, 4.5, 9))
+    can(k, (0, 13.5, 74), 4.5, 12, (0, 0, 1), 0xd8d0bc, 3, SLATE); S.box_col((0, 13.5, 74), (4.5, 4.5, 9))
     greeble_hull(S, H, 70, -86, -60, .2, 1.6, 1.6)
     greeble_hull(S, H2, 70, 64, 88, .2, 1.6, 1.6)
     window_row(S, H, -82, -66, .2, 2.4, .5, lit=.45)
@@ -921,7 +941,7 @@ def vigil():
             if j % 3 == 0: S.box_col((math.cos(a) * R, math.sin(a) * R, zc), (4.2, 4.2, 3.2))
     for i in range(6):
         z = -25 + i * 11
-        for sd in (-1, 1): cap_tank(k, (sd * 6.5, 0, z), 2.0, 5, (0, 0, 1), 0xc0bbae, 2, 0x1f7a8c)
+        for sd in (-1, 1): can(k, (sd * 6.5, 0, z), 2.0, 5, (0, 0, 1), 0xc0bbae, 2, 0x1f7a8c)
     dish(S, (0, 10, -44), 5, (0, 1, -.4)); dish(S, (0, -10, -44), 4, (0, -1, -.3))
     for (sx, sy) in ((-1, 0), (1, 0), (0, 1), (0, -1)):
         bell(k, (sx * 4.0, sy * 4.0, 59.8), 1.6, 2.4, 4, segs=22, glow=0x2a1408); S.nozzles.append({'p': [sx * 4, sy * 4, 63.8], 'r': 2.35})
@@ -991,7 +1011,7 @@ def ironwake():
     H = Hull(head, 72, bot=.92, shoulder=.12, hump=hump)
     seams = [-525, -505, -490, -470, -440, -410, -385, -360]
     def bay(z, t, p): return -470.5 < z < -409.5 and p.x > 40 and -16.2 < p.y < 16.2
-    def winband(p, yn): return 60.6 < p.y < 64.4 and p.z < -472 and abs(p.x) < 15
+    def winband(p, yn): return 58.3 < p.y < 64.4 and p.z < -472 and abs(p.x) < 15
     liv = livery(H, 0x8f8a80, belly=0x3d3a36, accent=0xc8501e, cell=14, seams=seams, seamw=.8, tipz=-557, tip=0x2a2a2a, wear=.28,
                  stripe=lambda p, yn: (-540 < p.z < -500 and -.08 < yn < .08) or (-476 < p.z < -466 and abs(yn) < .5 and p.x < 0),
                  windows=winband, dark=lambda p, r: r < .12)
@@ -1028,7 +1048,7 @@ def ironwake():
         for j in range(6):
             a = j / 6 * 2 * math.pi + .52
             c = (math.cos(a) * 46, math.sin(a) * 46, zc)
-            cap_tank(k, c, 24, 62, (0, 0, 1), [0xa3998a, 0x8f8676, 0xb2a897][(i + j) % 3], 2, 0x3d3a36, segs=24)
+            can(k, c, 24, 62, (0, 0, 1), [0xa3998a, 0x8f8676, 0xb2a897][(i + j) % 3], 3, 0x3d3a36, sides=8)
             k.link((math.cos(a) * 16, math.sin(a) * 16, zc - 20), (math.cos(a) * 24, math.sin(a) * 24, zc - 20), 3, 3, SLATE)
             k.link((math.cos(a) * 16, math.sin(a) * 16, zc + 20), (math.cos(a) * 24, math.sin(a) * 24, zc + 20), 3, 3, SLATE)
             S.box_col(c, (24, 24, 45))
@@ -1049,7 +1069,7 @@ def ironwake():
     for j in range(6):
         a = j / 6 * 2 * math.pi
         c = (math.cos(a) * 34, math.sin(a) * 32, 538)
-        bell(k, c, 12, 19, 34, segs=32, glow=0x1a0a04); S.nozzles.append({'p': [c[0], c[1], 572], 'r': 18.5})
+        bell(k, c, 11, 15.5, 34, segs=32, glow=0x1a0a04); S.nozzles.append({'p': [c[0], c[1], 572], 'r': 15})
         S.box_col((c[0], c[1], 555), (16, 16, 17))
     bell(k, (0, 0, 538), 9, 14, 26, segs=28, glow=0x1a0a04); S.nozzles.append({'p': [0, 0, 564], 'r': 13.6})
     # radiator wings: four big fins in an X
@@ -1125,6 +1145,9 @@ def build(ids):
         # nothing may float: slide loose parts onto the hull, strut the ones too far out
         from islands import weld
         weld(S.k, tol=max(0.02, S.k.maxlen * 0.04), link=lambda a, b, r0, r1: S.k.link(a, b, r0, r1, SLATE_D))
+        # nothing may flicker: coplanar faces from different parts get pulled apart
+        from zfight import zfix
+        xs = [v.co for v in S.k.bm.verts]; zfix(S.k.bm, scale=(max(v.z for v in xs) - min(v.z for v in xs)) / 100)
         from islands import audit
         left = audit(S.k.bm, tol=max(0.02, S.k.maxlen * 0.04)); print(f'  {i}: {len(left)} parts not joined to the hull')
         if i != 'ironwake':
