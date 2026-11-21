@@ -20,8 +20,16 @@ import { mats } from './assets.js';
 NAV_ICONS.ship = '<path d="M12 2l3 7v8l-3 3-3-3V9z"/><path d="M9 13l-4 3v2l4-1M15 13l4 3v2l-4-1"/>';
 const ICON_SHIPS = '<path d="M12 3l3 7v7l-3 3-3-3v-7z"/><path d="M9 13l-4 3v2l4-1M15 13l4 3v2l-4-1"/>';
 
-// where everything is parked. The yard is a row beside the depot; derelicts are spread out past the wrecks.
-const YARD = { origin: new THREE.Vector3(470, 60, 1040), gap: 22 };
+// where everything is parked. Ships you buy are moored at berths spread round a holding point past the depot
+// (each at its own height and heading, not in a row); derelicts are spread out past the wrecks. Ships for sale
+// are not in the world at all: you buy them from the Ships panel and they turn up at their berth.
+const YARD = { origin: new THREE.Vector3(560, 70, 1160), depot: new THREE.Vector3(250, 40, 820) };
+function berth(i, R, out, outQ) {
+  const a = -0.9 + i * 0.66, r = 150 + R * 1.1 + (i % 2) * 40;
+  out.set(YARD.origin.x + Math.cos(a) * r, YARD.origin.y + ((i * 37) % 5 - 2) * 18, YARD.origin.z + Math.sin(a) * r);
+  for (let k = 0; k < 8 && out.distanceTo(YARD.depot) < 230 + R; k++) out.addScaledVector(_v3.copy(out).sub(YARD.depot).setY(0).normalize(), 60);
+  outQ.setFromEuler(_e.set(((i * 13) % 7 - 3) * 0.03, a + Math.PI / 2 + ((i * 7) % 5 - 2) * 0.12, ((i * 11) % 5 - 2) * 0.04, 'YXZ'));
+}
 const ADRIFT = {
   gull: { pos: [-470, 30, -1460], euler: [0.3, 2.2, 0.5] },
   sable: { pos: [-1560, 320, -330], euler: [-0.2, -0.8, 0.25] },
@@ -102,7 +110,7 @@ export class Fleet {
     let save = {}; try { save = JSON.parse(localStorage.getItem(SAVE) || '{}') || {}; } catch {}
     this.save0 = save;
     const nodes = {}; model.traverse((o) => { if (o.name && BY_ID[o.name] && !nodes[o.name]) nodes[o.name] = o; });
-    let x = YARD.origin.x;
+    let yi = 0;
     // big hulls get a coarser surface-detail tile so the panels read at their scale
     const bigMat = addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.74, metalness: 0.28 }), { scale: 0.03, grime: 1.0, bump: 1.2 });
     const midMat = addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.3 }), { scale: 0.09, grime: 0.8, bump: 1.3 });
@@ -113,8 +121,7 @@ export class Fleet {
       const st = save[spec.id] || {};
       const home = new THREE.Vector3(), homeQ = new THREE.Quaternion();
       if (spec.cat === 'yard') {
-        const w = Math.max(spec.beam, 10); x += w / 2; home.set(x, YARD.origin.y, YARD.origin.z - d.max[2] + 10); x += w / 2 + YARD.gap;
-        homeQ.identity();
+        berth(yi++, R, home, homeQ);
       } else { const a = ADRIFT[spec.id]; home.set(...a.pos); homeQ.setFromEuler(_e.set(...a.euler, 'YXZ')); }
       const site = new Site(world, { id: 'ship-' + spec.id, kind: 'ship', pos: home.toArray(), radius: Math.max(40, R) });
       site.group.quaternion.copy(homeQ); site.group.updateMatrixWorld(true);
@@ -135,7 +142,8 @@ export class Fleet {
       if (spec.walk) S.decks = buildIronwake(site, { Part });
       site.hidden = true;
       this.ships.push(S); this.byId[spec.id] = S;
-      if (S.sold) this.remove(S);
+      // in the world (drawn, colliding, on the nav) unless it's still for sale or was sold
+      this.show(S, !S.sold && (spec.cat !== 'yard' || S.owned));
     }
     this.v = null; this.helm = null; this.dock = null; this.view = 0;
   }
@@ -145,9 +153,13 @@ export class Fleet {
     S.site.group.position.copy(S.V.pos); S.site.group.quaternion.copy(S.V.quat); S.site.group.updateMatrixWorld(true);
     S.part.sync(dt); const dp = S.site.byName.decks; if (dp) dp.sync(dt);
   }
-  remove(S) {
-    S.site.group.visible = false; const i = this.world.sites.indexOf(S.site); if (i >= 0) this.world.sites.splice(i, 1);
-    this.world.dirty = true;
+  remove(S) { this.show(S, false); }
+  show(S, on) {
+    S.site.group.visible = on; S.inWorld = on;
+    const i = this.world.sites.indexOf(S.site);
+    if (on && i < 0) this.world.sites.push(S.site); else if (!on && i >= 0) this.world.sites.splice(i, 1);
+    S.site.active = false; this.world.dirty = true;
+    if (!on) S.site.hidden = true; else this.nav?.ensure?.(S.site);
   }
 
   // local (authoring-frame) point of a ship to world
@@ -198,23 +210,54 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
 #shipfade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:6;transition:opacity .35s}
 #shipbtn{position:absolute;right:max(16px,env(safe-area-inset-right));top:calc(max(12px,env(safe-area-inset-top)) + 58px);width:40px;height:40px;border-radius:50%;border:1.5px solid rgba(232,224,204,.35);background:rgba(7,9,13,.5);display:grid;place-items:center;cursor:pointer;pointer-events:auto;padding:0}
 #shipbtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.7;stroke-linejoin:round}
-#ships{position:fixed;inset:0;z-index:7;display:none;background:#07080b;color:var(--bone);font:500 12px/1.4 ui-monospace,Menlo,monospace;overflow:auto;-webkit-overflow-scrolling:touch}
-#ships.open{display:block}
-#ships .wrap{max-width:1080px;margin:0 auto;padding:max(18px,env(safe-area-inset-top)) 16px 40px}
-#ships header{display:flex;align-items:baseline;gap:16px;margin:4px 0 14px;flex-wrap:wrap}#ships header h2{margin:0;font:700 22px/1 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase}
-#ships header .cr{color:var(--hazard)}#ships header button{margin-left:auto}
-#ships nav{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
-#ships button{font:600 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--bone);background:transparent;border:1.5px solid rgba(232,224,204,.3);padding:8px 12px;cursor:pointer;border-radius:2px}
-#ships button.on,#ships button.go{border-color:var(--hazard);color:var(--hazard)}#ships button:disabled{opacity:.35;cursor:default}
-#ships .row{display:grid;grid-template-columns:minmax(150px,1.1fr) 3fr auto;gap:14px;align-items:start;padding:14px 0;border-top:1px solid rgba(232,224,204,.12)}
-#ships .row h3{margin:0;font:700 15px ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase}#ships .row h3 small{display:block;font-size:10px;color:var(--dim);letter-spacing:.12em;margin-top:3px}
-#ships .row p{margin:6px 0 0;color:var(--dim);font-size:11px;max-width:38ch}
-#ships dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px 14px;margin:0}
-#ships dt{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}#ships dd{margin:0;font-variant-numeric:tabular-nums}
-#ships .act{display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:120px}#ships .act em{font-style:normal;font-size:10px;color:var(--dim);max-width:16ch}
-#ships .tag{display:inline-block;font-size:9px;letter-spacing:.14em;padding:2px 6px;border:1px solid var(--hazard);color:var(--hazard);margin-top:6px}
-#ships .unk h3,#ships .unk dl{opacity:.55}
-@media (max-width:700px){#ships .row{grid-template-columns:1fr;gap:8px}#ships .act{flex-direction:row;flex-wrap:wrap}#ships dl{grid-template-columns:repeat(3,1fr)}}
+#ships{position:fixed;inset:0;z-index:7;display:none;color:var(--bone);font:500 12px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  background:radial-gradient(120% 90% at 78% 30%,rgba(255,90,31,.07),transparent 60%),linear-gradient(rgba(232,224,204,.035) 1px,transparent 1px) 0 0/100% 32px,#0a0b0e;touch-action:pan-y;user-select:none}
+#ships.open{display:grid;grid-template-rows:auto 1fr}
+#ships .hd{display:flex;align-items:center;gap:14px;padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left));border-bottom:1px solid rgba(232,224,204,.14);position:relative}
+#ships .hd::before{content:"";position:absolute;left:0;right:0;top:0;height:4px;background:repeating-linear-gradient(-45deg,var(--hazard) 0 10px,#0a0b0e 10px 20px);opacity:.85}
+#ships .ttl{font:700 26px/1 "Bahnschrift","DIN Alternate","Arial Narrow","Roboto Condensed",sans-serif;letter-spacing:.04em;text-transform:uppercase}
+#ships .tabs{display:flex;border:1.5px solid rgba(232,224,204,.25)}
+#ships .tabs button{border:0;border-right:1.5px solid rgba(232,224,204,.25);background:none;color:var(--dim);font:600 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;padding:9px 12px;cursor:pointer;min-height:38px}
+#ships .tabs button:last-child{border-right:0}#ships .tabs button.on{background:var(--bone);color:#0a0b0e}
+#ships .cr{margin-left:auto;font:700 18px/1 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;letter-spacing:.02em;font-variant-numeric:tabular-nums}#ships .cr small{font:600 9px ui-monospace,monospace;letter-spacing:.16em;color:var(--dim);margin-left:5px}
+#ships .x{width:40px;height:40px;border:1.5px solid rgba(232,224,204,.35);background:none;color:var(--bone);font:400 22px/1 sans-serif;cursor:pointer;border-radius:50%;flex:none}
+#ships .bd{display:grid;grid-template-columns:minmax(230px,300px) 1fr;min-height:0}
+#ships .ls{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:10px 0 30px;border-right:1px solid rgba(232,224,204,.1)}
+#ships .cd{display:grid;grid-template-columns:96px 1fr;gap:2px 12px;align-items:center;width:100%;padding:8px 14px 8px 12px;border:0;border-left:3px solid transparent;background:none;color:inherit;text-align:left;cursor:pointer;font:inherit}
+#ships .cd:hover{background:rgba(232,224,204,.04)}#ships .cd.on{border-left-color:var(--hazard);background:linear-gradient(90deg,rgba(255,90,31,.12),transparent)}
+#ships .cd img,#ships .cd .ph{grid-row:span 3;width:96px;height:54px;object-fit:cover;background:#121419;display:block}
+#ships .cd b{font:700 15px/1.1 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;letter-spacing:.03em;text-transform:uppercase}
+#ships .cd small{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+#ships .cd em{font-style:normal;font-size:10.5px;color:var(--bone);font-variant-numeric:tabular-nums}#ships .cd em.own{color:var(--hazard)}
+#ships .cd.unk b,#ships .cd.unk img{opacity:.4;filter:grayscale(1) brightness(.4)}
+#ships .dt{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:18px clamp(16px,3vw,36px) 40px;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(220px,1fr);gap:8px 28px;align-content:start}
+#ships .hero{grid-column:1/-1;position:relative;height:clamp(170px,38vh,400px);background:#0d0f13;overflow:hidden;border:1px solid rgba(232,224,204,.1)}
+#ships .hero.noimg{height:110px}#ships .hero img{width:100%;height:100%;object-fit:cover;display:block}
+#ships .hero .nm{position:absolute;left:16px;bottom:12px;font:700 clamp(30px,5vw,58px)/.9 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.01em;text-shadow:0 2px 18px #000}
+#ships .hero .stg{position:absolute;right:12px;top:12px;white-space:nowrap;font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:4px 8px;background:var(--hazard);color:#0a0b0e;font-weight:700}
+#ships .hero .stg.dim{background:rgba(232,224,204,.85)}
+#ships .meta{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:6px 0 0}
+#ships .note{font:400 15px/1.45 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;color:rgba(232,224,204,.86);margin:8px 0 0;max-width:46ch}
+#ships .bars{display:grid;gap:9px;margin-top:12px}
+#ships .bar{display:grid;grid-template-columns:72px 1fr 78px;gap:10px;align-items:center;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+#ships .bar s{height:6px;background:rgba(232,224,204,.1);position:relative;display:block}#ships .bar s i{position:absolute;left:0;top:0;bottom:0;background:var(--bone)}
+#ships .bar s i.hi{background:var(--hazard)}#ships .bar span{color:var(--bone);text-align:right;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+#ships .spec{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;margin:18px 0 0;font-size:11px}#ships .spec dt{color:var(--dim);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;padding-top:1px}#ships .spec dd{margin:0}
+#ships .act{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+#ships .act button{min-height:48px;font:700 16px/1 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;border:1.5px solid rgba(232,224,204,.4);background:none;color:var(--bone);clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+#ships .act button.go{background:var(--hazard);border-color:var(--hazard);color:#0a0b0e}
+#ships .act button:disabled{opacity:.35;cursor:default}
+#ships .act p{margin:0;font-size:10.5px;color:var(--dim);letter-spacing:.04em}
+#ships .act button:focus-visible,#ships .cd:focus-visible,#ships .tabs button:focus-visible,#ships .x:focus-visible{outline:2px solid var(--hazard);outline-offset:2px}
+@media (max-width:760px){
+  #ships .hd{flex-wrap:wrap;gap:10px}#ships .ttl{font-size:21px}#ships .tabs{order:3;width:100%}#ships .tabs button{flex:1;padding:9px 4px;font-size:10px;letter-spacing:.06em}
+  #ships .bd{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  #ships .ls{display:flex;overflow-x:auto;overflow-y:hidden;padding:8px 8px 6px;border-right:0;border-bottom:1px solid rgba(232,224,204,.1);gap:6px;touch-action:pan-x}
+  #ships .cd{grid-template-columns:1fr;width:118px;flex:none;padding:6px;border-left:0;border-bottom:3px solid transparent}#ships .cd.on{border-bottom-color:var(--hazard)}
+  #ships .cd img,#ships .cd .ph{width:106px;height:60px;grid-row:auto}#ships .cd b{font-size:13px}#ships .cd small{display:none}
+  #ships .dt{grid-template-columns:1fr;padding:12px 14px calc(30px + env(safe-area-inset-bottom))}
+  #ships .hero{height:clamp(150px,50vw,260px)}#ships .hero.noimg{height:84px}
+}
 `; document.head.appendChild(css);
     const el = this.el = document.createElement('div'); el.id = 'helm';
     el.innerHTML = '<div class="keys"></div><div class="id"><b></b><span></span></div><div class="sp"><b>0</b><span>m/s</span></div><div class="set"><span>Set <i class="sv">0</i></span><s><i></i><u></u></s><span class="ac"></span></div><div class="gs"><em>Prop</em><span class="fu"></span><em>Hull</em><span class="hu"></span><em class="x">Δv</em><span class="x dv"></span><em class="x">Mass</em><span class="x ma"></span></div>';
@@ -248,14 +291,16 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
   buy(id) {
     const S = this.byId[id]; if (!S || S.spec.cat !== 'yard' || S.owned || S.sold) return false;
     if (this.econ.credits < S.spec.price) { this.toast('warn', 'Not enough credits'); return false; }
-    this.econ.credits -= S.spec.price; this.econ.save(); S.owned = true; this.saveAll(); this.sound?.chime?.(true); this.toast('info', `${S.spec.name} is yours`); return true;
+    this.econ.credits -= S.spec.price; this.econ.save(); S.owned = true;
+    S.V.pos.copy(S.home); S.V.quat.copy(S.homeQ); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.place(S, 0); this.show(S, true);
+    this.saveAll(); this.sound?.chime?.(true); this.toast('info', `${S.spec.name} is yours: moored at its berth past the depot`); return true;
   }
   sell(id) {
     const S = this.byId[id]; if (!S || S.sold || this.helm === S || this.dock?.S === S) return false;
     if (S.spec.cat === 'yard') {
       if (!S.owned) return false;
       const v = Math.round(S.spec.price * 0.6); this.econ.bonus(v); this.nav.pop(v); S.owned = false;
-      S.V.pos.copy(S.home); S.V.quat.copy(S.homeQ); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.place(S, 0);
+      S.V.pos.copy(S.home); S.V.quat.copy(S.homeQ); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.place(S, 0); this.show(S, false);
     } else {
       if (!S.found || this.state(S).home === false) return false;
       const v = Math.round(S.spec.salvage * (0.5 + 0.5 * S.V.hull)); this.econ.bonus(v); this.nav.pop(v); S.sold = true; S.owned = false; this.remove(S);
@@ -379,7 +424,8 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
     const ship = this.ship;
     // vessels: the flown one takes the stick; the rest wind down (and sit still once stopped)
     for (const S of this.ships) {
-      if (S.sold) continue;
+      if (S.owned && !S.sold && !S.inWorld) { if (S.spec.cat === 'yard' && S.V.pos.distanceToSquared(S.home) < 1) this.place(S, 0); this.show(S, true); }   // owned some other way (admin, a save)
+      if (S.sold || !S.inWorld) continue;
       const V = S.V, moving = V.vel.lengthSq() > 1e-4 || V.w.lengthSq() > 1e-8;
       if (this.helm === S) { const n = Math.max(1, Math.ceil(dt / (1 / 60))); for (let i = 0; i < n; i++) { V.step(dt / n, i ? { ...cmd, dx: 0, dy: 0 } : cmd); this.collide(S, dt / n); } this.place(S, dt); }
       else if (moving) { V.idle(dt); this.collide(S, dt); this.place(S, dt); if (V.vel.lengthSq() < 1e-4 && V.w.lengthSq() < 1e-8) { V.vel.set(0, 0, 0); V.w.set(0, 0, 0); this.place(S, 0); } }
@@ -394,7 +440,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       // finding: get close enough to make it out
       if (!S.found && ship.pos.distanceTo(V.pos) < Math.max(450, S.spec.len * 1.6)) this.discover(S);
       // nav: yard ships are covered by the depot marker; finds and your own ships away from the yard get one
-      S.site.hidden = !S.found || S.sold || (S.spec.cat === 'yard' && (!S.owned || V.pos.distanceTo(S.home) < 60)) || !!this.berthed?.(S) || this.helm === S || this.dock?.S === S;
+      S.site.hidden = !S.found || S.sold || (S.spec.cat === 'yard' && !S.owned) || !!this.berthed?.(S) || this.helm === S || this.dock?.S === S;
     }
     // the docked jet rides along
     const D = this.dock;
@@ -412,7 +458,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       // capture: slow and close to a collar or the bay cradle
       this.nearCollar = null; let best = 1e9;
       for (const S of this.ships) {
-        if (S.sold) continue;
+        if (S.sold || !S.inWorld) continue;
         if (ship.pos.distanceTo(S.V.pos) > S.R + 80) continue;
         this.dockPose(S, _v, _q); const d = ship.pos.distanceTo(_v);
         const rv = _v2.copy(ship.vel).sub(S.V.vel).length();
@@ -521,41 +567,82 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
   togglePanel(v) {
     const open = v ?? !this.panel.classList.contains('open');
     this.panel.classList.toggle('open', open); this.panelOpen = open;
-    if (open) { this.render(); if (document.pointerLockElement) document.exitPointerLock?.(); }
+    document.body.classList.toggle('shipsopen', open);
+    if (open) {
+      this.render();
+      if (document.pointerLockElement) { if (this.menu) { this.menu.quiet = true; setTimeout(() => { this.menu.quiet = false; }, 300); } document.exitPointerLock?.(); }
+    }
+  }
+  // pictures of every ship, rendered once from the real models (an offscreen renderer, then thrown away)
+  thumbs() {
+    if (this.thumb) return this.thumb;
+    this.thumb = {};
+    try {
+      const W = 480, H = 270, c = document.createElement('canvas'); c.width = W; c.height = H;
+      const r = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: false, preserveDrawingBuffer: true, powerPreference: 'low-power' });
+      r.setPixelRatio(1); r.setSize(W, H, false); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.05;
+      const sc = new THREE.Scene(); sc.background = new THREE.Color(0x0d0f13);
+      sc.add(new THREE.HemisphereLight(0xc8d4e8, 0x2a2420, 1.1));
+      const key = new THREE.DirectionalLight(0xfff2dc, 3.2); key.position.set(0.6, 0.7, -0.5); sc.add(key);
+      const rim = new THREE.DirectionalLight(0xff8a50, 1.2); rim.position.set(-0.7, 0.2, 0.8); sc.add(rim);
+      const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 50000);
+      for (const S of this.ships) {
+        const d = S.d, mn = new THREE.Vector3(...d.min), mx = new THREE.Vector3(...d.max), ctr = mn.clone().add(mx).multiplyScalar(0.5), L = mx.clone().sub(mn).length();
+        const o = S.node.clone(); const g = new THREE.Group(); g.add(o); o.position.copy(S.node.position); o.quaternion.copy(S.node.quaternion); o.scale.copy(S.node.scale);
+        sc.add(g); g.updateMatrixWorld(true);
+        const dir = new THREE.Vector3(0.78, 0.36, -0.52).normalize();
+        cam.position.copy(ctr).addScaledVector(dir, L * 1.02); cam.near = L * 0.01; cam.far = L * 6; cam.lookAt(ctr); cam.updateProjectionMatrix();
+        r.render(sc, cam); this.thumb[S.spec.id] = c.toDataURL('image/jpeg', 0.82);
+        sc.remove(g);
+      }
+      r.dispose(); r.forceContextLoss?.();
+    } catch (e) { console.warn('ship thumbnails', e); }
+    return this.thumb;
   }
   render() {
+    const th = this.thumbs();
     const tabs = [['yard', 'Shipyard'], ['derelict', 'Found adrift'], ['own', 'Your fleet']];
     const all = this.list();
-    let rows = this.tab === 'own' ? [{ ...SKIFF, ...derived(SKIFF), skiff: true }, ...all.filter((s) => s.owned)] : all.filter((s) => s.cat === this.tab);
-    const stat = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
-    const row = (s) => {
-      const unk = s.cat === 'derelict' && !s.found && !s.skiff;
-      const dl = [
-        stat('Length', `${s.len} m`), stat('Beam', `${s.beam} m`), stat('Dry mass', fmtMass(s.dry)), stat('Propellant', fmtMass(s.prop)), stat('Cargo', fmtMass(s.cargo)),
-        stat('Thrust', fmtForce(s.thrust)), stat('Accel', `${(s.thrust / (s.dry + s.prop) / G0).toFixed(2)} g`), stat('Isp', `${fmtCr(s.isp)} s`), stat('Δv', `${derived(s).dv.toFixed(1)} km/s`),
-        stat('RCS', fmtForce(s.rcs)), stat('Turn', `${s.turn}°/s`), stat('Top speed', `${s.maxSpd} m/s`), stat('Hull', `${fmtCr(s.hull)} pts · ${s.armor} mm`), ...(s.owned || s.cat === 'derelict' && s.found ? [stat('Condition', `${Math.round(s.cond * 100)}% hull · ${Math.round(s.fuel * 100)}% prop`)] : []),
-        stat('Crew', `${s.crew} / ${s.berths} berths`), stat('Reactor', s.reactor), stat('Drive', s.drive), stat('Sensors', `${fmtCr(s.sensors)} km`), stat('Built', `${s.built} · ${s.maker}`),
-      ].join('');
+    const rows = this.tab === 'own' ? [{ ...SKIFF, ...derived(SKIFF), skiff: true, owned: true }, ...all.filter((s) => s.owned)] : all.filter((s) => s.cat === this.tab);
+    if (!rows.some((s) => s.id === this.sel)) this.sel = rows[0]?.id;
+    const s = rows.find((x) => x.id === this.sel);
+    // bars are against the best in the registry, so they mean something across the fleet
+    const pool = [SKIFF, ...SHIPS], dd = (x) => derived(x);
+    const top = { acc: Math.max(...pool.map((x) => dd(x).accel)), turn: Math.max(...pool.map((x) => x.turn)), spd: Math.max(...pool.map((x) => x.maxSpd)), dv: Math.max(...pool.map((x) => dd(x).dv)), cargo: Math.log10(1 + Math.max(...pool.map((x) => x.cargo))) };
+    const bar = (k, v, f, txt) => `<div class="bar">${k}<s><i class="${f > 0.75 ? 'hi' : ''}" style="width:${Math.max(3, Math.min(100, f * 100)).toFixed(0)}%"></i></s><span>${txt}</span></div>`;
+    const unkOf = (x) => x.cat === 'derelict' && !x.found && !x.skiff;
+    const price = (x) => x.skiff ? 'Yours' : x.owned ? (x.flying ? 'At the helm' : 'Owned') : x.cat === 'yard' ? fmtCr(x.price) + ' Cr' : unkOf(x) ? 'Not found' : x.home ? 'At the depot' : `${(x.dist / 1000).toFixed(1)} km out`;
+    const card = (x) => `<button class="cd ${x.id === this.sel ? 'on' : ''} ${unkOf(x) ? 'unk' : ''}" data-sel="${x.id}">${th[x.id] ? `<img src="${th[x.id]}" alt="">` : '<i class="ph"></i>'}<b>${unkOf(x) ? '???' : x.name}</b><small>${x.cls}</small><em class="${x.owned && !x.skiff ? 'own' : ''}">${price(x)}</em></button>`;
+    let det = '<p class="note">Nothing here yet.</p>';
+    if (s) {
+      const unk = unkOf(s), D = derived(s, s.skiff ? 1 : s.fuel ?? 1);
       let act = '';
-      if (s.skiff) act = '<em>Your jet. Always with you.</em>';
+      if (s.skiff) act = '<p>Your salvage jet. It goes everywhere with you.</p>';
       else if (s.cat === 'yard') {
-        if (!s.owned) act = `<button class="go" data-a="buy" data-id="${s.id}" ${this.econ.credits < s.price ? 'disabled' : ''}>Buy ${fmtCr(s.price)}</button><em>${this.econ.credits < s.price ? `Need ${fmtCr(s.price - this.econ.credits)} more` : 'Parks in the yard by the depot'}</em>`;
-        else act = `<button class="go" data-a="fly" data-id="${s.id}">Fly</button><button data-a="sell" data-id="${s.id}">Sell ${fmtCr(s.sell)}</button>`;
-      } else if (unk) act = '<em>Not found yet. Somewhere out past the wrecks.</em>';
-      else if (s.owned) act = `<button class="go" data-a="fly" data-id="${s.id}">Fly</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell ${fmtCr(s.sell)}</button>`;
-      else act = `<button class="go" data-a="claim" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Claim</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell ${fmtCr(s.sell)}</button><em>${s.home ? 'At the depot: keep it or sell it' : `Bring it within ${((CLAIM_R(s)) / 1000).toFixed(1)} km of the depot · ${(s.dist / 1000).toFixed(1)} km now`}</em>`;
-      const tag = s.flying ? 'At the helm' : s.docked ? 'Docked' : s.owned && !s.skiff ? 'Owned' : s.cat === 'derelict' && s.found && !s.owned ? 'Found' : '';
-      return `<div class="row ${unk ? 'unk' : ''}"><div><h3>${unk ? '???' : s.name}<small>${s.cls}</small></h3>${unk ? '' : `<p>${s.note}</p>`}${tag ? `<span class="tag">${tag}</span>` : ''}</div><dl>${unk ? stat('Length', `${s.len} m`) + stat('Class', s.cls) + stat('Salvage', `~${fmtCr(s.salvage)} Cr`) : dl}</dl><div class="act">${act}</div></div>`;
-    };
-    this.panel.innerHTML = `<div class="wrap"><header><h2>Ships</h2><span class="cr">${fmtCr(this.econ.credits)} Cr</span><button data-a="close">Close</button></header>
-      <nav>${tabs.map(([k, n]) => `<button data-tab="${k}" class="${this.tab === k ? 'on' : ''}">${n}</button>`).join('')}</nav>${rows.map(row).join('') || '<p>Nothing here yet.</p>'}</div>`;
+        if (!s.owned) act = `<button class="go" data-a="buy" data-id="${s.id}" ${this.econ.credits < s.price ? 'disabled' : ''}>Buy · ${fmtCr(s.price)} Cr</button><p>${this.econ.credits < s.price ? `You need ${fmtCr(s.price - this.econ.credits)} Cr more.` : 'Delivered to a berth just past the depot.'}</p>`;
+        else act = `<button class="go" data-a="fly" data-id="${s.id}">Fly her</button><button data-a="sell" data-id="${s.id}">Sell · ${fmtCr(s.sell)} Cr</button><p>Dock at the depot first, then Fly puts your jet on her collar.</p>`;
+      } else if (unk) act = '<p>Not found yet. Somewhere out past the wrecks.</p>';
+      else if (s.owned) act = `<button class="go" data-a="fly" data-id="${s.id}">Fly her</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell · ${fmtCr(s.sell)} Cr</button>`;
+      else act = `<button class="go" data-a="claim" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Claim</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell for salvage · ${fmtCr(s.sell)} Cr</button><p>${s.home ? 'She is at the depot: keep her or sell her.' : `Bring her within ${(CLAIM_R(s) / 1000).toFixed(1)} km of the depot. ${(s.dist / 1000).toFixed(1)} km now.`}</p>`;
+      const tag = s.flying ? 'At the helm' : s.docked ? 'Docked' : s.owned && !s.skiff ? 'Owned' : s.cat === 'derelict' && s.found && !s.owned ? 'Found' : s.cat === 'yard' ? 'For sale' : '';
+      const spec = unk ? `<dt>Length</dt><dd>${s.len} m</dd><dt>Salvage</dt><dd>~${fmtCr(s.salvage)} Cr</dd>` :
+        `<dt>Size</dt><dd>${s.len} × ${s.beam} m</dd><dt>Mass</dt><dd>${fmtMass(s.dry)} dry · ${fmtMass(s.prop)} prop</dd><dt>Crew</dt><dd>${s.crew} · ${s.berths} berths</dd><dt>Drive</dt><dd>${s.drive}</dd><dt>Reactor</dt><dd>${s.reactor}</dd><dt>Hull</dt><dd>${fmtCr(s.hull)} pts · ${s.armor} mm</dd>${s.owned || (s.cat === 'derelict' && s.found) ? `<dt>State</dt><dd>${Math.round((s.cond ?? 1) * 100)}% hull · ${Math.round((s.fuel ?? 1) * 100)}% prop</dd>` : ''}`;
+      det = `<div class="hero ${th[s.id] && !unk ? '' : 'noimg'}">${th[s.id] && !unk ? `<img src="${th[s.id]}" alt="">` : ''}<div class="nm">${unk ? 'Unknown hull' : s.name}</div>${tag ? `<span class="stg ${s.cat === 'yard' && !s.owned ? 'dim' : ''}">${tag}</span>` : ''}</div>
+        <div><p class="meta">${s.cls} · ${s.maker} · ${s.built}</p>${unk ? '' : `<p class="note">${s.note}</p>`}
+        ${unk ? '' : `<div class="bars">${bar('Accel', 0, D.accel / top.acc, (D.accel / G0).toFixed(2) + ' g')}${bar('Turn', 0, s.turn / top.turn, s.turn + '°/s')}${bar('Top spd', 0, s.maxSpd / top.spd, s.maxSpd + ' m/s')}${bar('Range', 0, D.dv / top.dv, D.dv.toFixed(1) + ' km/s')}${bar('Cargo', 0, Math.log10(1 + s.cargo) / top.cargo, fmtMass(s.cargo))}</div>`}</div>
+        <div><dl class="spec">${spec}</dl><div class="act">${act}</div></div>`;
+    }
+    this.panel.innerHTML = `<div class="hd"><span class="ttl">Ships</span><div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" class="${this.tab === k ? 'on' : ''}">${n}</button>`).join('')}</div><span class="cr">${fmtCr(this.econ.credits)}<small>CR</small></span><button class="x" data-a="close" aria-label="Close">×</button></div>
+      <div class="bd"><div class="ls">${rows.map(card).join('')}</div><div class="dt">${det}</div></div>`;
+    const on = this.panel.querySelector('.cd.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   onPanel(e) {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.tab) { this.tab = b.dataset.tab; this.render(); return; }
+    if (b.dataset.tab) { this.tab = b.dataset.tab; this.sel = null; this.render(); return; }
+    if (b.dataset.sel) { this.sel = b.dataset.sel; const ls = this.panel.querySelector('.ls'), sx = ls?.scrollLeft, sy = ls?.scrollTop; this.render(); const l2 = this.panel.querySelector('.ls'); if (l2) { l2.scrollLeft = sx; l2.scrollTop = sy; } return; }
     const a = b.dataset.a, id = b.dataset.id;
     if (a === 'close') return this.togglePanel(false);
     if (a === 'buy') this.buy(id); else if (a === 'sell') this.sell(id); else if (a === 'claim') this.claim(id); else if (a === 'fly') this.fly(id);
-    if (this.panelOpen) this.render();
+    if (this.panelOpen) { const ls = this.panel.querySelector('.ls'), sx = ls?.scrollLeft, sy = ls?.scrollTop; this.render(); const l2 = this.panel.querySelector('.ls'); if (l2) { l2.scrollLeft = sx; l2.scrollTop = sy; } }
   }
 }

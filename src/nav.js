@@ -25,12 +25,7 @@ export class Nav {
   constructor({ world, salvage, econ, ship, input }) {
     Object.assign(this, { world, salvage, econ, ship, input });
     const root = this.root = document.createElement('div'); root.id = 'nav'; document.getElementById('hud').appendChild(root);
-    this.marks = world.sites.map((s) => {
-      const el = document.createElement('div'); el.className = 'mk'; el.dataset.kind = s.kind;
-      el.innerHTML = `<i class="ar"></i>${svg(NAV_ICONS[s.kind])}<b></b><u></u><em></em>`;
-      root.appendChild(el);
-      return { s, el, b: el.querySelector('b'), u: el.querySelector('u'), em: el.querySelector('em'), last: '', cls: '' };
-    });
+    this.marks = []; for (const s of world.sites) this.ensure(s);
     this.brs = []; for (let i = 0; i < 8; i++) {
       const el = document.createElement('div'); el.className = 'br';
       el.innerHTML = '<svg viewBox="0 0 40 40" preserveAspectRatio="none"><path d="M1 12V1h11M28 1h11v11M39 28v11H28M12 39H1V28"/></svg><b></b><s><i></i></s>';
@@ -43,6 +38,15 @@ export class Nav {
     this.crEl = top.querySelector('b'); this.towEl = top.querySelector('#tow'); this.popEl = top.querySelector('#pop');
     this.shown = -1; this.crShown = econ.credits; this.lastTow = '';
     this.docked = false; this.onBuy = null;
+  }
+
+  // a marker for a site (sites can join later: a ship you just bought)
+  ensure(s) {
+    if (this.marks.some((m) => m.s === s)) return;
+    const el = document.createElement('div'); el.className = 'mk'; el.dataset.kind = s.kind;
+    el.innerHTML = `<i class="ar"></i>${svg(NAV_ICONS[s.kind])}<b></b><u></u><em></em>`;
+    this.root.appendChild(el);
+    this.marks.push({ s, el, b: el.querySelector('b'), u: el.querySelector('u'), em: el.querySelector('em'), last: '', cls: '', x: 0, y: 0 });
   }
 
   setDocked(v) {
@@ -93,11 +97,28 @@ export class Nav {
         x = cx + dx * k; y = cy + dy * k; ang = Math.atan2(dy, dx); cls += ' off';
       }
       if (cls !== m.cls) { m.el.className = 'mk ' + cls; m.cls = cls; }
-      m.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      m.x = x; m.y = y; m.on = !hide; m.d = d; m.off = off;
       if (off) m.el.style.setProperty('--a', ang + 'rad');
       const [num, unit] = fmt(d);
       const txt = num + unit + (s.state === 'unstable' ? Math.ceil(s.timer) : '');
       if (txt !== m.last) { m.b.textContent = num; m.u.textContent = unit; m.em.textContent = s.state === 'unstable' ? Math.ceil(s.timer) : ''; m.last = txt; }
+    }
+
+    // labels never sit on each other: nearest first keeps its spot, the rest step down (or up near the bottom)
+    // in label-sized steps until they're clear; pinned edge markers slide along their edge
+    const on = this.marks.filter((m) => m.on).sort((a, b) => a.d - b.d), LW = 66, LH = 30, placed = [];
+    for (const m of on) {
+      let y = m.y; const dir = m.y > h * 0.62 ? -1 : 1;
+      for (let k = 0; k < 14; k++) {
+        const hit = placed.find((p) => Math.abs(p.x - m.x) < LW && Math.abs(p.y - y) < LH);
+        if (!hit) break;
+        y = hit.y + dir * LH;
+      }
+      m.y = y; placed.push(m);
+    }
+    for (const m of this.marks) {
+      const t = `translate(${m.x.toFixed(1)}px,${m.y.toFixed(1)}px)`;
+      if (t !== m.tf) { m.el.style.transform = t; m.tf = t; }
     }
 
     // salvage brackets: nearest few within reach of the eye, in front of the camera

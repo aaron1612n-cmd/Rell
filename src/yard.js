@@ -52,7 +52,7 @@ export class Yard {
   hideCatalog() {
     for (const S of this.fleet.ships) {
       if (S.spec.cat !== 'yard' || S.owned || S.sold) continue;
-      S.site.group.visible = false; S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); this.fleet.place(S, 0);
+      S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); this.fleet.place(S, 0); this.fleet.show(S, false);
     }
   }
 
@@ -70,7 +70,7 @@ export class Yard {
   canClaim(id) { const S = this.fleet.byId[id]; return S && S.spec.cat === 'derelict' && S.found && !S.owned && !S.sold && this.fleet.state(S).home && !this.fleet.helm && !this.base.busy(); }
   claim(id) {
     const S = this.fleet.byId[id]; if (!this.canClaim(id)) return false;
-    if (S.spec.walk) { this.fleet.claim(id); this.toast('info', `${S.spec.name} registered · moored where she is`); return true; }
+    if (S.spec.walk) { (this.fleetClaim || this.fleet.claim.bind(this.fleet))(id); this.toast('info', `${S.spec.name} registered · moored where she is`); return true; }
     S.owned = true; this.fleet.saveAll();
     const slot = this.base.slotFor(S.spec); const r = { id, ...slot, parked: false }; this.recs.push(r); this.save();
     this.base.queue(this.fetchJob(S, r, true));
@@ -94,7 +94,7 @@ export class Yard {
   }
   payOut(S) {
     const v = this.sellValue(S); this.econ.bonus(v); this.nav.pop(v);
-    if (S.spec.cat === 'yard') { S.owned = false; S.site.group.visible = false; S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.fleet.place(S, 0); }
+    if (S.spec.cat === 'yard') { S.owned = false; S.V.pos.set(0, -4000, 0); S.V.vel.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.fleet.place(S, 0); this.fleet.show(S, false); }
     else { S.sold = true; S.owned = false; this.fleet.remove(S); }
     const i = this.recs.findIndex((r) => r.id === S.spec.id); if (i >= 0) this.recs.splice(i, 1);
     this.econ.save(); this.fleet.saveAll(); this.save(); this.sound?.chime?.(false); this.toast('info', `${S.spec.name} sold · ${v.toLocaleString('en-US')}`);
@@ -192,7 +192,7 @@ export class Yard {
     J.finish = () => {
       if (J.box) { J.box.removeFromParent(); }
       this.tugShow(false, 0);
-      base.berthPose(J.b, spec, S.V.pos, S.V.quat); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); this.fleet.place(S, 0); S.site.group.visible = true;
+      base.berthPose(J.b, spec, S.V.pos, S.V.quat); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); this.fleet.place(S, 0); this.fleet.show(S, true);
       r.parked = true; this.save(); this.fleet.saveAll();
       this.toast('info', `${spec.name} berthed`); this.sound?.chime?.(true);
     };

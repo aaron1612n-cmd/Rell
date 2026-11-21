@@ -346,6 +346,8 @@ nav.onDock = (v) => { if (v) { tips.show('hangar'); tips.show('story'); } };
 // the yard: berths, deliveries, the cinematic camera; Ilse at the counter
 const yard = new Yard({ base, fleet, econ, sound, toast, nav, fx, getFxT: () => fxT, rig, camera, reduced });
 fleet.buy = () => { toast('info', 'Order ships from Ilse at the yard counter'); return false; };
+// the Ships panel's claim/sell go through the yard too, so berths and tows stay in step
+yard.fleetClaim = fleet.claim.bind(fleet); fleet.claim = (id) => yard.claim(id); fleet.sell = (id) => yard.sell(id);
 let flyWait = 0;
 function boardThen(fn) {
   if (eva.state !== 'eva') { fn(); return; }
@@ -394,6 +396,7 @@ eva.markTarget = (p) => {
 scan.onSweep = (o, r) => story.onSweep(o, r);
 objective.ext = { systems, breakup, drones, story, SYS };
 const menu = merchant.menu = yard.menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
+fleet.menu = menu;   // the Ships panel releases the mouse without popping the pause menu
 const applySettings = (k) => {
   input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
   if (!k || k === 'quality') quality.setMode(settings.get('quality'));
@@ -690,7 +693,7 @@ function tickFrame(now) {
   const raw = admin.input(raw0);
   if (admin.frozen) { admin.update(rawDt); look.render(time, _sunW.copy(SUN_DIR).multiplyScalar(7000).add(camera.position)); admin.afterRender(rawDt); return; }
   const dt = admin.stepOnce ? 1 / 60 : Math.min(0.05, rawDt) * admin.scale; time += dt;
-  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock || base.cine ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
+  const helm = !!fleet.helm, cmd = eva.holdShip || helm || fleet.dock || fleet.panelOpen || base.cine ? (fleet.dock && !helm && !eva.active ? { ...HOLD, brake: false } : HOLD) : raw;
   if (!started && (cmd.fwd || cmd.strafe || cmd.vert || cmd.dx || cmd.dy)) { started = true; hud.hideHint(); }
   if (respawnT > 0) { respawnT -= dt; cmd.fwd = cmd.strafe = cmd.vert = cmd.dx = cmd.dy = 0; hud.pulse(0.02); if (respawnT <= 0) { respawnT = 0; respawn(); } }
 
