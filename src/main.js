@@ -763,7 +763,7 @@ function tickFrame(now) {
   quality.end();
   admin.afterRender(rawDt);
 }
-const admin = new Admin({ ship, econ, fleet, eva, salvage, world, drones, events, story, career, tutorial, systems, settings, menu, nav, look, renderer, quality, scene, camera, cockpit, sun, depot, damage,
+const admin = new Admin({ ship, econ, fleet, eva, salvage, world, drones, events, story, career, tutorial, systems, settings, menu, nav, look, renderer, quality, scene, camera, cockpit, sun, depot, damage, shipMesh,
   toast, blast, respawn, setAuto, applyUpgrades, replayTutorial, saveShip });
 menu.onAdmin = () => admin.toggle(true);
 requestAnimationFrame(frame);
