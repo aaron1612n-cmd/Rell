@@ -20,8 +20,19 @@ import { mats } from './assets.js';
 NAV_ICONS.ship = '<path d="M12 2l3 7v8l-3 3-3-3V9z"/><path d="M9 13l-4 3v2l4-1M15 13l4 3v2l-4-1"/>';
 const ICON_SHIPS = '<path d="M12 3l3 7v7l-3 3-3-3v-7z"/><path d="M9 13l-4 3v2l4-1M15 13l4 3v2l-4-1"/>';
 
-// where everything is parked. The yard is a row beside the depot; derelicts are spread out past the wrecks.
-const YARD = { origin: new THREE.Vector3(470, 60, 1040), gap: 22 };
+// where everything is parked. Ships for sale aren't out in space at all: buy one and it is delivered to its own
+// berth in the open space past the depot (scattered, at different heights and headings, never in a row). A later
+// hangar can take over delivery by setting fleet.onDeliver(S) -> true. Derelicts are spread out past the wrecks.
+const BERTH = {
+  wren: { pos: [470, 55, 1000], euler: [0.05, 0.4, 0.04] },
+  kite: { pos: [505, 78, 1045], euler: [-0.04, -0.3, -0.06] },
+  hornet: { pos: [445, 38, 1070], euler: [0.06, 0.9, 0.08] },
+  mule: { pos: [565, 58, 985], euler: [-0.03, 0.2, 0.03] },
+  packhorse: { pos: [605, 92, 1085], euler: [0.04, -0.6, -0.04] },
+  prospector: { pos: [690, 36, 995], euler: [-0.05, 0.5, 0.05] },
+  lance: { pos: [725, 104, 1120], euler: [0.03, -0.2, -0.05] },
+  atlas: { pos: [860, 58, 1010], euler: [0.02, 0.35, 0.03] },
+};
 const ADRIFT = {
   gull: { pos: [-470, 30, -1460], euler: [0.3, 2.2, 0.5] },
   sable: { pos: [-1560, 320, -330], euler: [-0.2, -0.8, 0.25] },
@@ -102,7 +113,6 @@ export class Fleet {
     let save = {}; try { save = JSON.parse(localStorage.getItem(SAVE) || '{}') || {}; } catch {}
     this.save0 = save;
     const nodes = {}; model.traverse((o) => { if (o.name && BY_ID[o.name] && !nodes[o.name]) nodes[o.name] = o; });
-    let x = YARD.origin.x;
     // big hulls get a coarser surface-detail tile so the panels read at their scale
     const bigMat = addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.74, metalness: 0.28 }), { scale: 0.03, grime: 1.0, bump: 1.2 });
     const midMat = addHullDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.3 }), { scale: 0.09, grime: 0.8, bump: 1.3 });
@@ -112,10 +122,7 @@ export class Fleet {
       const R = Math.hypot(d.max[0] - d.min[0], d.max[1] - d.min[1], d.max[2] - d.min[2]) / 2;
       const st = save[spec.id] || {};
       const home = new THREE.Vector3(), homeQ = new THREE.Quaternion();
-      if (spec.cat === 'yard') {
-        const w = Math.max(spec.beam, 10); x += w / 2; home.set(x, YARD.origin.y, YARD.origin.z - d.max[2] + 10); x += w / 2 + YARD.gap;
-        homeQ.identity();
-      } else { const a = ADRIFT[spec.id]; home.set(...a.pos); homeQ.setFromEuler(_e.set(...a.euler, 'YXZ')); }
+      { const a = spec.cat === 'yard' ? BERTH[spec.id] : ADRIFT[spec.id]; home.set(...a.pos); homeQ.setFromEuler(_e.set(...a.euler, 'YXZ')); }
       const site = new Site(world, { id: 'ship-' + spec.id, kind: 'ship', pos: home.toArray(), radius: Math.max(40, R) });
       site.group.quaternion.copy(homeQ); site.group.updateMatrixWorld(true);
       node.removeFromParent(); node.position.set(0, 0, 0); node.updateMatrix();
@@ -136,6 +143,7 @@ export class Fleet {
       site.hidden = true;
       this.ships.push(S); this.byId[spec.id] = S;
       if (S.sold) this.remove(S);
+      else if (spec.cat === 'yard' && !S.owned) this.stow(S);
     }
     this.v = null; this.helm = null; this.dock = null; this.view = 0;
   }
@@ -144,6 +152,15 @@ export class Fleet {
   place(S, dt) {
     S.site.group.position.copy(S.V.pos); S.site.group.quaternion.copy(S.V.quat); S.site.group.updateMatrixWorld(true);
     S.part.sync(dt); const dp = S.site.byName.decks; if (dp) dp.sync(dt);
+  }
+  // a ship still on the market isn't in the world: no model, no colliders, no marker
+  stow(S) { S.stowed = true; this.remove(S); }
+  deliver(S) {
+    S.stowed = false; S.site.group.visible = true;
+    if (!this.world.sites.includes(S.site)) this.world.sites.push(S.site);
+    if (this.onDeliver?.(S)) { this.world.dirty = true; return; }
+    S.V.pos.copy(S.home); S.V.quat.copy(S.homeQ); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); this.place(S, 0);
+    this.world.dirty = true;
   }
   remove(S) {
     S.site.group.visible = false; const i = this.world.sites.indexOf(S.site); if (i >= 0) this.world.sites.splice(i, 1);
@@ -198,23 +215,44 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
 #shipfade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:6;transition:opacity .35s}
 #shipbtn{position:absolute;right:max(16px,env(safe-area-inset-right));top:calc(max(12px,env(safe-area-inset-top)) + 58px);width:40px;height:40px;border-radius:50%;border:1.5px solid rgba(232,224,204,.35);background:rgba(7,9,13,.5);display:grid;place-items:center;cursor:pointer;pointer-events:auto;padding:0}
 #shipbtn svg{width:22px;height:22px;stroke:var(--bone);fill:none;stroke-width:1.7;stroke-linejoin:round}
-#ships{position:fixed;inset:0;z-index:7;display:none;background:#07080b;color:var(--bone);font:500 12px/1.4 ui-monospace,Menlo,monospace;overflow:auto;-webkit-overflow-scrolling:touch}
-#ships.open{display:block}
-#ships .wrap{max-width:1080px;margin:0 auto;padding:max(18px,env(safe-area-inset-top)) 16px 40px}
-#ships header{display:flex;align-items:baseline;gap:16px;margin:4px 0 14px;flex-wrap:wrap}#ships header h2{margin:0;font:700 22px/1 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase}
-#ships header .cr{color:var(--hazard)}#ships header button{margin-left:auto}
-#ships nav{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
-#ships button{font:600 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--bone);background:transparent;border:1.5px solid rgba(232,224,204,.3);padding:8px 12px;cursor:pointer;border-radius:2px}
-#ships button.on,#ships button.go{border-color:var(--hazard);color:var(--hazard)}#ships button:disabled{opacity:.35;cursor:default}
-#ships .row{display:grid;grid-template-columns:minmax(150px,1.1fr) 3fr auto;gap:14px;align-items:start;padding:14px 0;border-top:1px solid rgba(232,224,204,.12)}
-#ships .row h3{margin:0;font:700 15px ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase}#ships .row h3 small{display:block;font-size:10px;color:var(--dim);letter-spacing:.12em;margin-top:3px}
-#ships .row p{margin:6px 0 0;color:var(--dim);font-size:11px;max-width:38ch}
-#ships dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px 14px;margin:0}
-#ships dt{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}#ships dd{margin:0;font-variant-numeric:tabular-nums}
-#ships .act{display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:120px}#ships .act em{font-style:normal;font-size:10px;color:var(--dim);max-width:16ch}
-#ships .tag{display:inline-block;font-size:9px;letter-spacing:.14em;padding:2px 6px;border:1px solid var(--hazard);color:var(--hazard);margin-top:6px}
-#ships .unk h3,#ships .unk dl{opacity:.55}
-@media (max-width:700px){#ships .row{grid-template-columns:1fr;gap:8px}#ships .act{flex-direction:row;flex-wrap:wrap}#ships dl{grid-template-columns:repeat(3,1fr)}}
+#ships{--plate:#0c1014;--line:rgba(232,224,204,.1);--ink:rgba(232,224,204,.62);position:fixed;inset:0;z-index:7;display:none;color:var(--bone);font:500 12px/1.4 "Bahnschrift","DIN Alternate","Arial Narrow","Roboto Condensed",sans-serif;
+  background:#080b0e;background-image:linear-gradient(rgba(120,160,190,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(120,160,190,.045) 1px,transparent 1px);background-size:28px 28px;touch-action:auto;user-select:none}
+#ships.open{display:grid;grid-template-rows:auto 1fr}
+#ships .bar{display:flex;align-items:center;gap:18px;padding:max(12px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) 12px max(18px,env(safe-area-inset-left));border-bottom:1px solid var(--line);background:rgba(8,11,14,.92)}
+#ships .bar h2{margin:0;font-weight:700;font-size:26px;line-height:1;letter-spacing:.06em;text-transform:uppercase}#ships .bar h2 small{display:block;font:500 9px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:var(--dim);margin-bottom:4px}
+#ships .tabs{display:flex;gap:2px;background:rgba(232,224,204,.06);padding:2px;border-radius:3px}
+#ships .tabs button{all:unset;cursor:pointer;padding:9px 14px;font:600 11px ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);border-radius:2px}
+#ships .tabs button.on{background:var(--bone);color:#0b0d10}#ships .tabs button i{font-style:normal;opacity:.6;margin-left:6px}
+#ships .cr{margin-left:auto;text-align:right;font:700 20px/1 "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;font-variant-numeric:tabular-nums}#ships .cr small{display:block;font:500 9px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:var(--dim);margin-bottom:4px}
+#ships .x{all:unset;cursor:pointer;width:44px;height:44px;display:grid;place-items:center;border:1px solid rgba(232,224,204,.25);border-radius:50%}#ships .x svg{width:18px;height:18px;stroke:var(--bone);stroke-width:2;fill:none}
+#ships .body{display:grid;grid-template-columns:minmax(260px,330px) 1fr;min-height:0}
+#ships .list{overflow:auto;border-right:1px solid var(--line);padding:6px 0 max(20px,env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+#ships .it{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:104px 1fr;gap:12px;align-items:center;width:100%;padding:8px 14px 8px max(14px,env(safe-area-inset-left));border-left:3px solid transparent}
+#ships .it:hover{background:rgba(232,224,204,.04)}#ships .it.on{border-left-color:var(--hazard);background:rgba(232,224,204,.07)}
+#ships .it img,#ships .it .ph{width:104px;height:58px;object-fit:contain;display:block;background:rgba(0,0,0,.25);border:1px solid var(--line)}
+#ships .it b{display:block;font-size:17px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;line-height:1}#ships .it span{display:block;color:var(--dim);font-size:11px;margin-top:3px}
+#ships .it em{display:inline-block;margin-top:5px;font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.1em;font-style:normal;color:var(--ink)}#ships .it em.own{color:var(--hazard)}
+#ships .det{overflow:auto;padding:18px max(22px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) 26px;-webkit-overflow-scrolling:touch}
+#ships .hero{position:relative;max-width:820px}#ships .hero img{width:100%;max-height:42vh;aspect-ratio:2.2;object-fit:contain;display:block}
+#ships .hero .tag{position:absolute;left:0;top:0;font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;padding:4px 8px;background:var(--hazard);color:#0b0d10}
+#ships h3{margin:6px 0 2px;font-size:44px;line-height:.95;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+#ships .sub{font:500 11px ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+#ships .note{margin:10px 0 16px;max-width:60ch;font-size:15px;line-height:1.4;color:var(--ink)}
+#ships .meters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;max-width:820px;margin-bottom:16px}
+#ships .m small{display:block;font:500 9px ui-monospace,Menlo,monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}#ships .m b{display:block;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin:2px 0 5px}
+#ships .m s{display:block;height:3px;background:rgba(232,224,204,.12)}#ships .m s i{display:block;height:100%;background:var(--bone)}
+#ships .spec{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0 22px;max-width:820px;font:500 11px/1.3 ui-monospace,Menlo,monospace}
+#ships .spec div{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}#ships .spec dt{color:var(--dim);letter-spacing:.08em;text-transform:uppercase;font-size:9.5px}#ships .spec dd{margin:0;text-align:right}
+#ships .act{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:4px 0 20px;max-width:820px}
+#ships .act button{all:unset;cursor:pointer;box-sizing:border-box;min-height:46px;padding:0 22px;display:inline-flex;align-items:center;font:700 15px "Bahnschrift","DIN Alternate","Arial Narrow",sans-serif;letter-spacing:.1em;text-transform:uppercase;border:1.5px solid rgba(232,224,204,.35);color:var(--bone)}
+#ships .act button.go{background:var(--hazard);border-color:var(--hazard);color:#0b0d10}#ships .act button:disabled{opacity:.35;cursor:default}
+#ships .act p{margin:0;color:var(--dim);font-size:13px}
+#ships .back{display:none}
+#ships .empty{padding:24px;color:var(--dim)}
+@media (max-width:760px){#ships .bar{flex-wrap:wrap;gap:10px 14px;padding-bottom:10px}#ships .bar h2{font-size:20px}#ships .tabs{order:3;width:100%}#ships .tabs button{flex:1;text-align:center;padding:10px 4px}#ships .cr{font-size:16px}
+  #ships .body{grid-template-columns:1fr}#ships .list{border-right:0}#ships.sel .list{display:none}#ships:not(.sel) .det{display:none}
+  #ships .det{padding:10px 16px max(24px,env(safe-area-inset-bottom))}#ships .back{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:40px;font:600 11px ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  #ships h3{font-size:32px}#ships .meters{grid-template-columns:repeat(2,minmax(0,1fr))}#ships .act button{flex:1;justify-content:center}}
 `; document.head.appendChild(css);
     const el = this.el = document.createElement('div'); el.id = 'helm';
     el.innerHTML = '<div class="keys"></div><div class="id"><b></b><span></span></div><div class="sp"><b>0</b><span>m/s</span></div><div class="set"><span>Set <i class="sv">0</i></span><s><i></i><u></u></s><span class="ac"></span></div><div class="gs"><em>Prop</em><span class="fu"></span><em>Hull</em><span class="hu"></span><em class="x">Δv</em><span class="x dv"></span><em class="x">Mass</em><span class="x ma"></span></div>';
@@ -226,6 +264,8 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
     b.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.togglePanel(); });
     const p = this.panel = document.createElement('div'); p.id = 'ships'; document.body.appendChild(p);
     p.addEventListener('click', (e) => this.onPanel(e));
+    // the game's own pointer handlers (look, fire, pointer-lock grab) must never see taps meant for the panel
+    for (const t of ['pointerdown', 'pointerup', 'mousedown', 'touchstart']) p.addEventListener(t, (e) => e.stopPropagation());
     this.tab = 'yard';
     addEventListener('keydown', (e) => {
       if (e.code === 'KeyL' && !e.repeat) this.togglePanel();
@@ -248,14 +288,14 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
   buy(id) {
     const S = this.byId[id]; if (!S || S.spec.cat !== 'yard' || S.owned || S.sold) return false;
     if (this.econ.credits < S.spec.price) { this.toast('warn', 'Not enough credits'); return false; }
-    this.econ.credits -= S.spec.price; this.econ.save(); S.owned = true; this.saveAll(); this.sound?.chime?.(true); this.toast('info', `${S.spec.name} is yours`); return true;
+    this.econ.credits -= S.spec.price; this.econ.save(); S.owned = true; this.deliver(S); this.saveAll(); this.sound?.chime?.(true); this.toast('info', `${S.spec.name} is yours · waiting at its berth past the depot`); return true;
   }
   sell(id) {
     const S = this.byId[id]; if (!S || S.sold || this.helm === S || this.dock?.S === S) return false;
     if (S.spec.cat === 'yard') {
       if (!S.owned) return false;
       const v = Math.round(S.spec.price * 0.6); this.econ.bonus(v); this.nav.pop(v); S.owned = false;
-      S.V.pos.copy(S.home); S.V.quat.copy(S.homeQ); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.place(S, 0);
+      S.V.pos.copy(S.home); S.V.quat.copy(S.homeQ); S.V.vel.set(0, 0, 0); S.V.w.set(0, 0, 0); S.V.fuel = 1; S.V.hull = 1; this.place(S, 0); this.stow(S);
     } else {
       if (!S.found || this.state(S).home === false) return false;
       const v = Math.round(S.spec.salvage * (0.5 + 0.5 * S.V.hull)); this.econ.bonus(v); this.nav.pop(v); S.sold = true; S.owned = false; this.remove(S);
@@ -379,7 +419,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
     const ship = this.ship;
     // vessels: the flown one takes the stick; the rest wind down (and sit still once stopped)
     for (const S of this.ships) {
-      if (S.sold) continue;
+      if (S.sold || S.stowed) continue;
       const V = S.V, moving = V.vel.lengthSq() > 1e-4 || V.w.lengthSq() > 1e-8;
       if (this.helm === S) { const n = Math.max(1, Math.ceil(dt / (1 / 60))); for (let i = 0; i < n; i++) { V.step(dt / n, i ? { ...cmd, dx: 0, dy: 0 } : cmd); this.collide(S, dt / n); } this.place(S, dt); }
       else if (moving) { V.idle(dt); this.collide(S, dt); this.place(S, dt); if (V.vel.lengthSq() < 1e-4 && V.w.lengthSq() < 1e-8) { V.vel.set(0, 0, 0); V.w.set(0, 0, 0); this.place(S, 0); } }
@@ -394,7 +434,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       // finding: get close enough to make it out
       if (!S.found && ship.pos.distanceTo(V.pos) < Math.max(450, S.spec.len * 1.6)) this.discover(S);
       // nav: yard ships are covered by the depot marker; finds and your own ships away from the yard get one
-      S.site.hidden = !S.found || S.sold || (S.spec.cat === 'yard' && V.pos.distanceTo(S.home) < 60) || this.helm === S || this.dock?.S === S;
+      S.site.hidden = !S.found || S.sold || (S.spec.cat === 'yard' && (!S.owned || V.pos.distanceTo(S.home) < 60)) || !!this.berthed?.(S) || this.helm === S || this.dock?.S === S;
     }
     // the docked jet rides along
     const D = this.dock;
@@ -412,7 +452,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       // capture: slow and close to a collar or the bay cradle
       this.nearCollar = null; let best = 1e9;
       for (const S of this.ships) {
-        if (S.sold) continue;
+        if (S.sold || S.stowed) continue;
         if (ship.pos.distanceTo(S.V.pos) > S.R + 80) continue;
         this.dockPose(S, _v, _q); const d = ship.pos.distanceTo(_v);
         const rv = _v2.copy(ship.vel).sub(S.V.vel).length();
@@ -424,7 +464,7 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
     if (this.lastDock && !this.dock) { this.releasedFrom = this.lastDock; this.relT = 0; }
     this.lastDock = this.dock?.S || null;
     // decks
-    for (const S of this.ships) if (S.decks && !S.sold) S.decks.update(dt, time, this.camera.position, this.eva);
+    for (const S of this.ships) if (S.decks && !S.sold && !S.stowed) S.decks.update(dt, time, this.camera.position, this.eva);
     if (this.helm) { this.camHelm(dt); this.readout(); if (this.fromEva) { this.toWorld(this.helm, HELM.seat, this.eva.pilot.pos); this.eva.pilot.vel.copy(this.helm.V.vel); } }
     // repairs and refuelling for ships near the depot
     for (const S of this.ships) if (!S.sold && S.owned && S.V.pos.distanceTo(this.depot.dockPt) < CLAIM_R(S.spec) * 0.6) { S.V.fuel = Math.min(1, S.V.fuel + dt * 0.02); S.V.hull = Math.min(1, S.V.hull + dt * 0.01); }
@@ -521,40 +561,105 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
   togglePanel(v) {
     const open = v ?? !this.panel.classList.contains('open');
     this.panel.classList.toggle('open', open); this.panelOpen = open;
-    if (open) { this.render(); if (document.pointerLockElement) document.exitPointerLock?.(); }
+    if (open) {
+      const m = this.menu; if (m?.open) m.toggle(false);
+      // let go of the mouse without the pause menu taking it for an Esc press and popping over the panel
+      if (document.pointerLockElement) { if (m) m.quiet = true; document.exitPointerLock?.(); setTimeout(() => { if (m) m.quiet = false; }, 300); }
+      this.render();
+    }
   }
+
+  // a small picture of a ship for the registry, drawn once with the game's own renderer and kept
+  thumb(S, w = 320, h = 160, dark = false) {
+    const key = S.spec.id + (dark ? ':d' : '') + ':' + w;
+    this.thumbs ??= {}; if (this.thumbs[key]) return this.thumbs[key];
+    const r = this.renderer; if (!r) return '';
+    try {
+      if (!this.tScene) {
+        const sc = this.tScene = new THREE.Scene();
+        sc.add(new THREE.HemisphereLight(0xcfd8e6, 0x2a2018, 1.1));
+        const k = new THREE.DirectionalLight(0xfff1dc, 3.2); k.position.set(-3, 4, 2); sc.add(k);
+        const f = new THREE.DirectionalLight(0x9fc2ff, 0.9); f.position.set(4, -1, -3); sc.add(f);
+        this.tCam = new THREE.PerspectiveCamera(26, 2, 0.1, 5000);
+        this.tDark = new THREE.MeshBasicMaterial({ color: 0x1c232a });
+      }
+      const sc = this.tScene, cam = this.tCam, obj = S.node.clone(true);
+      const pivot = new THREE.Group(); pivot.add(obj); sc.add(pivot);
+      pivot.rotation.set(0, -2.45, 0); pivot.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(pivot), c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+      cam.aspect = w / h; const rad = sz.length() / 2;
+      const dist = rad / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * 0.6;
+      cam.position.copy(c).add(new THREE.Vector3(0, 0.42, 1).normalize().multiplyScalar(dist)); cam.near = dist / 50; cam.far = dist * 4;
+      cam.lookAt(c); cam.updateProjectionMatrix();
+      sc.overrideMaterial = dark ? this.tDark : null;
+      const pr = r.getPixelRatio(), W = Math.round(w), H = Math.round(h);
+      const rt = new THREE.WebGLRenderTarget(W, H, { samples: 4, type: THREE.HalfFloatType });
+      const prevT = r.getRenderTarget(), prevC = r.getClearColor(new THREE.Color()), prevA = r.getClearAlpha();
+      r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam);
+      const px = new Uint16Array(W * H * 4); r.readRenderTargetPixels(rt, 0, 0, W, H, px);
+      r.setRenderTarget(prevT); r.setClearColor(prevC, prevA); rt.dispose();
+      sc.remove(pivot);
+      // half floats, linear: tone map (ACES-ish) and encode to sRGB by hand
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const cx = cv.getContext('2d'), id = cx.createImageData(W, H);
+      const f16 = THREE.DataUtils.fromHalfFloat, enc = (x) => { x *= 1.35; x = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14); x = Math.min(1, Math.max(0, x)); return 255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055); };
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = ((H - 1 - y) * W + x) * 4, o = (y * W + x) * 4;
+        id.data[o] = enc(f16(px[i])); id.data[o + 1] = enc(f16(px[i + 1])); id.data[o + 2] = enc(f16(px[i + 2])); id.data[o + 3] = Math.min(255, f16(px[i + 3]) * 255);
+      }
+      cx.putImageData(id, 0, 0);
+      return (this.thumbs[key] = cv.toDataURL('image/png'));
+    } catch (e) { console.warn('thumb', e); return ''; }
+  }
+
   render() {
-    const tabs = [['yard', 'Shipyard'], ['derelict', 'Found adrift'], ['own', 'Your fleet']];
-    const all = this.list();
-    let rows = this.tab === 'own' ? [{ ...SKIFF, ...derived(SKIFF), skiff: true }, ...all.filter((s) => s.owned)] : all.filter((s) => s.cat === this.tab);
-    const stat = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
-    const row = (s) => {
-      const unk = s.cat === 'derelict' && !s.found && !s.skiff;
-      const dl = [
-        stat('Length', `${s.len} m`), stat('Beam', `${s.beam} m`), stat('Dry mass', fmtMass(s.dry)), stat('Propellant', fmtMass(s.prop)), stat('Cargo', fmtMass(s.cargo)),
-        stat('Thrust', fmtForce(s.thrust)), stat('Accel', `${(s.thrust / (s.dry + s.prop) / G0).toFixed(2)} g`), stat('Isp', `${fmtCr(s.isp)} s`), stat('Δv', `${derived(s).dv.toFixed(1)} km/s`),
-        stat('RCS', fmtForce(s.rcs)), stat('Turn', `${s.turn}°/s`), stat('Top speed', `${s.maxSpd} m/s`), stat('Hull', `${fmtCr(s.hull)} pts · ${s.armor} mm`), ...(s.owned || s.cat === 'derelict' && s.found ? [stat('Condition', `${Math.round(s.cond * 100)}% hull · ${Math.round(s.fuel * 100)}% prop`)] : []),
-        stat('Crew', `${s.crew} / ${s.berths} berths`), stat('Reactor', s.reactor), stat('Drive', s.drive), stat('Sensors', `${fmtCr(s.sensors)} km`), stat('Built', `${s.built} · ${s.maker}`),
-      ].join('');
+    const all = this.list(), tabs = [['yard', 'Shipyard'], ['derelict', 'Adrift'], ['own', 'Yours']];
+    const rowsOf = (t) => t === 'own' ? [{ ...SKIFF, ...derived(SKIFF), skiff: true, owned: true }, ...all.filter((s) => s.owned)] : all.filter((s) => s.cat === t);
+    const count = { yard: all.filter((s) => s.cat === 'yard').length, derelict: `${all.filter((s) => s.cat === 'derelict' && s.found).length}/${all.filter((s) => s.cat === 'derelict').length}`, own: all.filter((s) => s.owned).length + 1 };
+    const rows = rowsOf(this.tab);
+    if (!rows.some((r) => r.id === this.sel)) this.selPicked = false;
+    const sel = rows.find((r) => r.id === this.sel) || rows[0];
+    this.sel = sel?.id;
+    const unk = (s) => s.cat === 'derelict' && !s.found && !s.skiff;
+    const img = (s, w, h) => { if (s.skiff) return ''; const S = this.byId[s.id]; const u = S ? this.thumb(S, w, h, unk(s)) : ''; return u ? `<img alt="" src="${u}">` : '<div class="ph"></div>'; };
+    const badge = (s) => s.flying ? 'At the helm' : s.docked ? 'Docked' : s.skiff ? 'Your jet' : s.owned ? 'Owned' : s.cat === 'yard' ? `${fmtCr(s.price)} Cr` : unk(s) ? 'Not found' : s.sold ? 'Sold' : 'Found';
+    const list = rows.map((s) => `<button class="it ${s.id === this.sel ? 'on' : ''}" data-sel="${s.id}">${s.skiff ? '<div class="ph"></div>' : img(s, 208, 116)}<div><b>${unk(s) ? 'Unknown hull' : s.name}</b><span>${s.cls}</span><em class="${s.owned ? 'own' : ''}">${badge(s)}</em></div></button>`).join('');
+    // the four numbers that tell ships apart, scaled against the whole fleet (log, so a tug and a courier both read)
+    const ref = [...SHIPS, SKIFF];
+    const lg = (v, k) => { const mx = Math.max(...ref.map(k)), mn = Math.min(...ref.map(k)); return Math.max(0.04, (Math.log(v) - Math.log(mn)) / (Math.log(mx) - Math.log(mn) || 1)); };
+    let det = '<p class="empty">Nothing here yet.</p>';
+    if (sel) {
+      const s = sel, u = unk(s), dv = derived(s), acc = s.thrust / (s.dry + s.prop) / G0;
+      const meter = (k, v, f) => `<div class="m"><small>${k}</small><b>${v}</b><s><i style="width:${(f * 100).toFixed(0)}%"></i></s></div>`;
+      const meters = u ? '' : `<div class="meters">${meter('Accel', acc.toFixed(2) + ' g', lg(acc, (x) => x.thrust / (x.dry + x.prop) / G0))}${meter('Turn', s.turn + '°/s', lg(s.turn, (x) => x.turn))}${meter('Cargo', fmtMass(s.cargo), lg(s.cargo, (x) => x.cargo))}${meter('Δv', dv.dv.toFixed(1) + ' km/s', lg(dv.dv, (x) => derived(x).dv))}</div>`;
+      const st = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
+      const spec = u ? st('Length', `~${s.len} m`) + st('Class', s.cls) + st('Salvage', `~${fmtCr(s.salvage)} Cr`) : [
+        st('Length', `${s.len} m`), st('Beam', `${s.beam} m`), st('Dry mass', fmtMass(s.dry)), st('Propellant', fmtMass(s.prop)), st('Thrust', fmtForce(s.thrust)), st('Isp', `${fmtCr(s.isp)} s`),
+        st('RCS', fmtForce(s.rcs)), st('Top speed', `${s.maxSpd} m/s`), st('Hull', `${fmtCr(s.hull)} · ${s.armor} mm`), ...(s.owned && !s.skiff || s.cat === 'derelict' && s.found ? [st('Condition', `${Math.round(s.cond * 100)}% · ${Math.round(s.fuel * 100)}% prop`)] : []),
+        st('Crew', `${s.crew} / ${s.berths}`), st('Reactor', s.reactor), st('Drive', s.drive), st('Sensors', `${fmtCr(s.sensors)} km`), st('Built', `${s.built}, ${s.maker}`)].join('');
       let act = '';
-      if (s.skiff) act = '<em>Your jet. Always with you.</em>';
+      if (s.skiff) act = '<p>Your jet. Always with you.</p>';
       else if (s.cat === 'yard') {
-        if (!s.owned) act = `<button class="go" data-a="buy" data-id="${s.id}" ${this.econ.credits < s.price ? 'disabled' : ''}>Buy ${fmtCr(s.price)}</button><em>${this.econ.credits < s.price ? `Need ${fmtCr(s.price - this.econ.credits)} more` : 'Parks in the yard by the depot'}</em>`;
-        else act = `<button class="go" data-a="fly" data-id="${s.id}">Fly</button><button data-a="sell" data-id="${s.id}">Sell ${fmtCr(s.sell)}</button>`;
-      } else if (unk) act = '<em>Not found yet. Somewhere out past the wrecks.</em>';
-      else if (s.owned) act = `<button class="go" data-a="fly" data-id="${s.id}">Fly</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell ${fmtCr(s.sell)}</button>`;
-      else act = `<button class="go" data-a="claim" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Claim</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell ${fmtCr(s.sell)}</button><em>${s.home ? 'At the depot: keep it or sell it' : `Bring it within ${((CLAIM_R(s)) / 1000).toFixed(1)} km of the depot · ${(s.dist / 1000).toFixed(1)} km now`}</em>`;
-      const tag = s.flying ? 'At the helm' : s.docked ? 'Docked' : s.owned && !s.skiff ? 'Owned' : s.cat === 'derelict' && s.found && !s.owned ? 'Found' : '';
-      return `<div class="row ${unk ? 'unk' : ''}"><div><h3>${unk ? '???' : s.name}<small>${s.cls}</small></h3>${unk ? '' : `<p>${s.note}</p>`}${tag ? `<span class="tag">${tag}</span>` : ''}</div><dl>${unk ? stat('Length', `${s.len} m`) + stat('Class', s.cls) + stat('Salvage', `~${fmtCr(s.salvage)} Cr`) : dl}</dl><div class="act">${act}</div></div>`;
-    };
-    this.panel.innerHTML = `<div class="wrap"><header><h2>Ships</h2><span class="cr">${fmtCr(this.econ.credits)} Cr</span><button data-a="close">Close</button></header>
-      <nav>${tabs.map(([k, n]) => `<button data-tab="${k}" class="${this.tab === k ? 'on' : ''}">${n}</button>`).join('')}</nav>${rows.map(row).join('') || '<p>Nothing here yet.</p>'}</div>`;
+        if (!s.owned) act = `<button class="go" data-a="buy" data-id="${s.id}" ${this.econ.credits < s.price ? 'disabled' : ''}>Buy · ${fmtCr(s.price)} Cr</button><p>${this.econ.credits < s.price ? `Need ${fmtCr(s.price - this.econ.credits)} Cr more` : 'Delivered to a berth by the depot'}</p>`;
+        else act = `<button class="go" data-a="fly" data-id="${s.id}">Fly</button><button data-a="sell" data-id="${s.id}">Sell · ${fmtCr(s.sell)} Cr</button>`;
+      } else if (u) act = '<p>Somewhere out past the wrecks. Find it to learn more.</p>';
+      else if (s.owned) act = `<button class="go" data-a="fly" data-id="${s.id}">Fly</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell · ${fmtCr(s.sell)} Cr</button>`;
+      else act = `<button class="go" data-a="claim" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Keep it</button><button data-a="sell" data-id="${s.id}" ${s.home ? '' : 'disabled'}>Sell · ${fmtCr(s.sell)} Cr</button><p>${s.home ? 'At the depot: keep it or sell it' : `Bring it within ${(CLAIM_R(s) / 1000).toFixed(1)} km of the depot (${(s.dist / 1000).toFixed(1)} km now)`}</p>`;
+      const tag = s.flying ? 'At the helm' : s.docked ? 'Docked' : s.owned && !s.skiff ? 'Owned' : '';
+      det = `<button class="back" data-a="back">‹ All ships</button><div class="hero">${s.skiff ? '' : img(s, 760, 345)}${tag ? `<span class="tag">${tag}</span>` : ''}</div>
+        <h3>${u ? 'Unknown hull' : s.name}</h3><div class="sub">${s.cls}${u ? '' : ` · ${s.maker} · ${s.built}`}</div>${u ? '' : `<p class="note">${s.note}</p>`}<div class="act">${act}</div>${meters}<dl class="spec">${spec}</dl>`;
+    }
+    const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    this.panel.classList.toggle('sel', !!this.selPicked);
+    this.panel.innerHTML = `<div class="bar"><h2><small>Registry</small>Ships</h2><div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" class="${this.tab === k ? 'on' : ''}">${n}<i>${count[k]}</i></button>`).join('')}</div><div class="cr"><small>Credits</small>${fmtCr(this.econ.credits)}</div><button class="x" data-a="close" aria-label="Close">${X}</button></div>
+      <div class="body"><div class="list">${list}</div><div class="det">${det}</div></div>`;
   }
   onPanel(e) {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.tab) { this.tab = b.dataset.tab; this.render(); return; }
+    if (b.dataset.tab) { this.tab = b.dataset.tab; this.sel = null; this.selPicked = false; this.render(); return; }
+    if (b.dataset.sel) { this.sel = b.dataset.sel; this.selPicked = true; const sc = this.panel.querySelector('.list')?.scrollTop; this.render(); const l = this.panel.querySelector('.list'); if (l && sc) l.scrollTop = sc; return; }
     const a = b.dataset.a, id = b.dataset.id;
     if (a === 'close') return this.togglePanel(false);
+    if (a === 'back') { this.selPicked = false; this.render(); return; }
     if (a === 'buy') this.buy(id); else if (a === 'sell') this.sell(id); else if (a === 'claim') this.claim(id); else if (a === 'fly') this.fly(id);
     if (this.panelOpen) this.render();
   }

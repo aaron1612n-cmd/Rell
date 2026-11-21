@@ -14,6 +14,7 @@ export const NAV_ICONS = {
   winch: '<path d="M12 3v9"/><path d="M12 12a4 4 0 1 0 4 4"/><circle cx="12" cy="3" r="1"/>',
   hull: '<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/>',
   derelict: '<path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="5"/><path d="M9.5 9.5l5 5"/>',
+  base: '<path d="M3 20V10l9-6 9 6v10"/><path d="M7 20v-6h10v6"/><path d="M7 17h10"/>',
   grab: '<path d="M4 20L14 10"/><path d="M14 10l2-6 4 4-6 2"/><circle cx="4" cy="20" r="1.2"/>',
 };
 const _p = new THREE.Vector3(), _v = new THREE.Vector3(), _f = new THREE.Vector3();
@@ -72,7 +73,7 @@ export class Nav {
     for (const m of this.marks) {
       const s = m.s; const d = Math.max(0, s.pos.distanceTo(ship.pos) - (s.kind === 'depot' ? 0 : s.radius * 0.4));
       const inside = s.kind !== 'depot' && s.pos.distanceTo(ship.pos) < s.radius * 0.9 && s.state !== 'unstable';
-      const hide = s.hidden || inside || (s.kind === 'depot' && this.docked) || (s.state === 'collapsed' && !s.debris.length);
+      const hide = s.hidden || inside || ((s.kind === 'depot' || s.kind === 'base') && this.docked) || (s.state === 'collapsed' && !s.debris.length);
       let cls = s.kind;
       if (s.kind === 'depot' && towing) cls += ' hot';
       if (s.state === 'unstable') cls += ' warn';
@@ -92,12 +93,27 @@ export class Nav {
         x = cx + dx * k; y = cy + dy * k; ang = Math.atan2(dy, dx); cls += ' off';
       }
       if (cls !== m.cls) { m.el.className = 'mk ' + cls; m.cls = cls; }
-      m.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      m.x = x; m.y = y; m.vis = !hide; m.d = d;
       if (off) m.el.style.setProperty('--a', ang + 'rad');
       const [num, unit] = fmt(d);
       const txt = num + unit + (s.state === 'unstable' ? Math.ceil(s.timer) : '');
       if (txt !== m.last) { m.b.textContent = num; m.u.textContent = unit; m.em.textContent = s.state === 'unstable' ? Math.ceil(s.timer) : ''; m.last = txt; }
     }
+
+    // declutter: markers that would sit on each other (same bearing, or pinned to the same edge) stack up
+    // instead, nearest first, so every range stays readable
+    const vis = this.marks.filter((m) => m.vis).sort((a, b) => a.d - b.d), placed = [];
+    const BW = 78, BH = 34;
+    for (const m of vis) {
+      let { x, y } = m; const dir = y > h * 0.6 ? -1 : 1;
+      for (let k = 0; k < 12; k++) {
+        const o = placed.find((q) => Math.abs(q.x - x) < BW && Math.abs(q.y - y) < BH);
+        if (!o) break;
+        y = o.y + dir * BH;
+      }
+      m.x = x; m.y = y; placed.push(m);
+    }
+    for (const m of this.marks) if (m.x !== undefined) m.el.style.transform = `translate(${m.x.toFixed(1)}px,${m.y.toFixed(1)}px)`;
 
     // salvage brackets: nearest few within reach of the eye, in front of the camera
     camera.getWorldDirection(_f);

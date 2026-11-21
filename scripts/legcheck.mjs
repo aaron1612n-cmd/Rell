@@ -77,3 +77,4 @@ for (const t of shots) for (const c of cams) {
   await p.screenshot({ path: `${out}/out-${t}-${c}.png` });
 }
 await b.close();
+{ const lim = +(process.env.MAXPEN || 0.02); const bad = maxOut > lim || (typeof m !== 'undefined' && m > lim); console.log(bad ? 'FAIL: legs/body sink into hull' : 'ok'); process.exit(bad ? 1 : 0); }

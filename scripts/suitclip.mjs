@@ -141,3 +141,4 @@ const res = await p.evaluate(([N, process_env_dbg, only]) => {
 }, [N, !!process.env.DBG, process.env.ONLY || '']);
 console.log(JSON.stringify(res, null, 1));
 await b.close();
+{ let tunnel = 0, noCol = 0, tp = 0; for (const r of Object.values(res)) { tunnel += r.tunnel; noCol += r.noCol; tp += +r.tpFramesClipped.split('/')[0]; } console.log('suit: tunnel', tunnel, 'visible-through-uncovered', noCol, 'clipped frames', tp); process.exit(tunnel + noCol ? 1 : 0); }

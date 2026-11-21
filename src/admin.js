@@ -3,14 +3,15 @@ import { CFG } from './ship.js';
 import { UPG } from './economy.js';
 import { SYS } from './systems.js';
 import { buildDrone } from './drones.js';
+import { buildClassicJet } from './classicJet.js';
 
 // Override console: the crew's admin panel. ` (backquote) opens it on desktop, the pause menu has an
 // Admin button on phones. The game keeps running underneath so every switch shows its effect live.
 // Everything here hooks the live systems through window.__game-style refs passed in from main.js.
 const KEY = 'rell.admin';
-const PERSIST = ['god', 'fuel', 'o2', 'noclip', 'thrust', 'speed', 'turn', 'tow', 'stats', 'drones', 'events'];
+const PERSIST = ['god', 'fuel', 'o2', 'noclip', 'thrust', 'speed', 'turn', 'tow', 'stats', 'drones', 'events', 'classic'];
 const DEF = { god: false, fuel: false, o2: false, noclip: false, thrust: 1, speed: 1, turn: 1, tow: 0, stats: false, drones: 'auto', events: true,
-  time: 1, frozen: false, free: false, orbit: false, camSpeed: 40, orbitDist: 26, letter: false, colliders: false, wire: false };
+  time: 1, frozen: false, free: false, orbit: false, camSpeed: 40, orbitDist: 26, letter: false, classic: false, colliders: false, wire: false };
 const TABS = [['pilot', 'Pilot'], ['warp', 'Warp'], ['spawn', 'Spawn'], ['world', 'World'], ['cam', 'Camera'], ['cash', 'Cash'], ['story', 'Career'], ['debug', 'Debug'], ['saves', 'Saves']];
 const SLOT = (i) => `rell.admin.slot${i}`;
 const fmtN = (v) => Math.round(v).toLocaleString('en-US');
@@ -174,6 +175,7 @@ export class Admin {
     for (const c of ['t', 'b']) { const b = document.createElement('div'); b.className = 'admbar ' + c; document.body.appendChild(b); }
     this.freeEl = document.createElement('div'); this.freeEl.id = 'admfree'; this.freeEl.textContent = 'Free cam · tap to exit'; document.body.appendChild(this.freeEl);
     this.freeEl.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); this.set('free', false); this.set('orbit', false); });
+    if (this.s.classic) this.applyClassic();
   }
 
   toggle(v) {
@@ -210,6 +212,7 @@ export class Admin {
         this.rng('Tow lines', 0, 8, 1, () => s.tow, (v) => this.set('tow', v), (v) => (v ? v + '' : 'upgrades')),
         { t: 'seg', label: 'Flight assist', opts: [['damped', 'Damped'], ['hold', 'Cruise'], ['drift', 'Drift']], get: () => ship.mode, set: (v) => ship.setMode(v) },
         { t: 'h', text: 'Ship' },
+        this.tog('classic', 'Classic jet', 'The original 2026 prototype. Peak engineering. Flies the same'),
         { t: 'grid', items: [
           this.btn('Full repair', () => { ship.hull = 1; systems.repairAll(); g.damage.clear(); if (fleet.v) fleet.v.hull = 1; this.say('Repaired'); }),
           this.btn('Refuel', () => { ship.fuel = 1; eva.fuel = 1; eva.o2 = 1; if (fleet.v) fleet.v.fuel = 1; this.say('Tanks full'); }),
@@ -231,7 +234,7 @@ export class Admin {
           { t: 'h', text: 'Places' },
           ...sites.map((S) => ({ t: 'li', label: S.hidden ? S.id + ' (hidden)' : S.id, note: `${(S.pos.distanceTo(pos) / 1000).toFixed(2)} km`, btns: [['Go', () => this.warpSite(S)]] })),
           { t: 'h', text: 'Ships' },
-          ...fleet.ships.filter((S) => !S.sold).map((S) => ({ t: 'li', label: S.spec.name, note: `${S.spec.cls} · ${S.spec.len} m · ${(S.V.pos.distanceTo(pos) / 1000).toFixed(2)} km${S.owned ? ' · yours' : ''}`,
+          ...fleet.ships.filter((S) => !S.sold && !S.stowed).map((S) => ({ t: 'li', label: S.spec.name, note: `${S.spec.cls} · ${S.spec.len} m · ${(S.V.pos.distanceTo(pos) / 1000).toFixed(2)} km${S.owned ? ' · yours' : ''}`,
             btns: [['Go', () => this.warpShip(S)], ['Fetch', () => this.summon(S)], ['Board', () => this.board(S)]] })),
           { t: 'h', text: 'Bookmarks' },
           ...[0, 1, 2].map((i) => ({ t: 'li', label: `Mark ${i + 1}`, note: this.marks[i] ? this.marks[i].map((n) => n.toFixed(0)).join(', ') : 'empty',
@@ -351,7 +354,7 @@ export class Admin {
         { t: 'h', text: 'Fleet' },
         { t: 'grid', items: [
           this.btn('Find all ships', () => { for (const S of fleet.ships) S.found = true; fleet.saveAll(); this.say('All ships found'); }),
-          this.btn('Own all ships', () => { for (const S of fleet.ships) if (!S.sold) { S.found = true; S.owned = true; } fleet.saveAll(); this.say('Fleet is yours'); }),
+          this.btn('Own all ships', () => { for (const S of fleet.ships) if (!S.sold) { S.found = true; S.owned = true; if (S.stowed) fleet.deliver(S); } fleet.saveAll(); this.say('Fleet is yours'); }),
           this.btn('Fix + fuel fleet', () => { for (const S of fleet.ships) { S.V.hull = 1; S.V.fuel = 1; } fleet.saveAll(); }),
         ] },
       ];
@@ -539,6 +542,14 @@ export class Admin {
   get frozen() { return this.s.frozen && !this.stepOnce; }
   get scale() { return this.s.time; }
 
+  // swap the hull for the original box-and-prism prototype; engines, lights and the cockpit camera stay put
+  applyClassic() {
+    const m = this.g.shipMesh, ud = m?.userData; if (!ud?.body) return;
+    if (!this.classic) { this.classic = buildClassicJet(); this.classic.traverse((o) => o.layers.set(1)); m.add(this.classic); }
+    ud.body.visible = !this.s.classic; this.classic.visible = this.s.classic;
+    this.say(this.s.classic ? 'Classic jet engaged' : 'Modern jet restored');
+  }
+
   onSet(k) {
     const g = this.g;
     if (['thrust', 'speed', 'turn', 'tow', 'god'].includes(k)) g.applyUpgrades();
@@ -546,6 +557,7 @@ export class Admin {
     if (k === 'stats') this.applyStats();
     if (k === 'letter') document.body.classList.toggle('letter', this.s.letter);
     if (k === 'wire') this.applyWire();
+    if (k === 'classic') this.applyClassic();
     if (k === 'colliders' && !this.s.colliders && this.col) this.col.visible = false;
     if (k === 'free' || k === 'orbit') {
       const on = this.s.free || this.s.orbit;
