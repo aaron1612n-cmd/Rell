@@ -286,7 +286,7 @@ systems.onBreak = (k) => { sound.warn(); cockpit.alert(1); toast('warn', SYS[k].
 systems.onFix = (k, welded) => { toast('fix', SYS[k].name + (welded ? ' welded' : ' repaired')); sound.chime(false); };
 eva.onFaint = () => { const fee = Math.min(econ.credits, 150); if (fee) { econ.credits -= fee; econ.save(); } toast('warn', fee ? `Out of air · rescue fee ${fee}` : 'Out of air'); };
 const relay = world.site.relay.relay; Object.assign(relay, { fx, sound, getFxT: () => fxT, evaRef: eva, sunDir: SUN_DIR }); eva.relay = relay;
-fleet.init({ scene, camera, ship, shipMesh, eva, cockpit, input, rig, econ, fx, sound, toast, nav, hud, reduced, depot, getFxT: () => fxT, onSparks: (h, n) => sparks(h, n), onJetHit: (h) => onShipHit(h, 40) });
+fleet.init({ renderer, scene, camera, ship, shipMesh, eva, cockpit, input, rig, econ, fx, sound, toast, nav, hud, reduced, depot, getFxT: () => fxT, onSparks: (h, n) => sparks(h, n), onJetHit: (h) => onShipHit(h, 40) });
 scan = new DeepScan({ scene, world, salvage, ship, sound, fx, getFxT: () => fxT });
 const drones = new Drones({ scene, world, salvage, ship, fx, getFxT: () => fxT, onTheft: (d) => { if (d.pos.distanceTo(ship.pos) < 500) toast('drone', 'Drone took loose cargo'); }, onLost: (d, it) => { if (it.wasMine) toast('warn', 'Cargo lost to a drone'); },
   onEvent: (e, d) => {
@@ -369,6 +369,7 @@ eva.markTarget = (p) => {
 scan.onSweep = (o, r) => story.onSweep(o, r);
 objective.ext = { systems, breakup, drones, story, SYS };
 const menu = new Menu({ settings, career, econ, help, onTutorial: replayTutorial, onReset: () => { econ.reset(); location.reload(); } });
+fleet.menu = menu;
 const applySettings = (k) => {
   input.invertY = settings.get('invert'); rig.shakeScale = settings.get('shake');
   if (!k || k === 'quality') quality.setMode(settings.get('quality'));

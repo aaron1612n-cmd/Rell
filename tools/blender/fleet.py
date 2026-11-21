@@ -13,7 +13,7 @@ from kit import *
 import bmesh
 from mathutils import Vector, Matrix, Quaternion
 
-LOD = {'step': 1.9, 'segs': .72, 'rev': .66, 'greeble': .5}
+LOD = {'step': 1.15, 'segs': 1.0, 'rev': .9, 'greeble': .62}
 OUT = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'assets')
 
 # ---- small maths -----------------------------------------------------------------------------
@@ -332,7 +332,8 @@ def window_row(S, H, z0, z1, yn, step, size, side=(1, -1), color=0xffd9a0, lit=.
         z += step
 
 def greeble_hull(S, H, n, z0, z1, tmin=.2, tmax=2.9, size=.5, cols=None, both=True):
-    """vents, hatches and boxes scattered on the hull skin, each sitting on the surface along its normal"""
+    """service detail on the hull skin, each piece seated on the surface along its normal: flush access hatches
+    with a dark frame and a handle, louvred vents, and a few equipment housings"""
     k = S.k
     for _ in range(int(n * LOD['greeble'])):
         z = S.rng.uniform(z0, z1); t = S.rng.uniform(tmin, tmax)
@@ -341,10 +342,62 @@ def greeble_hull(S, H, n, z0, z1, tmin=.2, tmax=2.9, size=.5, cols=None, both=Tr
         sw, sl, sh = size * S.rng.uniform(.5, 1.6), size * S.rng.uniform(.6, 2.4), size * S.rng.uniform(.12, .5)
         rot = skin_rot(nn)
         col = S.rng.choice(cols) if cols else None
-        if col is None:
-            base = H.paint(p, nn) if hasattr(H, 'paint') else BONE_D
-            col = shade(base, S.rng.choice((.78, .86, 1.08)))
-        k.box(tuple(p + nn * (sh / 2 - .02 * size)), (sw, sl, sh), col, rot=rot, bevel=min(.04, sh * .3) * size)
+        base = H.paint(p, nn) if hasattr(H, 'paint') else BONE_D
+        if col is None: col = shade(base, S.rng.choice((.78, .86, 1.08)))
+        kind = S.rng.random()
+        with k.at(tuple(p), rot):
+            if kind < .45:
+                # access hatch: dark recess frame, a plate just proud of it, a grab handle
+                fh = max(.02, size * .05)
+                k.box((0, 0, fh * .5 - .02 * size), (sw * 1.08, sl * 1.08, fh), shade(base, .42), wear=0)
+                k.box((0, 0, fh * 1.2 - .02 * size), (sw * .94, sl * .94, fh), shade(base, 1.04), bevel=fh * .3)
+                k.box((0, sl * .3, fh * 1.9 - .02 * size), (sw * .3, size * .06, size * .06), SLATE_D, wear=0)
+            elif kind < .75:
+                # vent: a shallow housing with a row of louvres
+                vh = sh * .45
+                k.box((0, 0, vh / 2 - .02 * size), (sw, sl, vh), col, bevel=min(.04, vh * .3) * size)
+                nl = max(3, min(6, int(sl / (size * .26))))
+                for i in range(nl):
+                    y = -sl * .4 + sl * .8 * (i + .5) / nl
+                    k.box((0, y, vh + size * .01), (sw * .8, sl * .8 / nl * .45, size * .05), shade(base, .35), rot=(30, 0, 0), wear=0)
+            else:
+                # equipment housing with a cap plate
+                k.box((0, 0, sh / 2 - .02 * size), (sw, sl, sh), col, bevel=min(.04, sh * .3) * size)
+                k.box((0, 0, sh), (sw * .7, sl * .6, size * .05), shade(col, .8), wear=0)
+
+def ribs_and_conduits(S, H, bands=0, conduit_sides=(1, -1), skipz=None):
+    """structure on the skin: raised frame bands round the hull at intervals, and a pair of conduits with
+    clamps running down the upper flanks. Everything follows the loft's own surface."""
+    k = S.k; L = H.z1 - H.z0
+    mid = H.at((H.z0 + H.z1) / 2); Rm = max(.3, min(mid[0], mid[1]))
+    nb = bands or max(3, min(9, int(L / (Rm * 2.4))))
+    paint = getattr(H, 'paint', None)
+    col = (lambda c, n: shade(paint(c, n), .66)) if paint else shade(BONE_D, .7)
+    for i in range(nb):
+        z = H.z0 + L * (.18 + .7 * i / max(1, nb - 1))
+        if skipz and skipz(z): continue
+        if H.hump and (H.hump(z - L * .02, 0) > .01 or H.hump(z + L * .02, 0) > .01): continue
+        w, h, _, yc = H.at(z); R = min(w, h); th = max(.025, R * .022); bw = max(.06, R * .05)
+        rs = []
+        for dz, off in ((-bw, -th * .6), (-bw * .6, th), (bw * .6, th), (bw, -th * .6)):
+            ring = []
+            for j in range(H.segs):
+                t = 2 * math.pi * j / H.segs
+                ring.append(H.pt(t, z + dz) + H.normal(t, z + dz) * off)
+            rs.append(ring)
+        k.rings(rs, col, wear=0)
+    for sd in conduit_sides:
+        t = .42 if sd > 0 else math.pi - .42
+        z0, z1 = H.z0 + L * .22, H.z1 - L * .12
+        n = max(8, int((z1 - z0) / max(.6, Rm * .5)))
+        w, h, _, _ = H.at((z0 + z1) / 2); r = max(.035, min(w, h) * .03)
+        pts = [H.pt(t, z0 + (z1 - z0) * i / n) + H.normal(t, z0 + (z1 - z0) * i / n) * (r * 1.2) for i in range(n + 1)]
+        for i in range(n):
+            if skipz and skipz((pts[i].z + pts[i + 1].z) / 2): continue
+            k.link(tuple(pts[i]), tuple(pts[i + 1] + (pts[i + 1] - pts[i]).normalized() * r * .5), r, r, SLATE)
+            if i % 3 == 0:
+                nn = H.normal(t, pts[i].z)
+                k.box(tuple(pts[i] - nn * r * .3), (r * 3.2, r * 3.2, r * 1.4), SLATE_D, rot=skin_rot(nn), wear=0)
 
 def rcs_quad(S, c, n, s=.25, color=SLATE_L):
     k = S.k; k.box(tuple(c), (s, s, s * .8), color, rot=rot_to(n), bevel=s * .1)
@@ -513,6 +566,7 @@ def wren():
     collar(S, (0, H.pt(math.pi / 2, 2.6).y - .05, 2.6), (0, 1, 0), 1.0)
     k.link((0, 1.3, 4.6), (0, 2.4, 5.2), .03, .02, SLATE_D); nav(S, (0, 2.42, 5.22), WHITE, .08)
     S.anchor['eye'] = {'p': [0, 1.15, -3.6]}
+    ribs_and_conduits(S, H, 3, (), lambda z: z < -1.6 or 1.4 < z < 3.8)
     finish_common(S, H); return S, H
 
 
@@ -537,6 +591,7 @@ def kite():
     greeble_hull(S, H, 30, -6, 9, .3, 1.2, .3)
     collar(S, (0, H.pt(math.pi / 2, 2.0).y - .05, 2.0), (0, 1, 0), .9)
     S.anchor['eye'] = {'p': [0, 1.0, -5.5]}
+    ribs_and_conduits(S, H, 3, (), lambda z: z < -3.2 or 0.8 < z < 3.2)
     finish_common(S, H); return S, H
 
 
@@ -565,6 +620,7 @@ def hornet():
     greeble_hull(S, H, 40, -7, 11, .3, 1.3, .35)
     collar(S, (0, H.pt(math.pi / 2, 2.5).y - .05, 2.5), (0, 1, 0), 1.0)
     S.anchor['eye'] = {'p': [0, 1.25, -6.5]}
+    ribs_and_conduits(S, H, 4, (), lambda z: z < -4 or 1.2 < z < 3.8)
     finish_common(S, H); return S, H
 
 
@@ -610,6 +666,7 @@ def mule():
     dish(S, (2.4, 4.3, -6), 1.1, (0.3, 1, -.3))
     collar(S, (0, H.pt(math.pi / 2, 2).y - .1, 2), (0, 1, 0), 1.4)
     S.anchor['eye'] = {'p': [0, 4.4, -19.8]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -15.5 or 0 < z < 4)
     finish_common(S, H); return S, H
 
 
@@ -648,6 +705,7 @@ def packhorse():
     dish(S, (0, 6.8, -15.5), 1.3, (0, 1, .3))
     collar(S, (0, H.pt(math.pi / 2, -19).y - .1, -19.6), (0, 1, 0), 1.4)
     S.anchor['eye'] = {'p': [0, 6.4, -24.8]}
+    ribs_and_conduits(S, H, 0, (), lambda z: z < -16 or z > 23)
     finish_common(S, H); return S, H
 
 
@@ -691,6 +749,7 @@ def prospector():
     k.link((-3, 9.6, -12), (-3, 15, -12), .12, .07, SLATE_D); nav(S, (-3, 15.1, -12), WHITE, .25)
     collar(S, (0, H.pt(math.pi / 2, 4).y - .1, 4), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 11.0, -21.0]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -13 or 2 < z < 6)
     finish_common(S, H); return S, H
 
 
@@ -724,6 +783,7 @@ def lance():
     dish(S, (3.5, 9.4, 4), 1.6, (.3, 1, 0))
     collar(S, (0, H.pt(math.pi / 2, 30).y - .1, 30), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 9.6, -12.4]}
+    ribs_and_conduits(S, H, 0, (), lambda z: z < -14 or 28 < z < 32)
     finish_common(S, H); return S, H
 
 
@@ -767,6 +827,7 @@ def atlas():
     S.anchor['eye'] = {'p': [0, 14.6, -84.6]}
     finish_common(S, H)
     for z in range(-50, 66, 12): S.probes.append([0, 0, z, 9.0])
+    ribs_and_conduits(S, H2, 3, (1, -1))
     finish_common(S, H2); return S, H
 
 
@@ -798,6 +859,7 @@ def gull():
     window_row(S, H, -10, -3, .3, 1.0, .25, lit=.0)
     collar(S, (0, H.pt(math.pi / 2, 0).y - .05, -.5), (0, 1, 0), 1.2)
     S.anchor['eye'] = {'p': [0, 2.6, -14.2]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -9 or 3.5 < z < 8.5 or -2.5 < z < 1.5)
     finish_common(S, H); return S, H
 
 
@@ -869,6 +931,7 @@ def vigil():
     window_row(S, H, -54, -38, .2, 2.0, .45, lit=.05)
     collar(S, (0, H.pt(math.pi / 2, -40).y - .1, -40), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 9.0, -56.6]}
+    ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -50 or -42 < z < -38 or abs(z + 12) < 5 or abs(z - 14) < 5)
     finish_common(S, H); return S, H
 
 
@@ -909,6 +972,7 @@ def cinder():
     window_row(S, H, -50, 40, .25, 2.4, .35, lit=.0)
     collar(S, (0, H.pt(math.pi / 2, 42).y - .1, 42), (0, 1, 0), 1.8)
     S.anchor['eye'] = {'p': [0, 15.6, -9.2]}
+    ribs_and_conduits(S, H, 0, (1,), lambda z: -4 < z < 14 or 40 < z < 44 or abs(z + 36) < 4 or abs(z - 30) < 4)
     finish_common(S, H); return S, H
 
 
@@ -1058,6 +1122,15 @@ def build(ids):
         kits.append(S.k)
         xs = [v.co for v in S.k.bm.verts]
         mn = [min(v[a] for v in xs) for a in range(3)]; mx = [max(v[a] for v in xs) for a in range(3)]
+        # nothing may float: slide loose parts onto the hull, strut the ones too far out
+        from islands import weld
+        weld(S.k, tol=max(0.02, S.k.maxlen * 0.04), link=lambda a, b, r0, r1: S.k.link(a, b, r0, r1, SLATE_D))
+        from islands import audit
+        left = audit(S.k.bm, tol=max(0.02, S.k.maxlen * 0.04)); print(f'  {i}: {len(left)} parts not joined to the hull')
+        if i != 'ironwake':
+            # solid colliders from the finished model itself, so nothing on it can be flown, walked or drifted through
+            from voxcol import vox_boxes
+            S.obbs, vv = vox_boxes(S.k.bm); print('  colliders', len(S.obbs), 'voxel', round(vv, 2))
         data[i] = {'obbs': S.obbs, 'probes': [[round(x, 3) for x in p] for p in S.probes], 'nozzles': S.nozzles, 'lights': S.lights,
                    'anchor': S.anchor, 'min': mn, 'max': mx}
     return kits, data

@@ -92,12 +92,27 @@ export class Nav {
         x = cx + dx * k; y = cy + dy * k; ang = Math.atan2(dy, dx); cls += ' off';
       }
       if (cls !== m.cls) { m.el.className = 'mk ' + cls; m.cls = cls; }
-      m.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      m.x = x; m.y = y; m.vis = !hide; m.d = d;
       if (off) m.el.style.setProperty('--a', ang + 'rad');
       const [num, unit] = fmt(d);
       const txt = num + unit + (s.state === 'unstable' ? Math.ceil(s.timer) : '');
       if (txt !== m.last) { m.b.textContent = num; m.u.textContent = unit; m.em.textContent = s.state === 'unstable' ? Math.ceil(s.timer) : ''; m.last = txt; }
     }
+
+    // declutter: markers that would sit on each other (same bearing, or pinned to the same edge) stack up
+    // instead, nearest first, so every range stays readable
+    const vis = this.marks.filter((m) => m.vis).sort((a, b) => a.d - b.d), placed = [];
+    const BW = 78, BH = 34;
+    for (const m of vis) {
+      let { x, y } = m; const dir = y > h * 0.6 ? -1 : 1;
+      for (let k = 0; k < 12; k++) {
+        const o = placed.find((q) => Math.abs(q.x - x) < BW && Math.abs(q.y - y) < BH);
+        if (!o) break;
+        y = o.y + dir * BH;
+      }
+      m.x = x; m.y = y; placed.push(m);
+    }
+    for (const m of this.marks) if (m.x !== undefined) m.el.style.transform = `translate(${m.x.toFixed(1)}px,${m.y.toFixed(1)}px)`;
 
     // salvage brackets: nearest few within reach of the eye, in front of the camera
     camera.getWorldDirection(_f);

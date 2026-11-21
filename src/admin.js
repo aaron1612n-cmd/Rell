@@ -231,7 +231,7 @@ export class Admin {
           { t: 'h', text: 'Places' },
           ...sites.map((S) => ({ t: 'li', label: S.hidden ? S.id + ' (hidden)' : S.id, note: `${(S.pos.distanceTo(pos) / 1000).toFixed(2)} km`, btns: [['Go', () => this.warpSite(S)]] })),
           { t: 'h', text: 'Ships' },
-          ...fleet.ships.filter((S) => !S.sold).map((S) => ({ t: 'li', label: S.spec.name, note: `${S.spec.cls} · ${S.spec.len} m · ${(S.V.pos.distanceTo(pos) / 1000).toFixed(2)} km${S.owned ? ' · yours' : ''}`,
+          ...fleet.ships.filter((S) => !S.sold && !S.stowed).map((S) => ({ t: 'li', label: S.spec.name, note: `${S.spec.cls} · ${S.spec.len} m · ${(S.V.pos.distanceTo(pos) / 1000).toFixed(2)} km${S.owned ? ' · yours' : ''}`,
             btns: [['Go', () => this.warpShip(S)], ['Fetch', () => this.summon(S)], ['Board', () => this.board(S)]] })),
           { t: 'h', text: 'Bookmarks' },
           ...[0, 1, 2].map((i) => ({ t: 'li', label: `Mark ${i + 1}`, note: this.marks[i] ? this.marks[i].map((n) => n.toFixed(0)).join(', ') : 'empty',
@@ -351,7 +351,7 @@ export class Admin {
         { t: 'h', text: 'Fleet' },
         { t: 'grid', items: [
           this.btn('Find all ships', () => { for (const S of fleet.ships) S.found = true; fleet.saveAll(); this.say('All ships found'); }),
-          this.btn('Own all ships', () => { for (const S of fleet.ships) if (!S.sold) { S.found = true; S.owned = true; } fleet.saveAll(); this.say('Fleet is yours'); }),
+          this.btn('Own all ships', () => { for (const S of fleet.ships) if (!S.sold) { S.found = true; S.owned = true; if (S.stowed) fleet.deliver(S); } fleet.saveAll(); this.say('Fleet is yours'); }),
           this.btn('Fix + fuel fleet', () => { for (const S of fleet.ships) { S.V.hull = 1; S.V.fuel = 1; } fleet.saveAll(); }),
         ] },
       ];
