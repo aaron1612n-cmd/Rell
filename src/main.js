@@ -154,7 +154,7 @@ function autoCmd(cmd) {
   const ey = Math.atan2(l.x, -l.z), ex = Math.atan2(l.y, Math.hypot(l.x, l.z));
   const cl = (v, m) => Math.max(-m, Math.min(m, v)), w = ship.angVel, G = 0.0105;
   cmd.dx = (w.y + cl(ey * 2, 1.4)) / G; cmd.dy = (w.x - cl(ex * 2, 1.4)) / G;
-  const align = Math.abs(ey) < 0.3 && Math.abs(ex) < 0.3, vr = ship.vel.dot(d), vDes = Math.min(75, Math.max(dist > 3 ? 2.5 : 0, Math.sqrt(2 * 6 * Math.max(0, dist - 1.5))));
+  const align = Math.abs(ey) < 0.3 && Math.abs(ex) < 0.3, vr = ship.vel.dot(d), vDes = Math.min(75, 2 + dist * 0.5, Math.max(dist > 3 ? 2.5 : 0, Math.sqrt(2 * 6 * Math.max(0, dist - 1.5))));
   if (align && vr < vDes - 2) cmd.fwd = 1; else if (vr > vDes + 4) cmd.brake = true;
 }
 const settings = new Settings();
