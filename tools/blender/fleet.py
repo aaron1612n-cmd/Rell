@@ -206,21 +206,70 @@ def revolve(k, prof, c=(0, 0, 0), n=(0, 0, 1), segs=24, color=BONE, mat=HULL, cl
     k._finish(before, color, mat, wear)
     return faces
 
+COPPER, COPPER_D, CERAMIC = 0xb4733a, 0x7d4a28, 0x2a2521
+
 def bell(k, c, r_throat, r_exit, length, n=(0, 0, 1), segs=24, color=SLATE_D, glow=None):
-    """an engine bell: hollow double skin from the throat (at c) out to the exit (c + n*length)"""
+    """an engine bell: hollow double skin from the throat (at c) out to the exit (c + n*length), dressed as real
+    hardware: an ablative heat-shield skirt with a bolt ring, a gimbal ring with two actuators and trunnions, a
+    turbopump with its feed line and manifold, copper cooling tubes down the skin, a rolled exit lip,
+    stiffening rings inside, and an injector plate with injector cones behind the throat."""
+    c = Vector(c); n = tuple(n)
+    k.__dict__.setdefault('bells', []).append((tuple(c), r_throat, r_exit, length, tuple(n)))
     t = .05 * r_exit + .02
-    prof = []
-    for i in range(9):
-        u = i / 8; prof.append((u * length, r_throat + (r_exit - r_throat) * (u ** .7)))
+    rr = lambda u: r_throat + (r_exit - r_throat) * (u ** .7)
+    prof = [(u * length, rr(u)) for u in (i / 8 for i in range(9))]
     inner = [(z, r - t) for z, r in reversed(prof)]
     revolve(k, prof + inner, c, n, segs, color)
     # ribs round the outside
     for u in (.3, .62, .9):
-        z = u * length; r = r_throat + (r_exit - r_throat) * (u ** .7)
+        z = u * length; r = rr(u)
         # rib roots sink into the bell wall, so no face of the rib lies on the bell's skin
         revolve(k, [(z - .03 * length, r - t * .5), (z - .03 * length, r + .045 * r_exit + .01), (z + .03 * length, r + .045 * r_exit + .01), (z + .03 * length, r - t * .5)], c, n, segs, shade(color, 1.25))
     if glow is not None:
         revolve(k, [(.06 * length, 0), (.06 * length, r_throat * .98), (.08 * length, r_throat * .98), (.08 * length, 0)], c, n, segs, glow, mat=LAMP, closed=False)
+    # ---- hardware ----
+    M = Matrix.Translation(Vector(c)) @ rot_to(n).to_matrix().to_4x4()
+    P = lambda a, rad, z: M @ Vector((rad * math.cos(a), rad * math.sin(a), z))
+    L, rt, re = length, r_throat, r_exit
+    sg = max(6, int(10 * LOD['rev']))
+    # ablative heat-shield skirt (a hollow cone) with a ring of bolts on its rim
+    revolve(k, [(-.3 * L, rt * 2.15), (.05 * L, rt * 1.3), (.05 * L, rt * 1.12), (-.3 * L, rt * 2.0)], c, n, segs, CERAMIC, exact=False)
+    nb = 12 if re > .6 else 8
+    for j in range(nb):
+        a = 2 * math.pi * (j + .5) / nb
+        k.cyl(tuple(P(a, rt * 2.08, -.3 * L)), rt * .07, rt * .07, rt * .1, 'z', 6, SLATE_L, rot=rot_to(Vector(n)), wear=.04)
+    # gimbal ring + trunnion pins
+    ring_tube(k, c + Vector(n) * (.1 * L), rt * 1.38, rt * .075, n, max(12, int(segs * .8)), SLATE_L, 6)
+    for a in (0, math.pi):
+        k.link(tuple(P(a, rt * 1.2, .1 * L)), tuple(P(a, rt * 1.75, .1 * L)), rt * .08, rt * .08, BONE_D, 6)
+    # two actuators: barrel from the skirt, rod to the bell collar
+    for a in (math.pi / 2, math.pi):
+        base = P(a + .45, rt * 2.05, -.28 * L); mid = P(a + .3, rt * 1.8, -.02 * L); tip = P(a, rt * 1.42, .16 * L)
+        k.link(tuple(base), tuple(mid), rt * .13, rt * .12, BONE_D, 6); k.link(tuple(mid), tuple(tip), rt * .06, rt * .06, SLATE_L, 6)
+        k.cyl(tuple(base), rt * .17, rt * .17, rt * .18, 'z', 6, SLATE_D, rot=rot_to(Vector(n)), wear=.04)
+    # turbopump + feed line + manifold ring
+    ap = -.9
+    pc = P(ap, rt * 1.85, .0)
+    k.cyl(tuple(pc), rt * .34, rt * .34, rt * .62, 'z', 10, BONE_D, rot=rot_to(Vector(n)), wear=.06)
+    k.cyl(tuple(pc + Vector(M.to_3x3() @ Vector((0, 0, rt * .36)))), rt * .2, rt * .12, rt * .22, 'z', 8, SLATE_D, rot=rot_to(Vector(n)), wear=.04)
+    ring_tube(k, c + Vector(n) * (.22 * L), rr(.22) + t * .6, rt * .06, n, max(12, int(segs * .8)), COPPER, 6)
+    k.link(tuple(pc), tuple(P(ap, rr(.22) + t * .6, .22 * L)), rt * .07, rt * .07, COPPER, 6)
+    # cooling tubes: curved runs of copper tube down the outer skin, clear of the ribs
+    nt = max(8, min(18, int(re * 9)))
+    for j in range(nt):
+        a = 2 * math.pi * (j + .5) / nt
+        pts = [P(a, rr(u) + t * .55, u * L) for u in (.24, .46, .68, .88)]
+        for p0, p1 in zip(pts, pts[1:]):
+            k.link(tuple(p0), tuple(p1), re * .016 + .004, re * .016 + .004, COPPER_D if j % 2 else COPPER, 5, caps=False)
+    # rolled exit lip and inner stiffening rings
+    ring_tube(k, c + Vector(n) * L, re - t * .35, re * .03 + t * .35, n, max(14, int(segs * .9)), SLATE_L, 6)
+    for u in (.5, .78):
+        ring_tube(k, c + Vector(n) * (u * L), rr(u) - t * 1.1, t * .35, n, max(12, int(segs * .8)), RUST_D, 5)
+    # injector plate: a boss, a ring of injector cones and a central cone, just downstream of the throat
+    for j in range(8):
+        a = 2 * math.pi * j / 8 + .2
+        k.cyl(tuple(P(a, rt * .62, .1 * L)), rt * .1, rt * .06, rt * .2, 'z', 6, SLATE_L, rot=rot_to(Vector(n)), wear=.03)
+    k.cyl(tuple(P(0, 0, .12 * L)), rt * .3, rt * .05, rt * .3, 'z', 8, SLATE_L, rot=rot_to(Vector(n)), wear=.03)
 
 def cap_tank(k, c, r, length, n=(0, 0, 1), color=BONE, bands=3, band=SLATE, segs=24):
     """a pressure tank: cylinder with elliptical domes, banded"""
@@ -548,6 +597,61 @@ ROOMS = [((29.65, -16.35, -470.35), (75.35, 16.35, -409.65)),      # bay (with i
 DESIGNS = {}
 def design(fn): DESIGNS[fn.__name__] = fn; return fn
 
+def stern(S, H, tiles=True, spokes=True):
+    """dress the aft end of the hull: a rolled rim frame, heat-shield tiles on the aft face between the bells,
+    spars from every main bell out to the rim, coolant vents, RCS quads and a docking lug. Works from the bells
+    the design already placed (recorded by bell())."""
+    k = S.k; z1 = H.z1; w, h, nn, yc = H.at(z1)
+    sz = min(w, h)
+    bells = [b for b in getattr(k, 'bells', []) if b[4][2] > .9 and b[0][2] > z1 - max(1.5, sz * .5)]
+    if not bells: return
+    rim = max(.03, sz * .028)
+    ts = [2 * math.pi * j / H.segs for j in range(H.segs)]
+    pts = [H.pt(t, z1 + .01) for t in ts]
+    step = 2 if H.segs >= 36 else 1
+    ring = pts[::step]
+    for a, b in zip(ring, ring[1:] + ring[:1]):
+        k.link(tuple(a), tuple(b), rim, rim, SLATE_L, 6, caps=False)
+    # heat-shield tiles on the aft face, kept clear of the bells' skirts
+    if tiles:
+        ts_ = max(.12, sz / 6.5); nx = int(w * 2 / ts_); ny = int(h * 2 / ts_)
+        cnt = 0
+        for i in range(nx):
+            for j in range(ny):
+                x = -w + (i + .5) * ts_; y = yc - h + (j + .5) * ts_
+                if ((x / (w * .9)) ** 2 + ((y - yc) / (h * .9)) ** 2) > 1: continue
+                if any(math.hypot(x - b[0][0], y - b[0][1]) < b[2] * 1.75 + ts_ * .5 for b in bells): continue
+                v = 0.8 + 0.4 * ((i * 7 + j * 13) % 5) / 4
+                k.box((x, y, z1 + .012), (ts_ * .86, ts_ * .86, .02 + sz * .004), shade(CERAMIC, v), bevel=ts_ * .05, wear=.2)
+                cnt += 1
+                if cnt > 90: break
+            if cnt > 90: break
+    # spars: from the skirt of every main bell to the rim
+    if spokes:
+        for b in bells:
+            c = Vector(b[0]); rt = b[1]
+            for a in (0, 1, 2, 3):
+                ang = a * math.pi / 2 + math.pi / 4
+                p0 = c + Vector((math.cos(ang) * rt * 2.1, math.sin(ang) * rt * 2.1, -b[3] * .26))
+                p1 = H.pt(math.atan2(p0.y - yc, p0.x) if abs(p0.x) > 1e-3 else math.pi / 2, z1 - .02)
+                p1 = Vector((p1.x, p1.y, z1 + .01)); p0 = Vector((p0.x, p0.y, z1 + .01))
+                if (p1 - p0).length > rt * .5 and (p1 - p0).length < sz * 2.5:
+                    k.link(tuple(p0), tuple(p1), rim * .8, rim * .65, BONE_D, 6)
+    # corner vents / dump valves, RCS quads and aft nav lamps on the rim
+    for ti in (.2, .8, 1.3, 1.7):
+        a = math.pi * ti
+        p = H.pt(a, z1 - .1); nrm = H.normal(a, z1 - .1)
+        k.cyl(tuple(p + nrm * sz * .04), sz * .05, sz * .035, sz * .1, 'z', 8, SLATE_D, rot=skin_rot(nrm), wear=.04)
+    for a in (math.pi * .25, math.pi * .75, math.pi * 1.25, math.pi * 1.75):
+        p = H.pt(a, z1 - max(.3, sz * .18)); rcs_quad(S, p, H.normal(a, z1 - max(.3, sz * .18)), max(.12, sz * .06))
+    for sd in (-1, 1):
+        p = H.pt(0 if sd > 0 else math.pi, z1 - .02)
+        k.lamp(tuple(p + Vector((0, 0, .03))), (rim * 3, rim * 3, rim * 1.2), 0xff3b2a if sd < 0 else 0x3bff7a)
+    # docking lug / tow eye above the bells, with a stencilled hazard band
+    top = H.pt(math.pi / 2, z1 - .02)
+    k.link(tuple(top), tuple(top + Vector((0, sz * .1, sz * .07))), rim * 1.3, rim * 1.1, HAZ, 6)
+    k.cyl(tuple(top + Vector((0, sz * .1, sz * .07))), rim * 2.6, rim * 2.6, rim * 1.2, 'z', 10, SLATE_L, wear=.04)
+
 def finish_common(S, H, zs_probe=None):
     """hull colliders as boxes along its length, plus probe spheres for ship-vs-world contacts"""
     z = H.z0; L = H.z1 - H.z0; n = max(4, int(L / max(1.0, max(H.at((H.z0 + H.z1) / 2)[0], H.at((H.z0 + H.z1) / 2)[1]) * 1.6)))
@@ -588,7 +692,7 @@ def wren():
     k.link((0, 1.3, 4.6), (0, 2.4, 5.2), .03, .02, SLATE_D); nav(S, (0, 2.42, 5.22), WHITE, .08)
     S.anchor['eye'] = {'p': [0, 1.15, -3.6]}
     ribs_and_conduits(S, H, 3, (), lambda z: z < -1.6 or 1.4 < z < 3.8)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 2. Kite: fast courier (yard) -----------------------------------------------------------------
@@ -613,7 +717,7 @@ def kite():
     collar(S, (0, H.pt(math.pi / 2, 2.0).y - .05, 2.0), (0, 1, 0), .9)
     S.anchor['eye'] = {'p': [0, 1.0, -5.5]}
     ribs_and_conduits(S, H, 3, (), lambda z: z < -3.2 or 0.8 < z < 3.2)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 3. Hornet: interceptor (yard) ------------------------------------------------------------------
@@ -642,7 +746,7 @@ def hornet():
     collar(S, (0, H.pt(math.pi / 2, 2.5).y - .05, 2.5), (0, 1, 0), 1.0)
     S.anchor['eye'] = {'p': [0, 1.25, -6.5]}
     ribs_and_conduits(S, H, 4, (), lambda z: z < -4 or 1.2 < z < 3.8)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 4. Mule: deep-space tug (yard) ---------------------------------------------------------------
@@ -688,7 +792,7 @@ def mule():
     collar(S, (0, H.pt(math.pi / 2, 2).y - .1, 2), (0, 1, 0), 1.4)
     S.anchor['eye'] = {'p': [0, 4.4, -19.8]}
     ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -15.5 or 0 < z < 4)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 5. Packhorse: light freighter (yard) ------------------------------------------------------------
@@ -727,7 +831,7 @@ def packhorse():
     collar(S, (0, H.pt(math.pi / 2, -19).y - .1, -19.6), (0, 1, 0), 1.4)
     S.anchor['eye'] = {'p': [0, 6.4, -24.8]}
     ribs_and_conduits(S, H, 0, (), lambda z: z < -16 or z > 23)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 6. Prospector: mining ship (yard) ---------------------------------------------------------------
@@ -771,7 +875,7 @@ def prospector():
     collar(S, (0, H.pt(math.pi / 2, 4).y - .1, 4), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 11.0, -21.0]}
     ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -13 or 2 < z < 6)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 7. Lance: corvette (yard) --------------------------------------------------------------------------
@@ -805,7 +909,7 @@ def lance():
     collar(S, (0, H.pt(math.pi / 2, 30).y - .1, 30), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 9.6, -12.4]}
     ribs_and_conduits(S, H, 0, (), lambda z: z < -14 or 28 < z < 32)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 8. Atlas: bulk hauler (yard) ---------------------------------------------------------------------------
@@ -849,7 +953,7 @@ def atlas():
     finish_common(S, H)
     for z in range(-50, 66, 12): S.probes.append([0, 0, z, 9.0])
     ribs_and_conduits(S, H2, 3, (1, -1))
-    finish_common(S, H2); return S, H
+    stern(S, H2); finish_common(S, H2); return S, H
 
 
 # ---- 9. Old Gull: ancient survey craft (derelict) ---------------------------------------------------------
@@ -881,7 +985,7 @@ def gull():
     collar(S, (0, H.pt(math.pi / 2, 0).y - .05, -.5), (0, 1, 0), 1.2)
     S.anchor['eye'] = {'p': [0, 2.6, -14.2]}
     ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -9 or 3.5 < z < 8.5 or -2.5 < z < 1.5)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 10. Sable: stealth runner (derelict) ---------------------------------------------------------------
@@ -909,7 +1013,7 @@ def sable():
     greeble_hull(S, H, 20, -10, 18, .3, 1.0, .4)
     collar(S, (0, H.pt(math.pi / 2, 4).y - .05, 4), (0, 1, 0), 1.1)
     S.anchor['eye'] = {'p': [0, 2.3, -9.6]}
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 11. Vigil: research vessel (derelict) ---------------------------------------------------------------
@@ -953,7 +1057,7 @@ def vigil():
     collar(S, (0, H.pt(math.pi / 2, -40).y - .1, -40), (0, 1, 0), 1.6)
     S.anchor['eye'] = {'p': [0, 9.0, -56.6]}
     ribs_and_conduits(S, H, 0, (1, -1), lambda z: z < -50 or -42 < z < -38 or abs(z + 12) < 5 or abs(z - 14) < 5)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 12. Cinder: burned-out frigate (derelict) --------------------------------------------------------------
@@ -994,7 +1098,7 @@ def cinder():
     collar(S, (0, H.pt(math.pi / 2, 42).y - .1, 42), (0, 1, 0), 1.8)
     S.anchor['eye'] = {'p': [0, 15.6, -9.2]}
     ribs_and_conduits(S, H, 0, (1,), lambda z: -4 < z < 14 or 40 < z < 44 or abs(z + 36) < 4 or abs(z - 30) < 4)
-    finish_common(S, H); return S, H
+    stern(S, H); finish_common(S, H); return S, H
 
 
 # ---- 13. Ironwake: 1.1 km derelict ore carrier, walkable ---------------------------------------------------
@@ -1099,6 +1203,7 @@ def ironwake():
         for sd in (-1, 1):
             hh = H if z < 0 else D
             rcs_quad(S, hh.pt(math.pi / 2 - sd * .8, z), hh.normal(math.pi / 2 - sd * .8, z), 5)
+    stern(S, D)
     return S, H
 
 

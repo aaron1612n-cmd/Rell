@@ -5,6 +5,7 @@ import { NAV_ICONS } from './nav.js';
 import { buildIronwake, HELM, BAY_DOCK } from './ironwake.js';
 import { addHullDetail } from './hullDetail.js';
 import { mats } from './assets.js';
+import { Exhaust } from './exhaust.js';
 
 // Every other ship in the yard: thirteen hulls you can buy at the shipyard by the depot or find adrift,
 // all of them flyable. Each is a world Site (so the jet, debris and the suit collide with it) whose group is
@@ -184,21 +185,19 @@ export class Fleet {
   // ---- engines: a hot glow in every bell and a plume cone that grows with thrust ----
   buildFx() {
     const tex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.3, 'rgba(255,255,255,.4)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
-    const cone = new THREE.ConeGeometry(1, 1, 18, 1, true); cone.translate(0, -0.5, 0); cone.rotateX(-Math.PI / 2);   // apex at 0, opening toward +z... flipped below
-    const plumeMat = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false,
-      uniforms: { uP: { value: 0 }, uB: { value: 0 } },
-      vertexShader: 'varying float vZ; varying vec3 vN, vV; void main(){ vZ = clamp(-position.z, 0., 1.); vec4 w = modelMatrix * vec4(position,1.); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }',
-      fragmentShader: 'uniform float uP, uB; varying float vZ; varying vec3 vN, vV; void main(){ float f = abs(dot(vN, vV)); f = f * f; float a = (1. - vZ) * (1. - vZ) * f * uP; vec3 c = mix(vec3(1.4,.55,.22), vec3(1.3,1.1,1.6), (1. - vZ) * (.3 + .5 * uB)); gl_FragColor = vec4(c * a * 1.3, 1.); }',
-    });
+    // each main engine gets the same ray-marched jet as the player's ship (src/exhaust.js), tinted per drive and
+    // scaled to its bell, plus a hot sprite in the bell mouth. One light for whichever ship is under way.
+    const tint = (d = '') => /fusion|torch/i.test(d) ? [0.8, 0.95, 1.45] : /fission|nuclear/i.test(d) ? [1.2, 0.8, 0.6] : /methalox|fuel/i.test(d) ? [1.1, 0.95, 0.8] : [1, 0.9, 0.75];
     for (const S of this.ships) {
+      const tn = tint(S.spec?.drive);
       for (const n of S.d.nozzles) {
         const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: new THREE.Color(1.6, 0.7, 0.3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, opacity: 0 }));
         sp.position.set(...n.p); sp.scale.setScalar(n.r * 2.6); sp.visible = false; S.site.group.add(sp);
-        const pm = new THREE.Mesh(cone, plumeMat.clone()); pm.position.set(n.p[0], n.p[1], n.p[2] - n.r * 0.3); pm.rotation.y = Math.PI; pm.visible = false; S.site.group.add(pm);
-        S.glows.push({ sp, pm, r: n.r });
+        const ex = new Exhaust({ coarse: this.coarse }); ex.position.set(n.p[0], n.p[1], n.p[2]); ex.tint(...tn); S.site.group.add(ex);
+        S.glows.push({ sp, ex, r: n.r, p: n.p, pw: 0, ign: 0, bs: 0, on: false, ph: Math.random() * 6 });
       }
     }
+    this.jetLight = new THREE.PointLight(0xff7a30, 0, 120, 1.6); this.scene.add(this.jetLight);
   }
 
   // ---- DOM: helm readout, dock prompt, the registry ----
@@ -427,12 +426,27 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       if (this.helm === S) { const n = Math.max(1, Math.ceil(dt / (1 / 60))); for (let i = 0; i < n; i++) { V.step(dt / n, i ? { ...cmd, dx: 0, dy: 0 } : cmd); this.collide(S, dt / n); } this.place(S, dt); }
       else if (moving) { V.idle(dt); this.collide(S, dt); this.place(S, dt); if (V.vel.lengthSq() < 1e-4 && V.w.lengthSq() < 1e-8) { V.vel.set(0, 0, 0); V.w.set(0, 0, 0); this.place(S, 0); } }
       // engine glow
-      const k = this.helm === S ? Math.max(V.hull > 0.02 && V.fuel > 0 ? 0.14 : 0, V.fx.main) : 0;   // pilot lights idle while someone's at the helm
+      const fo = this.fxForce;   // debug/screenshots: { k, boost } lights every engine regardless of the helm
+      const k = fo ? fo.k : this.helm === S ? Math.max(V.hull > 0.02 && V.fuel > 0 ? 0.14 : 0, V.fx.main) : 0;   // pilot lights idle while someone's at the helm
+      let lit = 0;
       for (const g of S.glows) {
-        const on = k > 0.02; g.sp.visible = g.pm.visible = on; if (!on) continue;
-        const fl = 0.9 + 0.1 * Math.sin(time * 41 + g.r) * Math.sin(time * 13);
-        g.sp.material.opacity = Math.min(1, k * 1.2) * fl; g.sp.scale.setScalar(g.r * (2.2 + 1.2 * k));
-        g.pm.scale.set(g.r * 0.85, g.r * 0.85, g.r * (2 + 7 * k * (V.fx.boost ? 1.5 : 1)) * fl); g.pm.material.uniforms.uP.value = k * fl; g.pm.material.uniforms.uB.value = V.fx.boost ? 1 : 0;
+        // throttle response: the jet spools up quickly and bleeds away slowly; a cold start flares and sputters
+        const tgt = k > 0.02 ? k : 0, up = tgt > g.pw;
+        g.pw += (tgt - g.pw) * Math.min(1, dt * (up ? 7 : 2.2));
+        if (tgt > 0.02 && !g.on) g.ign = 1;
+        g.on = tgt > 0.02; g.ign = Math.max(0, g.ign - dt * 1.6);
+        const bt = fo ? (fo.boost ? 1 : 0) : V.fx.boost ? 1 : 0; g.bs += (bt - g.bs) * Math.min(1, dt * 6);
+        const vis = g.pw > 0.02; g.sp.visible = g.ex.visible = vis; if (!vis) continue;
+        const fl = 0.92 + 0.08 * Math.sin(time * 47 + g.ph) * Math.sin(time * 13.7 + g.ph * 2) + 0.03 * Math.sin(time * 91 + g.ph);
+        g.ex.tick(time + g.ph); g.ex.ignite(g.ign);
+        const len = g.r * (3 + 11 * g.pw + 8 * g.bs * g.pw) * fl;
+        g.ex.set(g.pw * (0.75 + 0.35 * g.bs) * fl, len, g.r * (0.8 + 0.12 * g.bs), g.bs);
+        g.sp.material.opacity = Math.min(1, g.pw * 1.2 + g.ign * 0.6) * fl; g.sp.scale.setScalar(g.r * (2.2 + 1.2 * g.pw + g.ign * 1.2));
+        lit = Math.max(lit, g.pw * (1 + g.bs * 0.6) * fl);
+      }
+      if (this.helm === S && S.glows.length) {
+        const g0 = S.glows[0]; this.toWorld(S, _v.set(g0.p[0], g0.p[1], g0.p[2] + g0.r * 3), this.jetLight.position);
+        this.jetLight.intensity = lit * 6 * Math.pow(Math.max(S.R, 4) / 4, 1.6) * (S.glows.length > 3 ? 0.6 : 1); this.jetLight.distance = Math.max(30, S.R * 4);
       }
       // finding: get close enough to make it out
       if (!S.found && ship.pos.distanceTo(V.pos) < Math.max(450, S.spec.len * 1.6)) this.discover(S);

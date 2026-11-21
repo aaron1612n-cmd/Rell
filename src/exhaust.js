@@ -22,7 +22,8 @@ void main(){
 }`;
 
 const FS = `
-uniform float uTime, uPower, uBoost, uLen, uRad, uR0, uSeed;
+uniform float uTime, uPower, uBoost, uLen, uRad, uR0, uSeed, uIgn;
+uniform vec3 uTint;
 varying vec3 vPos; varying vec3 vCam;
 
 float h3(vec3 p){ p = fract(p * vec3(.1031, .1030, .0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }
@@ -70,6 +71,11 @@ void main(){
     vec3 p = ro + rd * (t0 + (float(i) + jit) * dt);
     float v = clamp(p.z / max(uLen, 1e-3), 0., 1.);
     float r = length(p.xy);
+    // ignition: the jet sputters out in surges, each one a ragged lump of hot gas that races downstream
+    if (uIgn > .01) {
+      float surge = uIgn * (.5 + .5 * sin(p.z * 5. / max(uR0, .1) - uTime * 38.)) * n3(vec3(p.xy * 2., uTime * 7.) + uSeed);
+      v = clamp(v + surge * .35, 0., 1.);
+    }
     // jet radius: leaves the nozzle at R0, swells (underexpanded in vacuum), ragged by turbulence
     float R = uR0 * (1. + v * (1.7 + .5 * uBoost) + .35 * sqrt(v));
     vec3 q = vec3(p.xy / max(uR0, 1e-3) * .8, p.z * .85 - flow * .55) + uSeed;
@@ -89,11 +95,21 @@ void main(){
     // emission: temperature from core + proximity to the nozzle, density from mantle + core
     float T = core * 1.25 + mantle * (1. - v) * .55 + (1. - smoothstep(0., .18, v)) * mantle * .5;
     float d = mantle * .9 + core * 2.4;
-    vec3 e = heat(T, uBoost) * d;
+    // cool fringe: a violet-blue sheath hugging the edge where the gas thins out, red at the very ragged rim
+    float fr = smoothstep(.45, 1., r / max(edge, 1e-3)) * (1. - smoothstep(.9, 1.5, r / max(edge, 1e-3)));
+    float sheath = fr * (1. - v) * (.35 + .65 * n) * pow(1. - v, 1.2) * 1.4;
+    // faint streaky shimmer: stretched noise standing in for the heat-hazed air round the jet
+    float haze = 0.;
+#if HAZE
+    haze = (1. - smoothstep(R * 1.1, R * 2.4, r)) * smoothstep(R * .4, R * 1.1, r) * n3(vec3(p.xy * 3. / max(uR0, .1), p.z * .25 / max(uR0, .1) - flow * .3) + uSeed) * (1. - v * .6) * .22;
+#endif
+    vec3 e = heat(T, uBoost) * d + mix(vec3(.5, .22, .9), vec3(.25, .55, 1.4), uBoost) * (sheath + haze * .6) + vec3(1.1, .5, .2) * haze * .5
+           + vec3(2.4, 2., 1.5) * uIgn * (1. - smoothstep(0., .22, v)) * (1. - smoothstep(0., uR0 * 1.8, r));
+    d += sheath * .5 + haze * .3;
     col += e * exp(-tau) * dt;
     tau += d * dt * .55;                                     // self-shadowing: far side of a dense jet dims
   }
-  col *= uPower * (3.0 / max(uRad, .2));
+  col *= uTint * uPower * (3.0 / max(uRad, .2));
   col = clamp(col, 0., 8.);
   float lum = dot(col, vec3(.3, .5, .2));
   gl_FragColor = vec4(col, clamp(lum, 0., 1.));
@@ -107,10 +123,10 @@ const cylGeo = (() => {
 
 export class Exhaust extends THREE.Mesh {
   constructor({ coarse = false } = {}) {
-    const u = { uTime: { value: 0 }, uPower: { value: 0 }, uBoost: { value: 0 }, uLen: { value: 1 }, uRad: { value: 0.5 }, uR0: { value: 0.22 }, uSeed: { value: Math.random() * 20 } };
+    const u = { uTime: { value: 0 }, uPower: { value: 0 }, uBoost: { value: 0 }, uLen: { value: 1 }, uRad: { value: 0.5 }, uR0: { value: 0.22 }, uSeed: { value: Math.random() * 20 }, uIgn: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) } };
     super(cylGeo, new THREE.ShaderMaterial({
       uniforms: u, vertexShader: VS, fragmentShader: FS,
-      defines: { STEPS: coarse ? 18 : 28, OCT: coarse ? 2 : 3 },
+      defines: { STEPS: coarse ? 18 : 28, OCT: coarse ? 2 : 3, HAZE: coarse ? 0 : 1 },
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
     }));
     this.u = u; this.frustumCulled = false; this.renderOrder = 5; this.visible = false;
@@ -123,4 +139,7 @@ export class Exhaust extends THREE.Mesh {
     u.uRad.value = r0 * (1 + 1.7 + 0.5 * boost + 0.35) * 1.3;   // bounds of the swollen, ragged jet
   }
   tick(t) { this.u.uTime.value = t; }
+  // 0..1 ignition flare (decays in the caller); tint rescales the colour of the fire per drive type
+  ignite(v) { this.u.uIgn.value = v; }
+  tint(r, g, b) { this.u.uTint.value.set(r, g, b); }
 }
