@@ -56,3 +56,4 @@ for (const id of ids) {
 }
 console.log('through:', bad);
 await b.close();
+process.exit(bad ? 1 : 0);

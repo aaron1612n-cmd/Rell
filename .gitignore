@@ -7,3 +7,4 @@ dist-worker.mjs
 __pycache__
 *.whl
 tools/blender/.parts/
+checks/
