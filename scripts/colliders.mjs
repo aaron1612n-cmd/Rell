@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import fs from 'node:fs';
 await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
-const CELL = 3, PAD = 0.35, MINH = 0.7, COVER = 1.0;
+const CELL = 3, PAD = 0.35, MINH = 0.7, COVER = +(process.env.COVER || 1.0);
 const SKIP = /^lamps|^catch_lights|^beacon/;
 const out = {};
 
