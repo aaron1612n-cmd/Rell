@@ -7,7 +7,7 @@ Run:  /tmp/bv/bin/python tools/blender/fleet.py [id ...]   then  node tools/opti
 Hulls are lofts through superellipse rings, wings and fins are airfoil lofts, engines and tanks are
 revolved solids (double skinned, so bells are hollow), livery is painted per face, AO is baked.
 """
-import sys, os, json, math, random
+import sys, os, json, math, random, time
 sys.path.insert(0, os.path.dirname(__file__))
 from kit import *
 import bmesh
@@ -1150,10 +1150,19 @@ def build(ids):
         xs = [v.co for v in S.k.bm.verts]; zfix(S.k.bm, scale=(max(v.z for v in xs) - min(v.z for v in xs)) / 100)
         from islands import audit
         left = audit(S.k.bm, tol=max(0.02, S.k.maxlen * 0.04)); print(f'  {i}: {len(left)} parts not joined to the hull')
-        if i != 'ironwake':
-            # solid colliders from the finished model itself, so nothing on it can be flown, walked or drifted through
-            from voxcol import vox_boxes
-            S.obbs, vv = vox_boxes(S.k.bm); print('  colliders', len(S.obbs), 'voxel', round(vv, 2))
+        # solid colliders from the finished model itself, so nothing on it can be flown, walked or drifted through
+        from voxcol import vox_boxes
+        t0 = time.time()
+        if i == 'ironwake':
+            # the decks are walkable (their walls collide on their own, src/ironwake.js); the bay mouth stays open
+            keep = ROOMS + [((75.0, -16.35, -470.35), (100.0, 16.35, -409.65))]
+            def carve(c, v):
+                e = v * .5
+                return any(r[0][0] - e < c.x < r[1][0] + e and r[0][1] - e < c.y < r[1][1] + e and r[0][2] - e < c.z < r[1][2] + e for r in keep)
+            S.obbs, vv = vox_boxes(S.k.bm, v=3.2, carve=carve)
+        else:
+            S.obbs, vv = vox_boxes(S.k.bm)
+        print('  colliders', len(S.obbs), 'voxel', round(vv, 2), round(time.time() - t0, 1), 's')
         data[i] = {'obbs': S.obbs, 'probes': [[round(x, 3) for x in p] for p in S.probes], 'nozzles': S.nozzles, 'lights': S.lights,
                    'anchor': S.anchor, 'min': mn, 'max': mx}
     return kits, data

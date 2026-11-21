@@ -26,14 +26,14 @@ for (const id of ids) {
       const dir = new T.Vector3(...d).normalize(), e = Math.abs(ext.x * dir.x) + Math.abs(ext.y * dir.y) + Math.abs(ext.z * dir.z);
       // aim at the centre, or for the Ironwake (a hollow-ish carrier) at its command section
       const aim = id === 'ironwake' ? new T.Vector3(0, 0, -450) : c;
-      const start = aim.clone().addScaledVector(dir, ext.length() + 14), wd = dir.clone().negate().applyQuaternion(S.site.group.quaternion);
+      const start = aim.clone().addScaledVector(dir, ext.length() + aim.distanceTo(c) + 14), wd = dir.clone().negate().applyQuaternion(S.site.group.quaternion);
       const verdict = (wp) => { const l = L(wp).sub(aim); const along = -l.dot(dir); return along > (id === 'ironwake' ? 160 : e * 0.9) ? 'X' : '.'; };
       let out = '';
       // jet, through the real loop
       const ship = g.ship; ship.pos.copy(W(start)); ship.angVel.set(0, 0, 0); g.world.dirty = true; g.world.refreshActive(ship.pos, true);
       const t0 = performance.now();
       while (performance.now() - t0 < (id === 'ironwake' ? 9000 : 3500)) { ship.vel.copy(wd).multiplyScalar(id === 'ironwake' ? 60 : 18); await new Promise((r) => requestAnimationFrame(r)); if (F.dock) F.release(false); if (verdict(ship.pos) === 'X') break; }
-      out += verdict(ship.pos);
+      { const l = L(ship.pos).sub(aim), lat = l.clone().addScaledVector(dir, -l.dot(dir)).length(); out += verdict(ship.pos) === 'X' && lat < 8 ? 'X' : '.'; }  // slid round the outside is fine
       // suit-sized and debris-sized spheres through collideStatic
       for (const [rad, sp] of [[0.35, 6], [1.0, 14]]) {
         const body = { pos: W(start), vel: wd.clone().multiplyScalar(sp), radius: rad };

@@ -125,7 +125,7 @@ export class Fleet {
       { const a = spec.cat === 'yard' ? BERTH[spec.id] : ADRIFT[spec.id]; home.set(...a.pos); homeQ.setFromEuler(_e.set(...a.euler, 'YXZ')); }
       const site = new Site(world, { id: 'ship-' + spec.id, kind: 'ship', pos: home.toArray(), radius: Math.max(40, R) });
       site.group.quaternion.copy(homeQ); site.group.updateMatrixWorld(true);
-      node.removeFromParent(); node.position.set(0, 0, 0); node.updateMatrix();
+      node.removeFromParent(); node.updateMatrix();
       // the .glb is quantized: the node keeps its dequantize offset/scale, so keep that on a child
       const holder = new THREE.Group(); holder.name = spec.id + '-holder'; site.group.add(holder);
       const src = node; holder.add(src);
