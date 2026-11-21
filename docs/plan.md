@@ -1,5 +1,12 @@
 # Low Orbit: next stage plan
 
+## Status (2026-11-18)
+Done: art pipeline, ship/station/debris models, engines, impact scan, cockpit view, and now the world + salvage loop:
+five sites, tow line, weld tearing, reactor cores that make their wreck collapse (chunk 4 break-up, kinematic version),
+depot catch + credits, upgrades while docked, wordless tutorial (chunks 5, 6 and the menu part of 9 via the help card).
+Next: EVA (leave the cockpit, jetpack; salvage bodies and ropes already take any `{pos, vel, towMass}` puller),
+audio (7), perf pass (8), contracts/events that refill wrecks over time.
+
 ## Where we are
 Flight, chase cam, collisions, 90 drifting debris, keyboard/mouse/touch input and the identity (docs/identity.md) are done and feel good. What holds it back is how it looks and that there is nothing to *do*. Everything in `world.js` is boxes with a canvas panel texture, and the station is a static set of OBB colliders.
 
