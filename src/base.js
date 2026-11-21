@@ -1,3 +1,4 @@
+import baseGaps from './assets/baseGaps.json';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mats } from './assets.js';
@@ -444,6 +445,7 @@ export function buildBase(site, { Part }) {
   // ---- colliders ----
   site.group.updateMatrixWorld(true);
   const node = new THREE.Group(); node.name = 'base-col'; site.group.add(node);
+  for (const o of baseGaps) B.obbs.push({ c: o.c, q: [0, 0, 0, 1], h: o.h });   // gap fillers traced from the hull (scripts/basegaps.mjs)
   const part = new Part(site, 'base', node, B.obbs); part.sync(0);
   site.parts.push(part); site.byName.base = part;
   for (const d of Object.values(doors)) {

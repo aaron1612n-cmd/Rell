@@ -22,7 +22,7 @@ const res = await p.evaluate(([N]) => {
   for (const s of w.sites) {
     if (s.kind === 'field' || !s.group) continue;
     s.group.updateMatrixWorld(true);
-    const meshes = []; s.group.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.visible && o.geometry.attributes.position.count > 30 && !/lamp|light|beacon|glow|holo|float|canopy|plume|exhaust/i.test(o.name) && !(o.material && (o.material.transparent || o.material.blending === 2))) meshes.push(o); });
+    const meshes = []; s.group.traverse((o) => { let vis = true; for (let q = o; q && q !== s.group.parent; q = q.parent) if (q.visible === false) vis = false; if (vis && o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.visible && o.geometry.attributes.position.count > 30 && !/lamp|light|beacon|glow|holo|float|canopy|plume|exhaust/i.test(o.name) && !(o.material && (o.material.transparent || o.material.blending === 2))) meshes.push(o); });
     if (!meshes.length) continue;
     const cum = []; let tot = 0; for (const m of meshes) { tot += m.geometry.attributes.position.count; cum.push(tot); }
     const id = s.id || s.kind; let tested = 0; const miss = { suit: 0, jet: 0, deep: 0 }, where = {};

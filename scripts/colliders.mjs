@@ -12,7 +12,8 @@ await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
 const CELL = 3, PAD = 0.35, MINH = 0.7, COVER = +(process.env.COVER || 1.0);
 const SKIP = /^lamps|^catch_lights|^beacon/;
-const out = {};
+const ONLY = (process.env.ONLY || '').split(',').filter(Boolean);
+const out = ONLY.length ? JSON.parse(fs.readFileSync('src/assets/colliders.json')) : {};   // ONLY=freighter regenerates just that model
 
 function samples(prim, M, push) {
   const pa = prim.getAttribute('POSITION'), idx = prim.getIndices();
@@ -53,6 +54,7 @@ function boxes(pts) {
 }
 
 for (const f of ['station', 'depot', 'freighter']) {
+  if (ONLY.length && !ONLY.includes(f)) continue;
   const doc = await io.read(`src/assets/${f}.glb`);
   const data = JSON.parse(fs.readFileSync(`src/assets/${f}.json`));
   const nodes = doc.getRoot().listNodes();
