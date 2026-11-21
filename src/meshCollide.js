@@ -131,7 +131,8 @@ export class MeshCollide {
     for (const s of this.world.sites) {
       if (!s.active || (this.only && !this.only.has(s.kind))) continue;
       for (const e of this.meshes(s)) {
-        const o = e.o; if (!o.visible || (o.parent && !o.parent.visible)) continue;
+        const o = e.o; let hid = false; for (let q = o; q; q = q.parent) if (q.visible === false) { hid = true; break; }
+        if (hid) continue;   // hidden anywhere up the chain (Ilse's tool tray under a hidden group used to stay solid)
         const bs = o.geometry.boundingSphere, M = o.matrixWorld;
         if (e.frame !== frame) { e.frame = frame; e.s = M.getMaxScaleOnAxis(); e.inv.copy(M).invert(); e.cw = (e.cw || new THREE.Vector3()).copy(bs.center).applyMatrix4(M); }
         const R = bs.radius * e.s + r; if (c.distanceToSquared(e.cw) > R * R) continue;
