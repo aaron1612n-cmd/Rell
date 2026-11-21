@@ -9,7 +9,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "bash scripts/deploy.sh",
-    "assets": "for f in ship station debris cockpit depot freighter salvage astronaut; do python tools/blender/$f.py; done && node tools/optimize.mjs"
+    "assets": "for f in ship station debris cockpit depot freighter salvage astronaut; do python tools/blender/$f.py; done && node tools/optimize.mjs",
+    "check": "node scripts/check/run.mjs",
+    "check:zfight": "node scripts/check/zfight.mjs",
+    "check:sheet": "node scripts/check/turntable.mjs"
   },
   "repository": {
     "type": "git",

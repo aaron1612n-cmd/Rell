@@ -42,3 +42,4 @@ const res = await p.evaluate(() => {
 });
 console.log(JSON.stringify(res, null, 1));
 await b.close();
+const clips = Object.values(res).reduce((a, r) => a + r.clips, 0); console.log('clips:', clips); process.exit(clips ? 1 : 0);

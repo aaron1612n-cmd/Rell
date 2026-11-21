@@ -60,3 +60,4 @@ for (const id of ids) {
 console.log('legend: per direction jet,suit,debris  . = stopped  X = went through');
 console.log('through:', bad);
 await b.close();
+process.exit(bad ? 1 : 0);
