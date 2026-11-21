@@ -7,7 +7,7 @@ let errs = 0;
 p.on('console', (m) => { if (m.type() === 'error') { errs++; console.log('console:', m.text()); } });
 p.on('pageerror', (e) => { errs++; console.log('pageerror:', e.message); });
 await p.addInitScript(() => { try { localStorage.setItem('rell.save', JSON.stringify({ credits: 1000, tut: true, xp: 0, up: {}, stats: {}, career: {} })); localStorage.removeItem('rell.fleet'); localStorage.removeItem('rell.ironwake.power'); } catch {} });
-await p.goto('http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 180000 });
+await p.goto(process.env.URL || 'http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 180000 });
 await p.waitForTimeout(2000);
 const ev = (f, a) => p.evaluate(f, a);
 await ev(() => { const g = __game, T = g.THREE, F = g.fleet, S = F.byId.ironwake; g.tutorial.on && g.tutorial.finish();

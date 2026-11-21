@@ -123,7 +123,8 @@ export function buildIronwake(site, { Part }) {
   hole(J, 'y+', [-1.7, 1.7, -441.7, -438.3]); hole(LO, 'y-', [-1.7, 1.7, -441.7, -438.3]);
   door('loBC', LO, 'z-', 0, 60, BC); door('brBC', BR, 'z+', 0, 60, BC);
   // bridge glass: a wide band forward, a skylight strip, two side windows each flank
-  for (let i = 0; i < 5; i++) { const u0 = -12.6 + i * 5.1; win(BR, 'z-', [u0, u0 + 4.8, 60.4, 64.0]); }
+  // the forward band runs from just above the console line to near the ceiling, so the helm's eye looks straight out
+  for (let i = 0; i < 5; i++) { const u0 = -12.6 + i * 5.1; win(BR, 'z-', [u0, u0 + 4.8, 58.5, 64.2]); }
   for (const s of [-1, 1]) for (const z of [-471, -465]) win(BR, s > 0 ? 'x+' : 'x-', [z - 2.2, z + 2.2, 60.6, 63.6]);
   // engineering: a viewport down the spine is too far; a sealed inspection window into a machinery void instead
   const sh = (R, skip = [], tube = null) => {
