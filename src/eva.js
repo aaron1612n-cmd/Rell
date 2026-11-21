@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { suitMaterials, buildAstronaut, buildArm, poseFirstPerson, poseBody, driveJets, heatTool, SuitAnim, Spring, SUIT } from './astronaut.js';
-import { SuitBody, penetration } from './suitBody.js';
+import { SuitBody, penetration, sphereContacts } from './suitBody.js';
 import { MeshCollide } from './meshCollide.js';
 import { K } from './gpufx.js';
 import { mats } from './assets.js';
@@ -45,6 +45,7 @@ class Holster {
   }
 }
 
+const _pu = new THREE.Vector3(), _pr = new THREE.Vector3(), _pc = new THREE.Vector3(), _pn = new THREE.Vector3(), _pw = new THREE.Vector3();
 const _zero3 = new THREE.Vector3(), _x = new THREE.Vector3(1, 0, 0), _y = new THREE.Vector3(0, 1, 0), _z = new THREE.Vector3(0, 0, 1);
 
 // ---- visor: helmet rim, condensation, the wordless suit HUD ------------------------------
@@ -124,6 +125,7 @@ export class Eva {
     this.o2 = 1; this.fuel = 1; this.cargo = 0;
     this.pilot = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), quat: new THREE.Quaternion(), roll: 0, radius: CFG.radius, mass: 0.15, contact: null };
     this.thrust = new THREE.Vector3(); this.thrSm = new THREE.Vector3();
+    this.wallN = new THREE.Vector3(); this.wallNear = new THREE.Vector3(); this.drift = new THREE.Vector3(); this.wallS = 0; this.brace = new THREE.Vector3(); this.braceK = 0;
     this.camPos = new THREE.Vector3(); this.camQuat = new THREE.Quaternion();
     this.M = suitMaterials(o.env);
 
@@ -333,6 +335,27 @@ export class Eva {
   // kept for the shader warm-up in main.js: put the cabin in the world (or take it out)
   setCabin(on) { this.cabinOn = on; if (on) this.shipMesh.add(this.cabin); else this.shipMesh.remove(this.cabin); }
 
+  // Surface sense: six probe spheres around the body (its own axes) find the walls, hulls and props within about
+  // a metre. wallN = summed push-away direction (world), wallS = how close the nearest is (0 far .. 1 touching).
+  // It drives the soft braking, centring and push-off below and the hands that reach out to a wall.
+  sense() {
+    const p = this.pilot, N = this.wallN.set(0, 0, 0); let best = 0;
+    this.wallNear.set(0, 0, 0);
+    for (let i = 0; i < 6; i++) {
+      const ax = i >> 1, sg = i & 1 ? -1 : 1;
+      _pr.set(ax === 0 ? sg : 0, ax === 1 ? sg : 0, ax === 2 ? sg : 0).applyQuaternion(p.quat);
+      _pc.copy(p.pos).addScaledVector(_pr, 0.5);
+      let pen = 0; _pn.set(0, 0, 0);
+      sphereContacts(this.cenv, _pc, 0.8, (n, d, sv, deb) => { if (d > pen && d < 1.5) { pen = d; _pn.copy(n); } });
+      if (pen > 0) {
+        const s = Math.min(1, pen / 0.8); N.addScaledVector(_pn, s);
+        if (s > best) { best = s; this.wallNear.copy(_pn); }
+      }
+    }
+    this.wallS = THREE.MathUtils.damp(this.wallS, best, best > this.wallS ? 30 : 8, 1 / 60);
+    if (N.lengthSq() > 1) N.normalize();
+  }
+
   flyPilot(dt, cmd) {
     const p = this.pilot, ship = this.ship;
     // look: direct (a person turns their body with small puffs; inertia here only feels like lag)
@@ -340,24 +363,55 @@ export class Eva {
     p.roll = THREE.MathUtils.damp(p.roll, -cmd.roll * CFG.roll, 6, dt);
     p.quat.multiply(_q.setFromAxisAngle(_y, yaw)).multiply(_q.setFromAxisAngle(_x, pitch)).multiply(_q.setFromAxisAngle(_z, p.roll * dt)).normalize();
 
+    // indoors the suit rights itself: with no roll on the stick, the head swings back toward the room's up, so
+    // you never end up sideways in a doorway
+    if (this.safe && !cmd.roll) {
+      _v.set(0, 0, -1).applyQuaternion(p.quat); _v2.set(1, 0, 0).applyQuaternion(p.quat);
+      const H = this.habitats?.find((h) => h.air(p.pos)), up = H?.site?.group ? _pu.copy(_y).applyQuaternion(H.site.group.quaternion) : _y;
+      if (Math.abs(_v.dot(up)) < 0.9) {
+        _v3.crossVectors(_v, up).normalize();           // where the right-hand side should point
+        const ang = Math.atan2(_v.dot(_pw.crossVectors(_v2, _v3)), _v2.dot(_v3));
+        p.quat.premultiply(_q.setFromAxisAngle(_v.normalize(), ang * Math.min(1, 2.2 * dt))).normalize();
+      }
+    }
     const fuelOk = this.fuel > 0;
     const th = this.thrust.set(cmd.strafe, cmd.vert, -cmd.fwd);
     if (th.lengthSq() > 1) th.normalize();
     if (!fuelOk) th.set(0, 0, 0);
     const boost = cmd.boost && th.lengthSq() > 0.01 && fuelOk;
-    const acc = CFG.acc * (boost ? CFG.boost : 1);
+    let acc = CFG.acc * (boost ? CFG.boost : 1);
     _q.copy(p.quat); _q2.copy(_q).invert();
+    this.sense();
+    const wN = this.wallNear, wS = this.wallS, indoors = this.safe;
+    // push-off: thrusting away from a surface you're nearly touching is a shove off it, not a puff
+    _pw.copy(th).applyQuaternion(p.quat);
+    const away = wS > 0.5 ? _pw.dot(wN) : 0;
+    if (away > 0.3) acc *= 1 + 1.2 * Math.min(1, away) * (wS - 0.4);
     // relative to the ship (it holds station, but this keeps its frame honest)
     const rel = _v.copy(p.vel).sub(ship.vel).applyQuaternion(_q2);
     this.jetRel.copy(rel);
     rel.addScaledVector(th, acc * dt);
+    // soft walls (pressurised rooms): the speed you may carry into a surface falls as it gets close, so you settle
+    // against it instead of bouncing, and what's left of the wall's closeness nudges you toward the middle of a
+    // doorway or corridor (two walls cancel). Pushing into it on purpose still lets you creep up to a console.
+    this.braceK = 0; this.drift.set(0, 0, 0);
+    if (indoors && wS > 0.02) {
+      _v3.copy(wN).applyQuaternion(_q2);                 // body space
+      const vi = -rel.dot(_v3);
+      if (vi > 0.4) { const lim = 0.45 + 3.2 * (1 - wS) ** 1.5; if (vi > lim) rel.addScaledVector(_v3, (vi - lim) * Math.min(1, 9 * dt)); this.braceK = Math.min(1, wS * 1.6); this.brace.copy(_v3).negate(); }
+      const into = Math.max(0, -th.dot(_v3));
+      const nudge = Math.min(1.1, 1.6 * wS * wS) * (1 - Math.min(1, into * 1.5));
+      const H2 = this.habitats?.find((h) => h.air(p.pos)), up2 = H2?.site?.group ? _pu.copy(_y).applyQuaternion(H2.site.group.quaternion) : _y;
+      _v2.copy(this.wallN); _v2.addScaledVector(up2, -Math.max(0, _v2.dot(up2))).applyQuaternion(_q2); _v2.z = 0;   // sideways, and down off a low lintel; never up off a floor or back off what's ahead
+      rel.addScaledVector(_v2, nudge * dt); this.drift.copy(_v2).multiplyScalar(nudge * 0.4);
+    }
     let use = th.length() * (boost ? 2.5 : 1);
     if (cmd.brake && fuelOk) {
       const d = CFG.brake * dt; const l = rel.length(); if (l > 1e-4) { const nl = Math.max(0, l - d); use += Math.min(1, l) * 0.6; rel.multiplyScalar(nl / l); }
     } else if (fuelOk) {
-      const d = CFG.assist * dt, ap = (v, i) => (Math.abs(i) < 0.05 ? (v > 0 ? Math.max(0, v - d) : Math.min(0, v + d)) : v);
+      const d = CFG.assist * (indoors ? 2.2 : 1) * dt, ap = (v, i, t) => (Math.abs(i) < 0.05 ? (v > t ? Math.max(t, v - d) : Math.min(t, v + d)) : v);
       const bx = rel.x, by = rel.y, bz = rel.z;
-      rel.x = ap(rel.x, cmd.strafe); rel.y = ap(rel.y, cmd.vert); rel.z = ap(rel.z, cmd.fwd);
+      const dr = this.drift; rel.x = ap(rel.x, cmd.strafe, dr.x); rel.y = ap(rel.y, cmd.vert, dr.y); rel.z = ap(rel.z, cmd.fwd, dr.z);
       use += (Math.abs(bx - rel.x) + Math.abs(by - rel.y) + Math.abs(bz - rel.z)) / Math.max(dt, 1e-4) * 0.08;
     }
     // what the jets actually did this frame (thrust + brake + assist), as a fraction of full thrust, for the plumes
@@ -368,7 +422,7 @@ export class Eva {
     if (_v2.lengthSq() > 2.25) _v2.setLength(1.5);
     this.jetW.lerp(_v2, 1 - Math.exp(-25 * dt));
     if (!fuelOk) { this.jetF.set(0, 0, 0); this.jetW.set(0, 0, 0); }
-    const max = boost ? CFG.maxBoost : CFG.max, sp = rel.length(); if (sp > max) rel.multiplyScalar(Math.max(max / sp, 1 - dt * 2));
+    const max = indoors ? (boost ? 6 : 4) : boost ? CFG.maxBoost : CFG.max, sp = rel.length(); if (sp > max) rel.multiplyScalar(Math.max(max / sp, 1 - dt * 2));
     p.vel.copy(rel.applyQuaternion(_q)).add(ship.vel);
     this.fuel = Math.max(0, this.fuel - use * CFG.fuelUse * dt);
     // inside a pressurised station: breathe, refill, no tether needed
@@ -394,7 +448,7 @@ export class Eva {
       p.pos.addScaledVector(p.vel, h);
       if (this.suit.ready) {
         // every part of the suit against the station, wrecks, debris and the ship's real hull shape
-        const hit = this.suit.collide(this.cenv, p, 0.2);
+        const hit = this.suit.collide(this.cenv, p, this.safe ? 0.03 : 0.2);
         if (hit && hit.speed > 2.5) { this.rig.kick(Math.min(0.5, hit.speed / 14)); this.hud.pulse(Math.min(0.2, hit.speed / 40)); }
         continue;
       }
@@ -631,7 +685,7 @@ export class Eva {
     this.anim.update(dt, {
       acc: this.accB, spin: this.spinB, boost: this.boosting, o2: this.o2,
       aim: !H.inHand ? 0 : this.firing || (T && kind !== 'core') ? 1 : 0.2, firing: this.firing, kind,
-      reel: this.reeling, rope: this.ropeDir, look, recoil: this.recoil.x, trig: this.trig, drop: H.drop, empty: !H.inHand,
+      reel: this.reeling, rope: this.ropeDir, brace: this.brace, braceK: this.braceK, look, recoil: this.recoil.x, trig: this.trig, drop: H.drop, empty: !H.inHand,
     });
     // arms and the cutter give way to whatever they'd go through, then the body's spheres ride the new pose
     b.updateMatrixWorld(true);

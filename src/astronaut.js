@@ -696,7 +696,9 @@ export class SuitAnim {
     P.legR.copy(this.lr.step(_tg, dt)); P.legL.copy(this.ll.step(_tg, dt));
     // arms: the hands lag the body
     _tg.copy(A).multiplyScalar(-0.045); _tg.x += W.y * 0.03; _tg.y += W.x * 0.03;
-    P.armL.copy(this.al.step(_tg, dt)); P.armR.copy(this.ar.step(_tg.multiplyScalar(0.5), dt));
+    // closing on a wall: the hands come up and out toward it, ready to take the contact
+    if (I.braceK > 0) { _tg.addScaledVector(I.brace, 0.24 * I.braceK); _tg.y += 0.1 * I.braceK; }
+    P.armL.copy(this.al.step(_tg, dt)); P.armR.copy(this.ar.step(_tg.multiplyScalar(I.braceK > 0 ? 0.9 : 0.5), dt));
     // head: leads into a turn, then looks at the work
     let hy = clamp(W.y * 0.22, -0.35, 0.35), hx = clamp(W.x * 0.16, -0.25, 0.25);
     if (I.look) { hy = clamp(Math.atan2(-I.look.x, -I.look.z), -0.4, 0.4); hx = clamp(Math.asin(clamp(I.look.y, -1, 1)), -0.3, 0.3); }
