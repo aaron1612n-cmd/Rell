@@ -150,6 +150,7 @@ export class Yard {
       J.box = this.buildContainer(len, wid, hgt); J.hl = len / 2;
       J.arrive = 10; J.slide = 6; J.shut = 2.4; J.sleeve = 7; J.leave = 7;
       J.t1 = J.tDeploy + 0.6; J.t2 = J.t1 + J.arrive; J.t3 = J.t2 + J.slide; J.t4 = J.t3 + J.shut; J.t5 = J.t4 + J.sleeve; J.t6 = J.t5 + J.leave;
+      J.door = [J.t2 - 4, J.t5 + 0.5];   // end doors stand open while the container is in the tube
       this.fleet.deliver(S);
       this.cine(J);
       if (!J.quiet) { this.sound?.warn?.(); this.toast('info', `${spec.name} ordered · watch the yard`); }
@@ -211,6 +212,7 @@ export class Yard {
       J.p0 = S.V.pos.clone(); J.q0 = S.V.quat.clone();
       J.go = 6; J.tow = 12; J.slide = 6; J.leave = 6;
       J.t1 = J.tDeploy + 0.5; J.t2 = J.t1 + J.go; J.t3 = J.t2 + 1.2; J.t4 = J.t3 + J.tow; J.t5 = J.t4 + J.slide; J.t6 = J.t5 + J.leave;
+      J.door = [J.t4 - 5, J.t5 + 4.5];
       this.cine(J);
       this.toast('info', claim ? `${spec.name}: claim filed · tug on the way` : `${spec.name}: tug on the way`);
     };
@@ -266,7 +268,7 @@ export class Yard {
   sellJob(S, r) {
     const base = this.base, spec = S.spec;
     const J = { kind: 'sell', S, r };
-    J.start = () => { J.b = this.berth(spec.id); J.come = 6; J.pull = 6; J.away = 8; J.fold = 3 + 0.6 * J.b.n; J.t1 = 0.3 + J.come; J.t2 = J.t1 + 1.2; J.t3 = J.t2 + J.pull; J.t4 = J.t3 + J.away; J.t5 = J.t4 + J.fold; this.cine(J); r.parked = false; this.save(); };
+    J.start = () => { J.b = this.berth(spec.id); J.come = 6; J.pull = 6; J.away = 8; J.fold = 3 + 0.6 * J.b.n; J.t1 = 0.3 + J.come; J.t2 = J.t1 + 1.2; J.t3 = J.t2 + J.pull; J.t4 = J.t3 + J.away; J.t5 = J.t4 + J.fold; J.door = [0.3, J.t3 + 2.5]; this.cine(J); r.parked = false; this.save(); };
     J.step = (J) => {
       const b = J.b, t = J.t;
       b.grp.updateMatrixWorld(true); const bq = b.grp.getWorldQuaternion(new THREE.Quaternion());

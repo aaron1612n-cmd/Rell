@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 const { chromium } = createRequire('/opt/node-tools/node_modules/')('playwright');
 const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const p = await b.newPage({ viewport: { width: 640, height: 360 } });
+if (process.env.SITE) await p.addInitScript((v) => { window.__SITE = v; }, process.env.SITE);
 p.on('pageerror', (e) => console.log('pageerror:', e.message));
 await p.goto(process.env.URL || 'http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 120000 });
 const res = await p.evaluate(() => {
@@ -12,7 +13,7 @@ const res = await p.evaluate(() => {
   const rc = new T.Raycaster(); const out = {};
   const cmd = { fwd: 0, strafe: 0, vert: 0, dx: 0, dy: 0, roll: 0, brake: false, boost: false };
   for (const site of w.sites) {
-    if (site.kind === 'field') continue;
+    if (site.kind === 'field' || (window.__SITE && site.id !== window.__SITE)) continue;
     const meshes = []; const vis = (o) => { for (let a = o; a && a !== site.group; a = a.parent) if (!a.visible) return false; return true; };
     site.group.traverse((o) => { if (o.isMesh && !/lamp|light|beacon/.test(o.name) && vis(o)) meshes.push(o); });   // hidden plumes are not hull
     site.group.updateMatrixWorld(true);
@@ -36,7 +37,7 @@ const res = await p.evaluate(() => {
         if (i % 6 === 5) { seg.copy(s.pos).sub(prev); const L = seg.length(); if (L > 1e-3) { rc.set(prev, seg.divideScalar(L)); rc.far = L; const h = rc.intersectObjects(meshes, false)[0]; if (h && !crossed) crossed = h; } prev.copy(s.pos); }
       }
       n++;
-      if (crossed) { hit.object = crossed.object; clips++; let o = hit.object; while (o && !o.name) o = o.parent; const nm = o ? o.name : "?"; where[nm] = (where[nm] || 0) + 1; }
+      if (crossed) { hit.object = crossed.object; clips++; let o = hit.object; while (o && !o.name) o = o.parent; const nm = o ? o.name : "?"; where[nm] = (where[nm] || 0) + 1; (where.pts ??= []).push([site.id === "relay" ? (() => { const L = crossed.point.clone().applyMatrix4(site.group.matrixWorld.clone().invert()); const o = crossed.object; return [L.toArray().map((x) => +x.toFixed(1)).join(), o.geometry.attributes.position.count, o.material?.name || o.material?.color?.getHexString(), (o.parent?.name || "") + "/" + (o.parent?.parent?.name || "")].join(" | "); })() : "", start.toArray().map((x) => Math.round(x)), crossed.point.toArray().map((x) => Math.round(x))]); }
     }
     out[site.id] = { shots: n, clips, where };
   }
