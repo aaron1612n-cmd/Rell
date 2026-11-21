@@ -422,7 +422,7 @@ export class Eva {
     if (_v2.lengthSq() > 2.25) _v2.setLength(1.5);
     this.jetW.lerp(_v2, 1 - Math.exp(-25 * dt));
     if (!fuelOk) { this.jetF.set(0, 0, 0); this.jetW.set(0, 0, 0); }
-    const max = indoors ? (boost ? 6 : 4) : boost ? CFG.maxBoost : CFG.max, sp = rel.length(); if (sp > max) rel.multiplyScalar(Math.max(max / sp, 1 - dt * 2));
+    const max = indoors ? (boost ? 7 : 5) : boost ? CFG.maxBoost : CFG.max, sp = rel.length(); if (sp > max) rel.multiplyScalar(Math.max(max / sp, 1 - dt * 2));
     p.vel.copy(rel.applyQuaternion(_q)).add(ship.vel);
     this.fuel = Math.max(0, this.fuel - use * CFG.fuelUse * dt);
     // inside a pressurised station: breathe, refill, no tether needed
