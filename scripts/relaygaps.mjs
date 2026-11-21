@@ -45,7 +45,7 @@ const boxes = await p.evaluate(() => {
   }
   // keep every doorway (airlock mouths especially) clear for the suit: drop boxes within 2.5 m of a door opening
   for (const d of Object.values(R.doors)) {
-    const ctr = d.axis === 'z' ? [d.u, d.v, d.at] : [d.at, d.v, d.u], half = d.axis === 'z' ? [1.8, 1.8, 2.5] : [2.5, 1.8, 1.8];
+    const ctr = d.axis === 'z' ? [d.u, d.v, d.at] : [d.at, d.v, d.u], half = d.axis === 'z' ? [1.5, 1.6, 1.0] : [1.0, 1.6, 1.5];
     bx = bx.filter((q) => ![0, 1, 2].every((a) => q.hi[a] > ctr[a] - half[a] && q.lo[a] < ctr[a] + half[a]));
   }
   bx = bx.filter((q) => [0, 1, 2].every((a) => q.hi[a] - q.lo[a] > 0.3));
