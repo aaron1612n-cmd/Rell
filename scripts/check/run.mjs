@@ -10,6 +10,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const CHECKS = [
   ['zfight', 'z-fighting (coplanar faces, glow vs hull, relay doors open/shut)', ['scripts/check/zfight.mjs', `${OUT}/zfight.json`]],
   ['coverage', 'every visible hull of every ship/station/wreck is solid to a jet-sized body', ['scripts/check/coverage.mjs', '300']],
+  ['hangar', 'main hangar and every berth sealed and solid: surface coverage + leak rays from all sides', ['scripts/check/hangar.mjs'], { BERTHS: 'wren,mule,atlas', RAYS: '40', SAMPLES: '1500' }],
   ['rams', 'slow: fly jet, suit, debris at every ship from 8 directions (--only=rams)', ['scripts/shipcollide.mjs'], {}, false, true],
   ['clip', 'jet cannot pass through any site mesh (stations, wrecks, depot)', ['scripts/clipcheck.mjs']],
   ['legs', 'suit legs and body stay out of the hull during hatch exit + entry', ['scripts/legcheck.mjs', OUT + '/legs'], { IN: '1' }],

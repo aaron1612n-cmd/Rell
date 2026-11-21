@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mats } from './assets.js';
 import { K } from './gpufx.js';
+import { sectionGeometry, rootPanels, backWall, leafGeometry, ramGeometry, rodGeometry, sectionObbs, STEP, SHELL, PORTAL } from './berth.js';
 import { Bake, T, wallTexture, floorTexture, screenTexture, ledTexture } from './bake.js';
 
 // Rell Yard: home base. A pressurised hangar you fly into (the cradle clamps the jet, the big doors roll shut and
@@ -28,7 +29,7 @@ export const COUNTER = new THREE.Vector3(0, -4.0, -24.6);      // float here to 
 export const ILSE = new THREE.Vector3(0, -4.62, -28.6);        // where she stands (torso centre), feet in the loops
 export const HOLO = new THREE.Vector3(-2.6, -3.7, -27.0);
 export const BED = new THREE.Vector3(0.9, 7.6, -24.6);
-const KEEL_X = 17.2, KEEL_Z0 = 18, BAY_LEN = 36;               // keel rails along each flank, from the mouth back
+const KEEL_X = 15.8, KEEL_Z0 = 18, BAY_LEN = 36, FLANK = 16.25;   // the spine beams run along the flank's corner beams; berths bolt to the flank at x = FLANK
 const SAVE = 'rell.base';
 
 // per-room colour multipliers (own uniform array so the relay's and the Ironwake's rooms never fight these)
@@ -296,10 +297,10 @@ export function buildBase(site, { Part }) {
   const hx = 15 + T, hy0 = -6 - T, hy1 = 8 + T;
   for (const z of [-16, -8, 0, 8, 16]) {
     const d = 0.9, w = 1.1;
-    for (const s of [-1, 1]) X([s * (hx + d / 2), 1, z], [d, 14 + 2 * T + 2 * d, w], BEAM, { noObb: true });
-    X([0, hy1 + d / 2, z], [2 * hx + 2 * d, d, w], BEAM, { noObb: true }); X([0, hy0 - d / 2, z], [2 * hx + 2 * d, d, w], BEAM, { noObb: true });
+    for (const s of [-1, 1]) X([s * (hx + d / 2), 1, z], [d, 14 + 2 * T + 2 * d, w], BEAM);
+    X([0, hy1 + d / 2, z], [2 * hx + 2 * d, d, w], BEAM); X([0, hy0 - d / 2, z], [2 * hx + 2 * d, d, w], BEAM);
   }
-  for (const s of [-1, 1]) for (const y of [hy0 - 0.45, hy1 + 0.45]) X([s * (hx + 0.45), y, 0], [0.9, 0.9, 36.7], BEAM, { noObb: true });
+  for (const s of [-1, 1]) for (const y of [hy0 - 0.45, hy1 + 0.45]) X([s * (hx + 0.45), y, 0], [0.9, 0.9, 36.7], BEAM);
   // plating between ribs: raised panels with seams on the flanks and roof
   for (let i = 0; i < 4; i++) {
     const z = -12 + i * 8;
@@ -350,15 +351,6 @@ export function buildBase(site, { Part }) {
   for (const s of [-1, 1]) X([s * 11.6, -3, -24.35], [0.16, 5.2, 11], PANEL, { noObb: true });
   // orange identity stripe along each flank of the bay
   for (const s of [-1, 1]) X([s * (hx + 0.2), -5.2, 0], [0.04, 0.4, 36], 0xe8561a, { noObb: true });
-  // keel rails along both flanks: the berths hang off these
-  for (const s of [-1, 1]) {
-    const x = s * KEEL_X;
-    X([x, 7.4, -0.0], [1.6, 1.6, BAY_LEN + 0.5], BEAM); X([x, -5.4, 0], [1.6, 1.6, BAY_LEN + 0.5], BEAM);
-    for (let z = -16; z <= 16; z += 8) X([x, 1, z], [1.0, 12, 1.0], BAND, { noObb: true });
-    for (let z = -16; z < 16; z += 8) XG(strut([x, -4.6, z], [x, 6.6, z + 8], 0.5), BAND);
-    for (const z of [-16, -8, 0, 8, 16]) X([s * (hx + 0.95), 1, z], [KEEL_X - hx - 0.95, 0.8, 0.8], BEAM, { noObb: true });   // stand-offs to the ribs
-  }
-
   // ---- finish ----
   const G = B.finish();
   const M = {
@@ -458,62 +450,6 @@ export function buildBase(site, { Part }) {
   return new Base({ site, B, doors, ROOMS, M, inner, outer, leaves, clamps, umb, laneMesh, laneIdx, crane, beaconM, mouthObb, Part, BAY, Q, SH, BR });
 }
 
-// ================================================================================================================
-// Berths: an extension of the hangar for one ship. Built in its own frame: +x out from the keel, y up, z across.
-// The root section unfolds on hinges at the keel; the rest telescope out of it, each a little smaller.
-function berthGeometry(W, H, Ls, k, outer) {
-  const B = new Bake();
-  const X = (c, s, col, extra) => B.box(c, s, { kind: 'hull', color: col, seg: 4, ...extra });
-  const XG = (g, col) => B.geo(g, { kind: 'hull', color: col });
-  const t = 0.5, hw = W / 2, hh = H / 2;
-  // floor deck, roof, two walls: plates with ribs outside and a seam grid, an orange edge band inside
-  const deck = (y, s) => {
-    X([Ls / 2, y, 0], [Ls, t, W], s > 0 ? 0x9c998e : 0x8e8b82);
-    for (let z = -hw + 2; z < hw - 1; z += 4) X([Ls / 2, y + s * (t / 2 + 0.2), z], [Ls - 0.4, 0.4, 0.5], 0x3d4249);
-    for (let x = 2; x < Ls - 1; x += 4) X([x, y + s * (t / 2 + 0.12), 0], [0.3, 0.24, W - 0.6], 0x4a4f55);
-    X([Ls / 2, y - s * (t / 2 + 0.02), hw - 1.0], [Ls, 0.04, 0.5], 0xe8561a); X([Ls / 2, y - s * (t / 2 + 0.02), -hw + 1.0], [Ls, 0.04, 0.5], 0xe8561a);
-  };
-  const wall = (z, s) => {
-    X([Ls / 2, 0, z], [Ls, H, t], 0xa9a69b);
-    for (let y = -hh + 2; y < hh - 1; y += 3.5) X([Ls / 2, y, z + s * (t / 2 + 0.15)], [Ls - 0.4, 0.3, 0.3], 0x3d4249);
-    for (let x = 0.2; x < Ls; x += Math.max(2.5, Ls / 4)) X([x + 0.2, 0, z + s * (t / 2 + 0.2)], [0.4, H - 0.6, 0.4], 0x4a4f55);
-  };
-  deck(-hh, -1); deck(hh, 1); wall(-hw, -1); wall(hw, 1);
-  // portal frame at the outer end: heavy, with hazard chevrons and a lamp strip, and the corner posts
-  const P = 1.0;
-  X([Ls - P / 2, -hh - 0.2, 0], [P, 1.2, W + 1.4], 0x5a5d62); X([Ls - P / 2, hh + 0.2, 0], [P, 1.2, W + 1.4], 0x5a5d62);
-  for (const s of [-1, 1]) X([Ls - P / 2, 0, s * (hw + 0.2)], [P, H + 1.4, 1.2], 0x5a5d62);
-  const nChev = Math.max(2, Math.floor(W / 3));
-  for (let i = 0; i < nChev; i++) X([Ls + 0.02, -hh - 0.2, -hw + (i + 0.5) * W / nChev], [0.06, 0.9, W / nChev * 0.5], i % 2 ? 0x1c1e22 : 0xe8561a);
-  // cross bracing on the walls (inside the plating's ribs): one X per wall
-  for (const s of [-1, 1]) { const z = s * (hw + t / 2 + 0.35); XG(strut([0.6, -hh + 0.6, z], [Ls - 0.6, hh - 0.6, z], 0.3), 0x5a5d62); XG(strut([0.6, hh - 0.6, z], [Ls - 0.6, -hh + 0.6, z], 0.3), 0x5a5d62); }
-  // lamps: a strip along the inside top corners and floods on the portal
-  for (const s of [-1, 1]) B.box([Ls / 2, hh - t / 2 - 0.06, s * (hw - 0.9)], [Ls - 1, 0.08, 0.25], { kind: 'lamp', color: 0xd6ecff, k: 2.2 });
-  for (const s of [-1, 1]) B.box([Ls - 1.06, hh - 0.6, s * (hw - 0.5)], [0.1, 0.6, 1.2], { kind: 'lamp', color: 0xffd9a8, k: 2.6 });
-  B.box([Ls - P - 0.06, -hh + 0.4, 0], [0.06, 0.12, W - 2], { kind: 'lamp', color: 0xffa040, k: 2.4 });
-  if (!outer) { X([0.4, 0, 0], [0.8, H + 0.6, W + 0.6], 0x5a5d62); X([0.82, 0, 0], [0.06, H - 1, W - 1], 0x23262b); }   // the root's back plate against the keel
-  const G = B.finish();
-  // colliders (berth frame)
-  const obbs = [
-    { c: [Ls / 2, -hh, 0], h: [Ls / 2, t / 2 + 0.4, hw + 0.4] }, { c: [Ls / 2, hh, 0], h: [Ls / 2, t / 2 + 0.4, hw + 0.4] },
-    { c: [Ls / 2, 0, -hw], h: [Ls / 2, hh, t / 2 + 0.4] }, { c: [Ls / 2, 0, hw], h: [Ls / 2, hh, t / 2 + 0.4] },
-  ];
-  if (!outer) obbs.push({ c: [0.4, 0, 0], h: [0.45, hh, hw] });
-  return { G, obbs };
-}
-
-// the root section, split into its hinged panels so it can unfold from the keel
-function rootPanels(W, H, Ls) {
-  const t = 0.5, hw = W / 2, hh = H / 2;
-  const mk = (fn) => { const B = new Bake(); fn(B); return B.finish().hull; };
-  const X = (B, c, s, col) => B.box(c, s, { kind: 'hull', color: col, seg: 4 });
-  // each panel's geometry is built in its final pose, then shifted so its hinge sits at the group origin
-  const floor = mk((B) => { X(B, [Ls / 2, 0, 0], [Ls, t, W], 0x8e8b82); for (let z = -hw + 2; z < hw - 1; z += 4) X(B, [Ls / 2, -t / 2 - 0.2, z], [Ls - 0.4, 0.4, 0.5], 0x3d4249); X(B, [Ls / 2, t / 2 + 0.02, hw - 1], [Ls, 0.04, 0.5], 0xe8561a); X(B, [Ls / 2, t / 2 + 0.02, -hw + 1], [Ls, 0.04, 0.5], 0xe8561a); });
-  const roof = mk((B) => { X(B, [Ls / 2, 0, 0], [Ls, t, W], 0x9c998e); for (let z = -hw + 2; z < hw - 1; z += 4) X(B, [Ls / 2, t / 2 + 0.2, z], [Ls - 0.4, 0.4, 0.5], 0x3d4249); });
-  const side = (s) => mk((B) => { X(B, [Ls / 2, 0, 0], [Ls, H, t], 0xa9a69b); for (let y = -hh + 2; y < hh - 1; y += 3.5) X(B, [Ls / 2, y, s * (t / 2 + 0.15)], [Ls - 0.4, 0.3, 0.3], 0x3d4249); });
-  return { floor, roof, sideA: side(-1), sideB: side(1), hw, hh };
-}
-
 // ---- the container a bought ship arrives in, and the tug that pushes it ---------------------------------------
 function containerParts(len, wid, hgt) {
   const mk = (fn) => { const B = new Bake(); fn(B); return B.finish().hull; };
@@ -573,7 +509,7 @@ class Base {
     this.keelSegs = [[], []];
     this.contMat = mats.hull;
     const { site } = this;
-    this.site.collectObbs = ((base) => (out) => { base(out); for (const d of Object.values(this.doors)) if (d.open < 0.55) out.push(d.obb); if (this.doorOpen < 0.5) out.push(this.mouthObb); })(site.collectObbs.bind(site));
+    this.site.collectObbs = ((base) => (out) => { base(out); for (const d of Object.values(this.doors)) if (d.open < 0.55) out.push(d.obb); if (this.doorOpen < 0.5) out.push(this.mouthObb); for (const b of this.berths) if (b.state === 'ready' && b.door) for (const o of b.door.obbs) out.push(o); })(site.collectObbs.bind(site));
     this.tug = this.buildTug();
     for (let s = 0; s < 2; s++) this.buildKeel(s, this.keel[s], false);
   }
@@ -663,7 +599,7 @@ class Base {
     else this.setRoom(0, 0.82, 0.8, 0.86);
     this.setRoom(1, 1, 1, 1); this.setRoom(2, 1, 1, 1); this.setRoom(3, 1, 0.98, 0.95);
     for (const lf of this.leaves) lf.userData.lamp.color.setRGB(cyc ? 2.4 * strobe : this.pres > 0.98 ? 0.3 : 2.2, cyc ? 1.1 * strobe : this.pres > 0.98 ? 1.8 : 0.9, cyc ? 0.2 : 0.4);
-    this.berthsUpdate(dt, time);
+    this.berthsUpdate(dt, time, ship, pilot);
     this.jobsUpdate(dt, time);
   }
 
@@ -733,19 +669,19 @@ class Base {
   // ---- keel and berths ------------------------------------------------------------------------------------------
   // side index 0 = -x, 1 = +x
   sideSign(si) { return si ? 1 : -1; }
+  // the spine: the flank's corner beams run on past the bay in 12 m segments, each closed by a rib frame like the bay's
   buildKeel(si, len, animate) {
-    // extra keel past the bay: 12 m truss segments
     const segs = this.keelSegs[si], s = this.sideSign(si), need = Math.max(0, Math.ceil((len - BAY_LEN) / 12));
     while (segs.length < need) {
       const i = segs.length, B = new Bake(), X = (c, sz, col) => B.box(c, sz, { kind: 'hull', color: col, seg: 3 });
-      X([0, 7.4, -6], [1.6, 1.6, 12.2], 0x3d4249); X([0, -5.4, -6], [1.6, 1.6, 12.2], 0x3d4249); X([0, 1, -12], [1.0, 12, 1.0], 0x6b6e70);
-      B.geo(strut([0, -4.6, 0], [0, 6.6, -12], 0.5), { kind: 'hull', color: 0x6b6e70 });
-      B.box([0, 8.3, -11.5], [0.3, 0.2, 0.3], { kind: 'lamp', color: 0xffa040, k: 3 });
+      X([0, 8.8, -6], [0.9, 0.9, 12.2], 0x3d4249); X([0, -6.8, -6], [0.9, 0.9, 12.2], 0x3d4249); X([0, 1, -11.45], [0.9, 16.5, 1.1], 0x3d4249);
+      B.geo(strut([0.0, -6.35, -0.6], [0.0, 8.35, -11], 0.35), { kind: 'hull', color: 0x6b6e70 });
+      B.box([0, 9.4, -11.45], [0.3, 0.2, 0.3], { kind: 'lamp', color: 0xffa040, k: 3 });
       const g = B.finish(), grp = new THREE.Group(); const m = new THREE.Mesh(g.hull, mats.hull); m.castShadow = m.receiveShadow = true; grp.add(m, new THREE.Mesh(g.lamp, this.M.lamp));
       const z1 = KEEL_Z0 - BAY_LEN - i * 12;
       grp.position.set(s * KEEL_X, 0, z1); grp.userData = { z1, from: z1 + 12 }; this.outer.add(grp);
       const col = new THREE.Group(); col.position.copy(grp.position); this.site.group.add(col); col.updateMatrixWorld(true);
-      const part = new this.Part(this.site, `keel${si}_${i}`, col, [{ c: [0, 7.4, -6], q: [0, 0, 0, 1], h: [0.8, 0.8, 6.1] }, { c: [0, -5.4, -6], q: [0, 0, 0, 1], h: [0.8, 0.8, 6.1] }, { c: [0, 1, -12], q: [0, 0, 0, 1], h: [0.5, 6, 0.5] }]);
+      const part = new this.Part(this.site, `keel${si}_${i}`, col, [{ c: [0, 8.8, -6], q: [0, 0, 0, 1], h: [0.5, 0.5, 6.1] }, { c: [0, -6.8, -6], q: [0, 0, 0, 1], h: [0.5, 0.5, 6.1] }, { c: [0, 1, -11.45], q: [0, 0, 0, 1], h: [0.5, 8.25, 0.55] }]);
       part.sync(0); grp.userData.part = part;
       if (animate) { grp.position.z = grp.userData.from; grp.visible = true; grp.userData.t = 0; } else { this.site.parts.push(part); }
       segs.push(grp);
@@ -754,7 +690,7 @@ class Base {
   }
   resetMesh() { this.eva?.meshHit?.cache?.delete(this.site); }
 
-  // where a ship of this size goes: the side with less keel used, first gap that fits
+  // where a ship of this size goes: the side with less flank used, first gap that fits
   slotFor(spec) {
     const W = Math.max(14, spec.beam + 12);
     const used = [0, 1].map((si) => this.berths.filter((b) => b.side === si).reduce((m, b) => Math.max(m, b.z0 + b.W), 0));
@@ -769,61 +705,92 @@ class Base {
 
   // build a berth's meshes (hidden until it deploys)
   makeBerth(rec) {
-    const spec = rec.spec, d = this.berthDims(spec), s = this.sideSign(rec.side);
+    const spec = rec.spec, d = this.berthDims(spec), s = this.sideSign(rec.side), n = d.n, Ls = d.Ls;
     const zc = KEEL_Z0 - rec.z0 - d.W / 2;
-    const grp = new THREE.Group(); grp.position.set(s * (KEEL_X + 0.8), 1, zc); if (s < 0) grp.rotation.y = Math.PI; this.outer.add(grp);
-    const b = { ...rec, ...d, grp, zc, segs: [], root: null, k: 0, state: 'hidden' };
-    // root: hinged panels
-    const rp = rootPanels(d.W + (d.n - 1) * 0.9, d.H + (d.n - 1) * 0.9, d.Ls);
-    const W0 = d.W + (d.n - 1) * 0.9, H0 = d.H + (d.n - 1) * 0.9;
-    const hinge = (geo, pos) => { const piv = new THREE.Group(); piv.position.set(...pos); grp.add(piv); const m = new THREE.Mesh(geo, mats.hull); m.castShadow = m.receiveShadow = true; piv.add(m); return { piv, m }; };
-    const fl = hinge(rp.floor, [0, -H0 / 2, 0]), rf = hinge(rp.roof, [0, H0 / 2, 0]), sa = hinge(rp.sideA, [0, 0, -W0 / 2]), sb = hinge(rp.sideB, [0, 0, W0 / 2]);
-    b.root = { fl, rf, sa, sb };
-    // back plate on the keel (always there once the berth exists)
-    { const Bk = new Bake(); Bk.box([0.4, 0, 0], [0.8, H0 + 0.6, W0 + 0.6], { kind: 'hull', color: 0x5a5d62, seg: 4 }); Bk.box([0.82, 0, 0], [0.06, H0 - 1, W0 - 1], { kind: 'hull', color: 0x23262b, seg: 4 });
-      for (let k = -2; k <= 2; k++) Bk.box([0.9, H0 / 2 - 1, k * W0 / 6], [0.08, 0.3, 1.2], { kind: 'lamp', color: 0xffa040, k: 2.6 });
-      const g = Bk.finish(); const m = new THREE.Mesh(g.hull, mats.hull); m.castShadow = true; grp.add(m); grp.add(new THREE.Mesh(g.lamp, this.M.lamp)); b.plate = m; }
-    // telescoping sections, nested: section i is (n-1-i)*0.9 m smaller than the root
-    for (let i = 1; i < d.n; i++) {
-      const shrink = (d.n - 1 - i) * 0.9, { G } = berthGeometry(d.W + shrink, d.H + shrink, d.Ls, i, i === d.n - 1);
-      const sg = new THREE.Group(); const m = new THREE.Mesh(G.hull, mats.hull); m.castShadow = m.receiveShadow = true; sg.add(m);
-      const lm = new THREE.Mesh(G.lamp, this.M.lamp.clone()); lm.material.color.setScalar(0); sg.add(lm); sg.userData.lamp = lm.material;
-      grp.add(sg); b.segs.push(sg);
+    const grp = new THREE.Group(); grp.position.set(s * FLANK, 1, zc); if (s < 0) grp.rotation.y = Math.PI; this.outer.add(grp);
+    const W0 = d.W + 2 * STEP * (n - 1), H0 = d.H + 2 * STEP * (n - 1), hw0 = W0 / 2, hh0 = H0 / 2;
+    const b = { ...rec, ...d, grp, zc, W0, H0, segs: [], root: null, k: 0, state: 'hidden', lamps: [], rams: [], door: null };
+    const mesh = (g, par) => { const m = new THREE.Mesh(g, mats.hull); m.castShadow = m.receiveShadow = true; par.add(m); return m; };
+    const lamp = (g, par) => { if (!g || !g.attributes.position.count) return; const m = new THREE.Mesh(g, this.M.lamp.clone()); m.material.color.setScalar(0); par.add(m); b.lamps.push(m.material); };
+    // the root: four hinged panels
+    const rp = rootPanels(W0, H0, Ls);
+    const hinge = (k, pos) => { const piv = new THREE.Group(); piv.position.set(...pos); piv.userData.home = pos[0]; grp.add(piv); mesh(rp.ps[k].hull, piv); lamp(rp.ps[k].lamp, piv); return piv; };
+    b.root = { fl: hinge('floor', [0, -(hh0 - 0.3), 0]), rf: hinge('roof', [0, hh0 - 0.3, 0]), sa: hinge('wallA', [0, 0, -(hw0 - 0.3)]), sb: hinge('wallB', [0, 0, hw0 - 0.3]) };
+    // the collar and back wall against the flank (always there once the berth exists)
+    { const bw = backWall(W0, H0); b.plate = mesh(bw.hull, grp); lamp(bw.lamp, grp); }
+    // nested sliding sections, each narrower than its parent
+    for (let j = 1; j < n; j++) {
+      const Wj = W0 - 2 * STEP * j, Hj = H0 - 2 * STEP * j, g = sectionGeometry(Wj, Hj, Ls, j === n - 1);
+      const sg = new THREE.Group(); mesh(g.hull, sg); lamp(g.lamp, sg); sg.userData.W = Wj; sg.userData.H = Hj; grp.add(sg); b.segs.push(sg);
+    }
+    // blast leaves on the last section's portal
+    const last = b.segs[n - 2], hwl = last.userData.W / 2, hll = last.userData.H - 2 * PORTAL, wl = hwl - PORTAL + 0.04, lg = leafGeometry(wl, hll);
+    b.door = { open: 0, hold: 0, leaves: [], obbs: [], wl, hl: hll };
+    for (const sd of [-1, 1]) {
+      const piv = new THREE.Group(); piv.position.set(Ls - 0.5 + (sd > 0 ? 0.1 : 0), 0, sd * (hwl - PORTAL)); last.add(piv);
+      const flip = new THREE.Group(); flip.scale.z = sd > 0 ? 1 : -1; piv.add(flip); mesh(lg.hull, flip);
+      if (lg.lamp.attributes.position.count) { const m = new THREE.Mesh(lg.lamp, this.M.lamp.clone()); m.material.color.setScalar(0); flip.add(m); b.lamps.push(m.material); }
+      b.door.leaves.push({ piv, s: sd });
+      const q = new THREE.Quaternion(), c = new THREE.Vector3();
+      b.door.obbs.push({ c, q, qi: q.clone().invert(), h: new THREE.Vector3(0.3, hll / 2, wl / 2 + 0.05), v: new THREE.Vector3(), br: 0, node: this.site.byName.base.node, chunk: 'base', part: this.site.byName.base });
+      b.door.obbs[b.door.obbs.length - 1].br = b.door.obbs[b.door.obbs.length - 1].h.length();
+    }
+    // corner rams: a barrel on the root, a rod that tracks the last section, and a bracket arm to the portal
+    const rs = 0.9 * Ls;
+    for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+      const rg = ramGeometry(rs - 0.4, 0.34), barrel = mesh(rg.hull, grp); barrel.position.set(0.4, sy * (hh0 + 0.65), sz * (hw0 + 0.65)); barrel.visible = false;
+      const rod = mesh(rodGeometry(), grp); rod.material = this.rodMat || (this.rodMat = new THREE.MeshStandardMaterial({ color: 0xc9ced3, metalness: 0.85, roughness: 0.3 })); rod.position.set(rs, sy * (hh0 + 0.65), sz * (hw0 + 0.65)); rod.visible = false;
+      const arm = mesh(new THREE.BoxGeometry(1, 1, 1), grp); arm.material = this.rodMat; arm.visible = false;
+      b.rams.push({ sy, sz, barrel, rod, arm, rs });
     }
     this.berths.push(b);
     return b;
   }
-  // pose a berth at deploy progress k (0 folded on the keel .. 1 fully out). Unfold takes the first 30%.
+  // pose a berth at deploy progress k (0 folded on the flank .. 1 fully out). The panels unfold over the first 30%,
+  // then the sections slide out one after the other, each from inside its parent.
   poseBerth(b, k) {
-    b.k = k; const u = ease(THREE.MathUtils.clamp(k / 0.3, 0, 1)), R = b.root;
-    const fold = (1 - u) * Math.PI / 2;
-    R.fl.piv.rotation.z = fold; R.rf.piv.rotation.z = -fold; R.sa.piv.rotation.y = -fold; R.sb.piv.rotation.y = fold;
-    // panels sit flat against the keel while folded
-    const vis = k > 0; b.grp.visible = vis;
-    const tk = THREE.MathUtils.clamp((k - 0.3) / 0.7, 0, 1), n = b.segs.length;
+    b.k = k; const u = ease(THREE.MathUtils.clamp(k / 0.3, 0, 1)), R = b.root, fold = (1 - u) * Math.PI / 2, off = 1 - u;
+    // folded panels are stacked 0.7 m apart so none share a plane
+    R.fl.rotation.z = fold; R.rf.rotation.z = -fold; R.sa.rotation.y = -fold; R.sb.rotation.y = fold;
+    R.fl.position.x = 0.55 * off; R.rf.position.x = 1.25 * off; R.sa.position.x = 1.95 * off; R.sb.position.x = 2.65 * off;
+    b.grp.visible = k > 0; b.plate.visible = k > 0;
+    const tk = THREE.MathUtils.clamp((k - 0.3) / 0.7, 0, 1), n = b.segs.length, Ls = b.Ls, span = 1 - 0.5 * (n - 1) / Math.max(1, n);
+    let x = 0;
     b.segs.forEach((sg, i) => {
-      // each section starts nested in the root; the outermost slides first and farthest (staged)
-      const j = n - 1 - i, t0 = j / n, local = ease(THREE.MathUtils.clamp((tk - t0 * 0.6) / 0.4 + 0, 0, 1));
-      const final = (i + 1) * b.Ls, start = 0.02 * (i + 1);
-      sg.position.x = start + (final - start) * Math.max(local, tk >= 1 ? 1 : 0) * (i === n - 1 ? 1 : 1);
-      sg.visible = vis && u > 0.95;
-      sg.userData.lamp.color.setScalar(THREE.MathUtils.clamp((k - 0.92) / 0.08, 0, 1) * (0.7 + 0.3 * Math.sin(this.time * 2 + i)));
+      const r = ease(THREE.MathUtils.clamp((tk - 0.5 * i / Math.max(1, n)) / span, 0, 1));
+      x += 0.3 + (Ls - 0.3) * r; sg.position.x = x; sg.visible = k > 0 && u > 0.999;
     });
+    const lastX = n ? b.segs[n - 1].position.x : 0, tip = lastX + Ls - 0.6, hwl = b.segs[n - 1].userData.W / 2, hhl = b.segs[n - 1].userData.H / 2;
+    for (const r of b.rams) {
+      const show = k > 0 && u > 0.999, len = tip - r.rs; r.barrel.visible = show;
+      r.rod.visible = show && len > 0.05; if (r.rod.visible) r.rod.scale.set(len, 0.2, 0.2);
+      const a = _v.set(tip, r.sy * (b.H0 / 2 + 0.65), r.sz * (b.W0 / 2 + 0.65)), c = _v2.set(tip, r.sy * (hhl + 0.5), r.sz * (hwl + 0.5)), L = a.distanceTo(c);
+      r.arm.visible = show && len > 0.05 && L > 0.05;
+      if (r.arm.visible) { r.arm.position.copy(a).add(c).multiplyScalar(0.5); r.arm.scale.set(0.3, 0.3, L); r.arm.quaternion.setFromUnitVectors(_v3.set(0, 0, 1), _v3.copy(c).sub(a).normalize()); }
+    }
+    const lk = THREE.MathUtils.clamp((k - 0.92) / 0.08, 0, 1);
+    b.lamps.forEach((m, i) => m.color.setScalar(lk * (0.7 + 0.3 * Math.sin(this.time * 2 + i))));
   }
-  // colliders for a deployed berth, in the base frame
+  // colliders for a deployed berth, in the base frame. The door leaves are dynamic and handled in berthsUpdate.
   berthCollide(b, on) {
     if (b.part) { const i = this.site.parts.indexOf(b.part); if (i >= 0) this.site.parts.splice(i, 1); b.part = null; }
     if (on) {
       const node = new THREE.Group(); node.position.copy(b.grp.position); node.quaternion.copy(b.grp.quaternion); this.site.group.add(node); node.updateMatrixWorld(true);
-      const obbs = [];
-      const W0 = b.W + (b.n - 1) * 0.9, H0 = b.H + (b.n - 1) * 0.9;
-      obbs.push({ c: [0.4, 0, 0], q: [0, 0, 0, 1], h: [0.45, H0 / 2, W0 / 2] });
-      obbs.push({ c: [b.Ls / 2, -H0 / 2, 0], q: [0, 0, 0, 1], h: [b.Ls / 2, 0.6, W0 / 2] }, { c: [b.Ls / 2, H0 / 2, 0], q: [0, 0, 0, 1], h: [b.Ls / 2, 0.6, W0 / 2] }, { c: [b.Ls / 2, 0, -W0 / 2], q: [0, 0, 0, 1], h: [b.Ls / 2, H0 / 2, 0.6] }, { c: [b.Ls / 2, 0, W0 / 2], q: [0, 0, 0, 1], h: [b.Ls / 2, H0 / 2, 0.6] });
-      b.segs.forEach((sg, i) => {
-        const shrink = (b.n - 2 - i) * 0.9, W = b.W + shrink, H = b.H + shrink, x = sg.position.x;
-        obbs.push({ c: [x + b.Ls / 2, -H / 2, 0], q: [0, 0, 0, 1], h: [b.Ls / 2, 0.65, W / 2 + 0.4] }, { c: [x + b.Ls / 2, H / 2, 0], q: [0, 0, 0, 1], h: [b.Ls / 2, 0.65, W / 2 + 0.4] });
-        obbs.push({ c: [x + b.Ls / 2, 0, -W / 2], q: [0, 0, 0, 1], h: [b.Ls / 2, H / 2, 0.65] }, { c: [x + b.Ls / 2, 0, W / 2], q: [0, 0, 0, 1], h: [b.Ls / 2, H / 2, 0.65] });
-      });
+      const n = b.n, Ls = b.Ls, obbs = [];
+      obbs.push({ c: [-0.35, 0, 0], q: [0, 0, 0, 1], h: [0.55, b.H0 / 2, b.W0 / 2] });          // collar + back wall
+      obbs.push(...sectionObbs(b.W0, b.H0, Ls, 0, false));
+      b.segs.forEach((sg, i) => obbs.push(...sectionObbs(sg.userData.W, sg.userData.H, Ls, sg.position.x, i === n - 2)));
+      const q = new THREE.Quaternion();
+      for (const r of b.rams) {
+        const y = r.sy * (b.H0 / 2 + 0.65), z = r.sz * (b.W0 / 2 + 0.65), tip = b.segs[n - 2].position.x + Ls - 0.6;
+        obbs.push({ c: [0.4 + (r.rs - 0.4) / 2, y, z], q: [0, 0, 0, 1], h: [(r.rs - 0.4) / 2, 0.45, 0.45] }, { c: [(r.rs + tip) / 2, y, z], q: [0, 0, 0, 1], h: [(tip - r.rs) / 2, 0.25, 0.25] });
+        const a = new THREE.Vector3(tip, y, z), c = new THREE.Vector3(tip, r.sy * (b.segs[n - 2].userData.H / 2 + 0.5), r.sz * (b.segs[n - 2].userData.W / 2 + 0.5));
+        q.setFromUnitVectors(_v3.set(0, 0, 1), _v3.copy(c).sub(a).normalize()); const m = a.clone().add(c).multiplyScalar(0.5);
+        obbs.push({ c: m.toArray(), q: q.toArray(), h: [0.2, 0.2, a.distanceTo(c) / 2] });
+      }
+      // Part colliders live in the base's own frame (the node only carries motion), so carry the berth's pose into them
+      const gq = b.grp.quaternion, gp = b.grp.position;
+      for (const o of obbs) { o.c = _v.set(...o.c).applyQuaternion(gq).add(gp).toArray(); o.q = _q.copy(gq).multiply(_q2.set(...o.q)).toArray(); }
       b.part = new this.Part(this.site, 'berth-' + b.id, node, obbs); b.part.sync(0); this.site.parts.push(b.part); b.colNode = node;
     }
     this.site.world.dirty = true; this.resetMesh();
@@ -840,8 +807,32 @@ class Base {
     outP.copy(mid).applyMatrix4(b.grp.matrixWorld);
     b.grp.getWorldQuaternion(outQ).multiply(_q);
   }
-  berthsUpdate(dt, time) {
-    for (const b of this.berths) if (b.state === 'ready') b.segs.forEach((sg, i) => sg.userData.lamp.color.setScalar(0.75 + 0.25 * Math.sin(time * 1.3 + i * 0.7)));
+  // the end doors: open for anything close to the mouth or inside the tube, shut behind it. Jobs can force them.
+  berthsUpdate(dt, time, ship, pilot) {
+    for (const b of this.berths) {
+      const D = b.door; if (!D) continue;
+      if (b.state === 'ready') {
+        b.lamps.forEach((m, i) => m.color.setScalar(0.75 + 0.25 * Math.sin(time * 1.3 + i * 0.7)));
+        let want = !!b.doorForce;
+        if (!want) {
+          b.grp.updateWorldMatrix(true, false);
+          const reach = 40 + b.W / 2;
+          for (const wp of [ship?.pos, pilot]) if (wp) { const l = b.grp.worldToLocal(_v.copy(wp)); if (l.x > -2 && l.x < b.len + reach && Math.abs(l.z) < b.W / 2 + reach * 0.5 && Math.abs(l.y) < b.H / 2 + reach * 0.5 && (l.x > b.len - reach || Math.abs(l.z) < b.W / 2)) want = true; }
+        }
+        D.hold = want ? 3 : Math.max(0, D.hold - dt);
+        D.target = D.hold > 0 ? 1 : 0;
+      } else D.target = 0;
+      const prev = D.open; D.open += Math.sign(D.target - D.open) * Math.min(Math.abs(D.target - D.open), 0.3 * dt);
+      if (prev === 0 && D.open > 0) this.sound?.noise?.(2.5, 'lowpass', 180, 0.25);
+      if (prev !== D.open && (D.open === 0 || D.open === 1)) { this.sound?.hit?.(4); }
+      const a = easeIO(D.open) * 1.7;
+      D.leaves.forEach((L, i) => {
+        L.piv.rotation.y = -L.s * a; L.piv.updateWorldMatrix(true, false);
+        const o = D.obbs[i], pq = _q.setFromRotationMatrix(L.piv.matrixWorld);
+        _v.set(0.1, 0, -L.s * D.wl / 2).applyMatrix4(L.piv.matrixWorld);
+        if (dt) o.v.copy(_v).sub(o.c).divideScalar(dt); o.c.copy(_v); o.q.copy(pq); o.qi.copy(pq).invert();
+      });
+    }
     for (let si = 0; si < 2; si++) for (const g of this.keelSegs[si]) if (g.userData.t !== undefined) {
       g.userData.t = Math.min(1, g.userData.t + dt / 1.6); const e = easeIO(g.userData.t);
       g.position.z = g.userData.from + (g.userData.z1 - g.userData.from) * e;
@@ -871,8 +862,9 @@ class Base {
     J.t = (J.t || 0) + dt * (J.speed || 1);
     if (!J.started) { J.started = true; J.start?.(J); }
     J.step(J, dt, time);
-    if (J.done) { this.jobs.shift(); J.finish?.(J); this.cine = null; this.onCine?.(false); }
+    if (J.b && J.door) J.b.doorForce = J.t >= J.door[0] && J.t < J.door[1];
+    if (J.done) { if (J.b) J.b.doorForce = false; this.jobs.shift(); J.finish?.(J); this.cine = null; this.onCine?.(false); }
   }
 }
 
-export { Base, berthGeometry, containerParts, ROOM_NAME };
+export { Base, containerParts, ROOM_NAME };

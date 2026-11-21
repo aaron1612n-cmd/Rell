@@ -12,7 +12,7 @@ p.on('pageerror', (e) => console.log('pageerror:', e.message));
 await p.addInitScript(() => { try { localStorage.setItem('rell.save', JSON.stringify({ credits: 250000, tut: true, xp: 0, up: {}, stats: {}, career: {} })); } catch {} });
 await p.goto(process.env.URL || 'http://localhost:5173/'); await p.waitForFunction(() => window.__game, null, { timeout: 180000 });
 await p.waitForTimeout(2500);
-const res = await p.evaluate(([N]) => {
+const res = await p.evaluate(([N, process_only]) => {
   const g = window.__game, T = g.THREE, w = g.world; g.look.render = () => {};
   g.rig.introDur = 0; if (g.tutorial.on) g.tutorial.finish();
   for (const S of Object.values(g.fleet.byId)) { S.site.group.visible = true; if (!w.sites.includes(S.site)) w.sites.push(S.site); }
@@ -20,7 +20,7 @@ const res = await p.evaluate(([N]) => {
   const nameOf = (o) => { for (let a = o; a; a = a.parent) if (a.name && !/^(Scene|Group|Object3D)$/.test(a.name)) return a.name; return '?'; };
   const out = {};
   for (const s of w.sites) {
-    if (s.kind === 'field' || !s.group) continue;
+    if (s.kind === 'field' || !s.group) continue; if (process_only && !process_only.includes(s.id || s.kind)) continue;
     s.group.updateMatrixWorld(true);
     const meshes = []; s.group.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.visible && o.geometry.attributes.position.count > 30 && !/lamp|light|beacon|glow|holo|float|canopy|plume|exhaust/i.test(o.name) && !(o.material && (o.material.transparent || o.material.blending === 2))) meshes.push(o); });
     if (!meshes.length) continue;
@@ -45,10 +45,10 @@ const res = await p.evaluate(([N]) => {
     out[id] = { tested, miss, where };
   }
   return out;
-}, [N]);
+}, [N, (process.env.ONLY || '').split(',').filter(Boolean)]);
 let bad = 0;
 for (const [id, r] of Object.entries(res)) {
-  const sf = r.miss.suit / Math.max(1, r.tested), jf = r.miss.jet / Math.max(1, r.tested), fail = jf > MAX;  // suit contacts also use the mesh BVH + hull SDF in eva, so a world-only suit miss is informational if (fail) bad++;
+  const sf = r.miss.suit / Math.max(1, r.tested), jf = r.miss.jet / Math.max(1, r.tested), fail = jf > MAX; if (fail) bad++;  // suit contacts also use the mesh BVH + hull SDF in eva, so a world-only suit miss is informational
   const top = Object.entries(r.where).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, v]) => k + ':' + v).join(' ');
   console.log(`${fail ? 'FAIL' : 'ok  '} ${id.padEnd(12)} tested ${String(r.tested).padStart(3)}  suit-miss(info) ${(sf * 100).toFixed(1)}%  jet-miss ${(jf * 100).toFixed(1)}%  ${top}`);
 }
