@@ -298,10 +298,10 @@ export function buildBase(site, { Part }) {
   const hx = 15 + T, hy0 = -6 - T, hy1 = 8 + T;
   for (const z of [-16, -8, 0, 8, 16]) {
     const d = 0.9, w = 1.1;
-    for (const s of [-1, 1]) X([s * (hx + d / 2), 1, z], [d, 14 + 2 * T + 2 * d, w], BEAM);
-    X([0, hy1 + d / 2, z], [2 * hx + 2 * d, d, w], BEAM); X([0, hy0 - d / 2, z], [2 * hx + 2 * d, d, w], BEAM);
+    for (const s of [-1, 1]) X([s * (hx + d / 2 + 0.02), 1, z], [d - 0.02, 14 + 2 * T + 2 * d, w], BEAM);   // lifted 2 cm off the wall: no coincident faces
+    X([0, hy1 + d / 2 + 0.02, z], [2 * hx + 2 * d, d - 0.02, w], BEAM); X([0, hy0 - d / 2 - 0.02, z], [2 * hx + 2 * d, d - 0.02, w], BEAM);
   }
-  for (const s of [-1, 1]) for (const y of [hy0 - 0.45, hy1 + 0.45]) X([s * (hx + 0.45), y, 0], [0.9, 0.9, 36.7], BEAM);
+  for (const s of [-1, 1]) for (const y of [hy0 - 0.45, hy1 + 0.45]) X([s * (hx + 0.45), y, 0], [0.86, 0.86, 36.7], BEAM);
   // plating between ribs: raised panels with seams on the flanks and roof
   for (let i = 0; i < 4; i++) {
     const z = -12 + i * 8;
