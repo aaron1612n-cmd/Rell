@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mats } from './assets.js';
+import { MeshCollide } from './meshCollide.js';
 import { buildSky, buildPlanet, placePlanet } from './sky.js';
 import { buildSites, LAYOUT } from './sites.js';
 import debrisData from './assets/debris.json';
@@ -53,6 +54,7 @@ export class World {
     this.tex = panelTexture(); this.haz = hazardTexture();
     this.buildSky();
     this.debrisFar = 1000;
+    this.meshHit = new MeshCollide(this); this.meshHit.only = new Set(['wreck', 'derelict']); this.meshFrame = 1;
     this.sites = buildSites(this, assets);
     this.site = Object.fromEntries(this.sites.map((s) => [s.id, s]));
     this.debrisTypes(assets.debris);
@@ -238,7 +240,7 @@ export class World {
     _hq.copy(ship.quat).invert();
     for (const [x, y, z, r] of HULL) {
       _hr.set(x, y, z).applyQuaternion(ship.quat); _hc.copy(ship.pos).add(_hr);
-      this.sphereContacts(_hc, r, (n, pen, point, sv) => {
+      const resolve = (n, pen, point, sv) => {
         if (!(pen > 0) || pen > 3) return;
         ship.pos.addScaledVector(n, pen); _hc.addScaledVector(n, pen);
         const vn = _hv.copy(ship.vel).sub(sv || _ht.set(0, 0, 0)).dot(n);
@@ -248,7 +250,11 @@ export class World {
         _ht.copy(_hr).cross(n).multiplyScalar(-vn * 0.35).applyQuaternion(_hq);
         ship.angVel.add(_ht).clampLength(0, 3.4);
         if (!hit || -vn > hit.speed) hit = { speed: -vn, normal: n.clone(), point: point.clone() };
-      });
+      };
+      this.sphereContacts(_hc, r, resolve);
+      // backstop: the box colliders miss bits of the big stations and wrecks (keels, masts, engine bells), so also
+      // test the real triangles of the wrecks near the jet (checks: scripts/check/coverage.mjs, clipcheck.mjs)
+      this.meshHit.contacts(_hc, r, (n, pen) => resolve(n, pen, _rv.copy(_hc).addScaledVector(n, -r), null), this.meshFrame++);
     }
     return hit;
   }
