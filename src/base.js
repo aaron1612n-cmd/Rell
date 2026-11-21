@@ -208,14 +208,15 @@ export function buildBase(site, { Part }) {
     deco([10.2, -3.9, z], [0.12, 0.16, 1.55], C.orange, Q, { seg: 9 }); deco([10.2, -2.9, z], [0.12, 0.16, 1.55], C.orange, Q, { seg: 9 });   // belts
     deco([10.2, -2.3, z], [0.1, 0.3, 0.6], C.cream, Q, { seg: 9 });   // headrest strap
   }
-  curR = Q; handrail([10.5, -1.2, -25.5], [10.5, -1.2, -19.5], Q, [0.2, 0, 0]); handrail([-10.5, -1.2, -21], [-10.5, -1.2, -19], Q, [-0.2, 0, 0]);
+  curR = Q; handrail([10.5, -1.2, -25.5], [10.5, -1.2, -19.5], Q, [0.2, 0, 0]); 
   // ceiling: air vents with fans (moving air matters in zero g), light panels, the shaft collar
   for (const x of [-6, 0, 6]) { deco([x, -0.15, -24.3], [1.2, 0.2, 1.2], C.dark, Q, { seg: 2 }); decoC([x, -0.28, -24.3], 0.45, 0.05, 'y', C.steel, Q, { sides: 12 }); }
   for (const [x, z] of [[-6, -21], [6, -21], [-6, -28], [6, -28]]) LAMP([x, -0.12, z], [2.0, 0.04, 0.8], L.warm, Q, 2);
   for (const s of [-1, 1]) deco([9 + s * 1.65, -0.2, -25.5], [0.2, 0.3, 3.3], C.orange, Q, { seg: 3 });
   for (const s of [-1, 1]) deco([9, -0.2, -25.5 + s * 1.65], [3.3, 0.3, 0.2], C.orange, Q, { seg: 3 });
   // floor: foot-loop rail runs, lockers along the west wall
-  for (let i = 0; i < 4; i++) { P([-4 + i * 1.4, -3.0, -18.85 - 0.0], [1.2, 5.4, 0.6], i % 2 ? C.olive : C.slate, Q, { seg: 1 }); LAMP([-4 + i * 1.4, -1.0, -19.17], [0.5, 0.04, 0.03], i % 3 ? L.green : L.amber, Q, 1.8); }
+  // (they used to stand against the front wall, two of them right across the door from the hangar)
+  for (let i = 0; i < 4; i++) { const z = -18.85 - i * 0.86; P([-10.62, -3.0, z], [0.6, 5.4, 0.8], i % 2 ? C.olive : C.slate, Q, { seg: 1 }); LAMP([-10.3, -1.0, z], [0.03, 0.04, 0.4], i % 3 ? L.green : L.amber, Q, 1.8); }
 
   // ===== the shaft up to the bunk room =====
   curR = SH;
