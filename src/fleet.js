@@ -125,7 +125,7 @@ export class Fleet {
       { const a = spec.cat === 'yard' ? BERTH[spec.id] : ADRIFT[spec.id]; home.set(...a.pos); homeQ.setFromEuler(_e.set(...a.euler, 'YXZ')); }
       const site = new Site(world, { id: 'ship-' + spec.id, kind: 'ship', pos: home.toArray(), radius: Math.max(40, R) });
       site.group.quaternion.copy(homeQ); site.group.updateMatrixWorld(true);
-      node.removeFromParent(); node.position.set(0, 0, 0); node.updateMatrix();
+      node.removeFromParent(); node.updateMatrix();
       // the .glb is quantized: the node keeps its dequantize offset/scale, so keep that on a child
       const holder = new THREE.Group(); holder.name = spec.id + '-holder'; site.group.add(holder);
       const src = node; holder.add(src);
@@ -141,6 +141,9 @@ export class Fleet {
       this.place(S, 0);
       if (spec.walk) S.decks = buildIronwake(site, { Part });
       site.hidden = true;
+      // a Site only collides once it's in the world's list (that's what refreshActive walks), so register it
+      if (!world.sites.includes(site)) world.sites.push(site);
+      world.dirty = true;
       this.ships.push(S); this.byId[spec.id] = S;
       if (S.sold) this.remove(S);
       else if (spec.cat === 'yard' && !S.owned) this.stow(S);
@@ -532,12 +535,16 @@ body.helm.touch #btns{display:grid!important}body.helm #evabtns{display:none!imp
       this.toWorld(S, eye, cam.position); cam.quaternion.copy(V.quat); cam.up.set(0, 1, 0).applyQuaternion(V.quat);
       cam.near = 0.05; cam.fov = THREE.MathUtils.damp(cam.fov, this.rig.baseFov, 4, dt);
     } else {
-      const len = S.spec.len, big = len > 300, dist = (big ? len * 0.62 : Math.max(14, len * 1.35)) + V.speed * 0.12, hgt = Math.max(4, len * (big ? 0.2 : 0.32));
-      _v.set(0, hgt, dist).applyQuaternion(this.qs).add(V.pos).addScaledVector(V.vel, -0.03);
+      // pull back by the ship's size so the whole hull sits in frame, from a 1-seat runabout to the 1.1 km Ironwake:
+      // the camera trails the stern and looks past the ship's middle toward the bow
+      const len = S.spec.len, d = S.d, cz = (d.min[2] + d.max[2]) / 2, cy = (d.min[1] + d.max[1]) / 2;
+      const half = Math.tan(THREE.MathUtils.degToRad(this.rig.baseFov / 2)), Rr = S.R;
+      const dist = Math.max(14, Rr / half * 1.08) + V.speed * 0.12, hgt = Math.max(4, Rr * 0.42);
+      _v.set(0, cy + hgt, cz + dist).applyQuaternion(this.qs).add(V.pos).addScaledVector(V.vel, -0.03);
       cam.position.copy(_v);
       _v2.set(0, 1, 0).applyQuaternion(this.qs); cam.up.copy(_v2);
-      _v3.set(0, 0, -len * 0.6).applyQuaternion(this.qs).add(V.pos); cam.lookAt(_v3);
-      cam.near = Math.max(0.1, dist * 0.004);
+      _v3.set(0, cy, cz - len * 0.12).applyQuaternion(this.qs).add(V.pos); cam.lookAt(_v3);
+      cam.near = Math.max(0.1, dist * 0.004); if (cam.far < dist + Rr * 2.5) cam.far = dist + Rr * 2.5;
       const fov = this.rig.baseFov + (this.reduced ? 0 : Math.min(14, V.speed / S.spec.maxSpd * 14) + (V.fx.boost ? 4 : 0));
       cam.fov = THREE.MathUtils.damp(cam.fov, fov, 3, dt);
       if (this.rig.shake > 0.001) { const s = this.rig.shake * Math.max(0.5, len * 0.01); cam.position.x += (Math.random() - 0.5) * s; cam.position.y += (Math.random() - 0.5) * s; cam.position.z += (Math.random() - 0.5) * s; this.rig.shake *= Math.exp(-5.5 * dt); }
