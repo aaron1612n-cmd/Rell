@@ -33,17 +33,20 @@ await shot('01-out');
 await ev(() => { const g = __game, T = g.THREE, B = g.base; const tgt = B.world(new T.Vector3(0, -4.4, -22), new T.Vector3()); const m = new T.Matrix4().lookAt(g.eva.pilot.pos, tgt, new T.Vector3(0, 1, 0).applyQuaternion(B.site.group.quaternion)); g.eva.pilot.quat.setFromRotationMatrix(m); });
 await p.waitForTimeout(800); await shot('02-facing-door');
 // hold forward, re-aiming at the door each second (like a player steering)
-await p.keyboard.down('KeyW');
+// phone: push the move stick fully forward (what a thumb on the floating stick does)
+const hold = () => (PHONE ? ev(() => { __game.input.stick.y = 1; }) : p.keyboard.down('KeyW'));
+await hold();
 let last = null;
 for (let i = 0; i < 40; i++) {
   await p.waitForTimeout(1000);
   await ev(() => { const g = __game, T = g.THREE, B = g.base; const l = B.local(g.eva.pilot.pos, new T.Vector3()); const tgt = B.world(l.z > -18.5 ? new T.Vector3(0, -4.4, -22) : new T.Vector3(0, -4.0, -24.6), new T.Vector3()); const m = new T.Matrix4().lookAt(g.eva.pilot.pos, tgt, new T.Vector3(0, 1, 0).applyQuaternion(B.site.group.quaternion)); g.eva.pilot.quat.setFromRotationMatrix(m); });
+  if (PHONE) await hold();
   const s = await info(); console.log('t' + i, JSON.stringify(s));
   if (i % 4 === 1) await shot('03-walk-' + String(i).padStart(2, '0'));
   if (s.l && s.l[2] < -23.6) { console.log('AT THE COUNTER'); await p.waitForTimeout(1500); console.log('final', JSON.stringify(await info())); await shot('05-counter'); break; }
   last = s;
 }
-await p.keyboard.up('KeyW');
+if (PHONE) await ev(() => { __game.input.stick.y = 0; }); else await p.keyboard.up('KeyW');
 await shot('04-end');
 console.log('errors', errs);
 await b.close();
